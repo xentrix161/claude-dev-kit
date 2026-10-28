@@ -3,6 +3,19 @@
 - Formát: `## <verzia> — <dátum>`, najnovšie hore; verzia = `version` v `plugins/dev/.claude-plugin/plugin.json`.
 - Posun pinu ECC (P3) zapíš ako odrážku: kusy + nový commit.
 
+## 0.3.0 — 2026-10-28
+
+- `/dev:project-init` pri Nette rozlíši DB vrstvu len zo sekcie `require` (Dibi v `require-dev` sa nepočíta). Pri Doctrine skopíruje nové `rules/db-doctrine.md` namiesto `db-dibi.md`, `migrations.paths` vezme z konfigurácie Doctrine Migrations a príkazy konzoly (`doctrine:*` alebo nettrine `orm:*`/`migrations:*`) overí v projekte.
+- Šablóna `php-nette`:
+  - `CLAUDE.md.tmpl` má riadky závislé od DB vrstvy označené `<!-- db:dibi -->` / `<!-- db:doctrine -->`,
+  - `devkit.json` má krok `doctrine-schema`, pair `doctrine-entity-migration` a neutrálnu hlášku `sql-concat`,
+  - `settings.json` pýta súhlas pri Doctrine príkazoch, ktoré menia DB, históriu migrácií alebo súbory (aj `migrate --dry-run`).
+- `/dev:project-init` rešpektuje `AGENTS.md`: projektový obsah ide doň a `CLAUDE.md` ho importuje riadkom `@AGENTS.md`. Init nevytvorí `CLAUDE.md` bez importu, lebo Claude Code by `AGENTS.md` prestal čítať.
+- `/dev:project-init`: pravidlá projektu majú prednosť pred šablónou. Rozpory vypíše v dry-run a baseline ani `changedLinesOnly` nenavrhne, keď ich projekt vylučuje.
+- Šablóna `php-nette/rules/php-core.md`: zákaz skladania SQL odkazuje na `db-dibi.md` aj `db-doctrine.md`.
+- Šablóny `CLAUDE.md` pre Nette a Python: `SKIP` ani `PARTIAL` nie je PASS (doplnené k 0.2.0).
+- `/dev:review`: Doctrine v Nette a migrácie Doctrine v checkliste Nette.
+
 ## 0.2.0 — 2026-10-28
 
 - `check.sh`: krok, ktorý sa nedal spustiť (exit 125–127, chyba prostredia, nebežiaci kontajner, krok bez príkazu), má riadok `! <krok>: dôvod` a verdikt je `PARTIAL` s exit 4 namiesto PASS. `pass.json` sa nezapíše, takže commit gate taký stav nepustí. Riadok `–` ostáva pre kroky, ktoré sa zmien netýkajú; phpcs `No files were checked` patrí medzi ne.

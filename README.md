@@ -1,6 +1,6 @@
 # dev-kit
 
-Plugin `dev` pre Claude Code. Claude si po sebe skontroluje kód (lint, testy, statickú analýzu) skôr, ako povie „hotovo“ alebo commitne. Podporuje PHP Nette, PHP Symfony a Python.
+Plugin `dev` pre Claude Code. Claude si po sebe skontroluje kód (lint, testy, statickú analýzu) skôr, ako povie „hotovo“ alebo commitne. Podporuje PHP Nette (Dibi alebo Doctrine), PHP Symfony a Python.
 
 ## Inštalácia
 

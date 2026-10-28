@@ -1474,6 +1474,16 @@ EOF
       esac
     done < "$FIX/secret-samples.txt"
   done
+  for f in "$T"/*/rules/*.md; do
+    [ -f "$f" ] || continue
+    [ "$(sed -n 1p "$f")" = "---" ] && sed -n '2,/^---$/p' "$f" | grep -q '^paths:' || bad="$bad${f#"$KIT"/}: chýba frontmatter s paths:; "
+    grep -q '^## Pasce' "$f" || bad="$bad${f#"$KIT"/}: chýba ## Pasce; "
+    [ "$(wc -l < "$f" | tr -d ' ')" -le 60 ] || bad="$bad${f#"$KIT"/}: viac ako 60 riadkov; "
+  done
+  s=$(grep -o '<!-- db:[a-z]* -->' "$T/php-nette/CLAUDE.md.tmpl" | sort -u | grep -v -e '<!-- db:dibi -->' -e '<!-- db:doctrine -->')
+  [ -z "$s" ] || bad="${bad}templates/php-nette/CLAUDE.md.tmpl: neznáma značka $(flat "$s"); "
+  s=$(jq -r '(.check.steps // [])[] | select((.id | startswith("doctrine-")) and ((.requires // "") == "")) | .id' "$T/php-nette/devkit.json")
+  [ -z "$s" ] || bad="${bad}templates/php-nette/devkit.json: krok doctrine-* bez requires $(flat "$s"); "
   [ -z "$bad" ] || fail "$bad"
 }
 
@@ -1613,7 +1623,7 @@ t "session-card: bez jq → statický JSON so systemMessage" t_card_no_jq_json
 t "session-card: container bez docker binárky → chýba docker" t_card_no_docker_binary
 t "session-card: python worktree bez .venv/ → upozornenie (D20)" t_card_worktree_venv
 t "session-card: stará verzia Claude Code, kontrola raz za deň" t_card_cc_version
-t "šablóny: ukotvené deny, bez \\s/\\w v [...], vzorky tajomstiev" t_templates_lint
+t "šablóny: ukotvené deny, bez \\s/\\w v [...], vzorky tajomstiev, rules (paths, Pasce, ≤ 60), značky db:" t_templates_lint
 
 wait
 for f in "$RES"/*; do

@@ -1,4 +1,10 @@
 {
+  "_init": [
+    "Pokyny pre /dev:project-init — tento kľúč do projektu nezapisuj.",
+    "DB vrstva (krok 1): položky s id doctrine-* len pri Doctrine; Dibi projekt ich nedostane.",
+    "Doctrine: {{schemaValidateCmd}} = doctrine:schema:validate alebo pri nettrine orm:validate-schema; {{entityGlob}} = adresár entít (napr. app/Entity/**); {{migrationsGlob}} a migrations.paths = adresár verziovaných migrácií z migrations_paths v konfigurácii migrácií (nie config); ďalšie chránené vstupy migrácií len podľa pravidiel projektu.",
+    "Doctrine: fullWhen = entity, repozitáre, adresár migrácií a neon s Doctrine; doctrine-schema porovnáva s lokálnou DB — pri trvalom drifte ho vypusti alebo sa opýtaj."
+  ],
   "version": 1,
   "stack": "php-nette",
   "container": "{{container}}",
@@ -25,6 +31,9 @@
        "ext": [".latte"], "modes": ["quick", "full"]},
       {"id": "integration", "requires": "vendor/bin/phpunit",
        "run": "php vendor/bin/phpunit --testsuite integration",
+       "modes": ["full"]},
+      {"id": "doctrine-schema", "requires": "vendor/doctrine/orm/composer.json",
+       "run": "php bin/console {{schemaValidateCmd}}",
        "modes": ["full"]}
     ],
     "fullWhen": ["app/models/**", "app/model/**", "app/Model/**", "libs/**", "db/**", "migrations/**",
@@ -43,13 +52,15 @@
     {"id": "error-suppress", "ext": [".php"], "pattern": "(^|[^[:alnum:]_])@\\$?[a-zA-Z_]+\\(",
      "message": "potlačenie chyby operátorom @"},
     {"id": "sql-concat", "ext": [".php"], "pattern": "(SELECT|UPDATE|DELETE|INSERT)[^;]*['\"]\\s*\\.\\s*\\$",
-     "message": "SQL skladané reťazcom — použi parametre Dibi"},
+     "message": "SQL skladané reťazcom — hodnoty len cez parametre (Dibi %s/?, Doctrine :name + setParameter())"},
     {"id": "test-skip", "ext": [".php"], "pattern": "(->|::)mark(TestSkipped|TestIncomplete)\\(",
      "message": "vypnutý test (markTestSkipped/markTestIncomplete) — len so súhlasom používateľa, nie ako obídenie zlyhania"}
   ],
   "pairs": [
     {"id": "model-test", "when": "app/models/**", "unless": "tests/**",
-     "say": "Zmena modelu bez zmeny testu: spusti integračné testy (/dev:check --full) a navrhni test na zmenené správanie."}
+     "say": "Zmena modelu bez zmeny testu: spusti integračné testy (/dev:check --full) a navrhni test na zmenené správanie."},
+    {"id": "doctrine-entity-migration", "when": "{{entityGlob}}", "unless": "{{migrationsGlob}}",
+     "say": "Zmena entity bez migrácie: spýtaj sa používateľa, či vygenerovať migráciu (migrations:diff); bez súhlasu ju nevytváraj."}
   ],
   "secrets": {
     "patterns": ["(?i)(password|passwd|heslo|secret|api[_-]?key|token)[\"']?\\s*(=>|[:=])\\s*[\"'][^\"'[:space:]]{6,}",

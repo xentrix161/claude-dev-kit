@@ -436,12 +436,18 @@ a first line comment `<!-- prevzaté z ECC <path> @ b92f181, upravené -->` afte
 ## 6. `project-init` skill (most complex)
 
 Arguments: none | `--sync` | `--dry-run`.
-1. Detect: stack (composer.json → nette/symfony; pyproject/requirements → python), container (docker
+1. Detect: stack (composer.json → nette/symfony; pyproject/requirements → python); for php-nette the DB layer
+   from `require` only (`dibi/dibi` → dibi, `doctrine/orm`/`nettrine/orm` → doctrine; several ⇒ show evidence and
+   ask) and Doctrine console command names; `AGENTS.md` and whether `CLAUDE.md` imports it (`@AGENTS.md`);
+   the project's verification rules (PHPStan config, baseline policy, test runner); container (docker
    compose files: container_name + mounts → appRoot), tools present in `vendor/bin` / venv, phpstan
    config path, phpunit suites, phpcs ruleset, existing CLAUDE.md size, `.claude/` contents, git remote.
 2. Dry-run plan shown to the user BEFORE writing anything: files to create/modify, devkit.json draft,
    which template rules, local-only vs team (commit) choice, layer-B skills offered
    (`templates/skills/*`). Never overwrite an existing file without explicit consent; show diffs.
+   Project rules win over the template: conflicts are listed as `template:line ↔ file:line`, a conflicting
+   template rule is not copied without consent, and baseline/`changedLinesOnly` are not offered when the
+   project rules exclude them.
 3. Verify every check step by running it once (via the same exec logic as check.sh — call
    `bash "${CLAUDE_PLUGIN_ROOT}/scripts/check.sh" --quick --project .` after writing devkit.json) and
    record baseline failures as `knownFailures` only with user consent.
@@ -452,7 +458,11 @@ Arguments: none | `--sync` | `--dry-run`.
 5. infer-conventions: list well-evidenced, non-default conventions found in code (with evidence
    file:line), skip what phpcs/PHPStan/rector enforce; user approves each; write approved into
    `.claude/rules/conventions.md`.
-6. CLAUDE.md: propose a skeleton ≤ 120 lines (Projekt, Stack, Príkazy with healthy-output examples
+6. AGENTS.md present ⇒ project content goes to `AGENTS.md` (diff, consent; never split into rules) and
+   `CLAUDE.md` = `@AGENTS.md` import + Claude-only parts; a textual mention is replaced by the import; never
+   create `CLAUDE.md` without the import (Claude Code reads `AGENTS.md` itself only when no `CLAUDE.md`
+   exists); local mode ⇒ import and Claude-only parts go to `CLAUDE.local.md`.
+   CLAUDE.md: propose a skeleton ≤ 120 lines (Projekt, Stack, Príkazy with healthy-output examples
    (V9), Architektúra, Pravidlá, Pasce, `## Compact instructions`) built from the existing CLAUDE.md, moving
    topic sections into `rules/*.md` with `paths:`. Large rewrite only with consent; preserve every
    rule that would cause a regression if lost (list what moved where).
@@ -470,14 +480,17 @@ Arguments: none | `--sync` | `--dry-run`.
 ```
 common/REVIEW.md                 # V2: passes Bugs · Security · Súlad s plan.md; Important vs Nit; max 5 nits; do-not-report placeholders
 common/plan.md                   # V1 template
-php-nette/CLAUDE.md.tmpl         # skeleton with {{placeholders}}, ≤ 120 lines incl. verification block (V9) and `## Compact instructions`
-php-nette/devkit.json            # like §3 example with {{container}}, {{appRoot}}, {{phpstanConfig}} placeholders
-php-nette/settings.json          # permissions.ask (V4: make db-import*, docker stop/restart/rm * (any container), git push*, git checkout*/git switch*; project-init adds existing Makefile targets that stop/rebuild containers or change the DB/index) + permissions.deny (O: Edit(/vendor/**), Edit(/node_modules/**) …, anchored to the project root)
+php-nette/CLAUDE.md.tmpl         # skeleton with {{placeholders}}, ≤ 120 lines incl. verification block (V9) and `## Compact instructions`;
+                                 # DB-dependent lines end with `<!-- db:dibi -->` / `<!-- db:doctrine -->` (init keeps one variant, strips the marker)
+php-nette/devkit.json            # like §3 example with {{container}}, {{appRoot}}, {{phpstanConfig}} placeholders; `_init` notes;
+                                 # items with id `doctrine-*` (step doctrine-schema, pair doctrine-entity-migration) only for Doctrine
+php-nette/settings.json          # permissions.ask (V4: make db-import*, docker stop/restart/rm * (any container), git push*, git checkout*/git switch*, Doctrine commands that change the DB, migration history or files (`*migrations:migrate*` incl. `--dry-run`, `*migrations:diff*`, `*schema:update*`, `*schema-tool:*`, `*dbal:run-sql*`, …; inert in Dibi projects); project-init adds existing Makefile targets that stop/rebuild containers or change the DB/index) + permissions.deny (O: Edit(/vendor/**), Edit(/node_modules/**) …, anchored to the project root)
 php-nette/.worktreeinclude       # V6: vendor/, app/config/config.local.neon, .test-credentials
 php-nette/rules/php-core.md      # paths: **/*.php — PHP 8.x, PSR-12, strict types where project uses them, no die(), no @
 php-nette/rules/nette.md         # paths: app/**, libs/** — presenters, DI, forms CSRF, ACL isAllowed
 php-nette/rules/latte-frontend.md# paths: **/*.latte, www/css/**, www/js/** — escaping, {!$} policy, data-bs-*, JS anchors
 php-nette/rules/db-dibi.md       # paths: db/**, **/*Model.php — Dibi 5 fetch null, params, no begin/commit in models, Phinx
+php-nette/rules/db-doctrine.md   # paths: **/Entity/**, **/Repository/**, migrations/**, app/config/*doctrine*.neon — Doctrine ORM + Migrations in Nette; copied instead of db-dibi.md
 php-nette/rules/tests.md         # paths: tests/** — suites, rollback tests, credentials, verification output
 php-symfony/…                    # same shape: CLAUDE.md.tmpl, devkit.json, settings.json, .worktreeinclude, rules/{php-core,symfony,twig-frontend,doctrine,api-platform,tests}.md
 python/…                         # CLAUDE.md.tmpl, devkit.json (pytest, ruff, mypy; host or container; {{bin}} placeholder, _init note key), settings.json, .worktreeinclude, rules/{python-core,tests}.md

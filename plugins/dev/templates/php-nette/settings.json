@@ -9,7 +9,20 @@
       "Bash(docker compose *down*)",
       "Bash(git push *)",
       "Bash(git checkout *)",
-      "Bash(git switch *)"
+      "Bash(git switch *)",
+      "Bash(*migrations:migrate*)",
+      "Bash(*migrations:execute*)",
+      "Bash(*migrations:version*)",
+      "Bash(*migrations:rollup*)",
+      "Bash(*migrations:diff*)",
+      "Bash(*migrations:generate*)",
+      "Bash(*schema:update*)",
+      "Bash(*schema:create*)",
+      "Bash(*schema:drop*)",
+      "Bash(*schema-tool:*)",
+      "Bash(*database:drop*)",
+      "Bash(*dbal:run-sql*)",
+      "Bash(*fixtures:load*)"
     ],
     "deny": [
       "Edit(/vendor/**)",

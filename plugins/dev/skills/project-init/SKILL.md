@@ -1,6 +1,6 @@
 ---
 name: project-init
-description: Nastaví dev-kit v projekte — deteguje stack, kontajner a nástroje, ukáže dry-run plán a so súhlasom zapíše .claude/devkit.json, rules, permissions a kostru CLAUDE.md. --sync zosúladí skopírované šablóny s novou verziou kitu.
+description: Nastaví dev-kit v projekte — deteguje stack, kontajner a nástroje, ukáže dry-run plán a so súhlasom zapíše .claude/devkit.json, rules, permissions a kostru CLAUDE.md (pri AGENTS.md import @AGENTS.md). --sync zosúladí skopírované šablóny s novou verziou kitu.
 argument-hint: "[--sync|--dry-run]"
 disable-model-invocation: true
 ---
@@ -21,6 +21,7 @@ Argumenty: `$ARGUMENTS`
 - Zapisuj len do projektu. Nikdy: commit, push, `git checkout`/`switch`, štart/stop/reštart kontajnerov, `composer install`. Docker len na čítanie (`docker inspect`, `docker compose … config|ps`); `docker exec` len cez `check.sh` (výnimka: phpstan baseline v kroku 3, so súhlasom).
 - Z compose nikdy nevypisuj `environment`, `env_file` ani `secrets` (`config` ich interpoluje z `.env`); pri čítaní YAML pozeraj len `services.*.{container_name,image,volumes,working_dir}`.
 - Neháduj. Čo nezistíš, označ „nezistené" a opýtaj sa — jedna konkrétna otázka.
+- **Pravidlá projektu majú prednosť pred šablónou** (`AGENTS.md`, `CLAUDE.md`, configy nástrojov). Rozpor vypíš v dry-run ako `šablóna <cesta>:<riadok> ↔ <súbor>:<riadok>`; šablónové pravidlo s rozporom bez súhlasu nekopíruj a nič z projektu kvôli šablóne neprepisuj.
 - Šablóny: `${CLAUDE_PLUGIN_ROOT}/templates/` (`<stack>/`, `common/`, `skills/`). Verzia kitu `VER` = `jq -r .version "${CLAUDE_PLUGIN_ROOT}/.claude-plugin/plugin.json"`.
 - Pracuj v koreni hlavného checkoutu (`git rev-parse --show-toplevel`). Vo worktree (`.claude/worktrees/…`) upozorni a pokračuj len so súhlasom.
 - Chýba `jq` → povedz `brew install jq` (bez neho hooky kitu nebežia) a skonči. Nie je git repo → povedz, že hooky a `check.sh` stoja na gite, a skonči.
@@ -37,11 +38,14 @@ Argumenty: `$ARGUMENTS`
 | stav kontajnera | `docker inspect -f '{{.State.Running}}' <c>` | beží / nebeží (nespúšťaj ho) |
 | bez kontajnera | žiadny compose alebo mount len podadresára | `container: ""` (príkazy na hostiteľovi), ak tam nástroje bežia; inak sa opýtaj |
 | nástroje | `ls vendor/bin`; Python `.venv/bin`, sekcie `[tool.*]` v `pyproject.toml` | phpstan, phpunit, phpcs, latte-lint, rector, php-cs-fixer, pytest, ruff, mypy |
+| DB vrstva (php-nette) | kandidáti len z `require` (nie `require-dev`): `dibi/dibi` → dibi; `doctrine/orm` alebo `nettrine/orm` → doctrine; `nette/database` sám → bez DB pravidiel šablóny, vedľa Dibi alebo Doctrine ho len spomeň (nie je to druhý kandidát). Dôkazy: `extensions:` v neon, `*doctrine*.neon`, adresár entít (`#[ORM\Entity]`), `phinx.*` vs. konfigurácia Doctrine Migrations (`migrations/config.php`, `migrations.php`, sekcia `migrations:` v neon) a jej `migrations_paths`. Jeden kandidát → ten; viac → ukáž dôkazy a opýtaj sa | `db-dibi.md` / `db-doctrine.md`, `migrations.paths`, riadky `<!-- db:… -->` v `CLAUDE.md.tmpl` |
+| príkazy Doctrine | `nettrine/*` → `orm:validate-schema`, `migrations:*`; inak `doctrine:*`, ak ich registrácia (`grep -rn 'schema:validate\|validate-schema' app bin config`) alebo `AGENTS.md`/`CLAUDE.md` projektu potvrdí; nezistené → opýtaj sa | `{{schemaValidateCmd}}`, `{{migrationsCmd}}` |
 | PHPStan | `phpstan.neon`, `phpstan.neon.dist`, `phpstan.dist.neon`, `app/config/phpstan.neon`, `-c` v `Makefile`; baseline | `phpstanConfig` |
 | PHPUnit | `phpunit.xml*` → `<testsuite name="…">` (presné mená vrátane veľkosti písmen) | kroky `unit` / `integration` |
 | phpcs | ruleset `phpcs.xml`, `.phpcs.xml`, `*.dist` → príkaz bez `--standard` aj bez `--ignore` (vylúčenia rieši ruleset); bez rulesetu → `--standard=PSR12 --ignore=…` zo šablóny; migrácie bez namespace mimo `db/migrations` a `migrations` → doplň ich adresár do `--ignore` | lint príkaz |
 | Makefile | ciele test/stan/cs | prevziať príkaz **bez** `make` a bez `-it` (bez TTY padá) |
-| kontext | `CLAUDE.md` (`wc -l -c`), `CLAUDE.local.md`, obsah `.claude/`, `REVIEW.md`, `.worktreeinclude`, `docs/plans/`, migrácie (`db/migrations`, `migrations`, `alembic`) | čo už existuje |
+| kontext | `AGENTS.md` (`wc -l -c`), `CLAUDE.md` (`wc -l -c`, riadok `@AGENTS.md` = import, textová zmienka nie je import), `CLAUDE.local.md`, obsah `.claude/`, `REVIEW.md`, `.worktreeinclude`, `docs/plans/`, migrácie (`db/migrations`, `migrations`, `alembic`) | čo už existuje |
+| pravidlá overovania | `AGENTS.md`, `CLAUDE.md`, `Makefile`/skripty projektu: PHPStan config a level, politika baseline, test runner (PHPUnit vs. iný), povinné kontroly | návrh krokov a `phpstanConfig` podľa nich, nie podľa šablóny |
 | git | `git remote -v`, vetva, `git ls-files .claude CLAUDE.md`, `git status --short` | tímový signál, rozpracované súbory |
 | handoff | `docs/handoff.md` | `handoffDoc` = `docs/handoff.md`, aj keď ešte neexistuje; sledovaný TODO alebo plán nie — `/dev:handoff` doň pripisuje datované sekcie |
 | vendor kód v repe | cesty, ktoré `CLAUDE.md` označuje ako „needitovať“ alebo vendor; commitnuté adresáre tretích strán (`git ls-files`: `*framework*/`, `www/js/**/*.min.js`, `assets/vendor/`, `public/vendor/`) | `deny` v kroku 5, `{{vendorFrontendPaths}}` |
@@ -57,16 +61,18 @@ Zhrnutie detekcie: každé zistenie jedným riadkom s dôkazom.
 ## 2. Dry-run plán (jedna správa, nič sa nezapisuje)
 
 - **Súbory:** `+` nový · `~` zmena existujúceho (diff v jeho kroku) · `=` bez zmeny · `!` existuje a líši sa → len so súhlasom.
-- **Worktree (krok 8):** `.claude/worktrees/` → lokálne `info/exclude`, tím `~ .gitignore`; lokálne aj riadky `.claude/rules/`, `CLAUDE.local.md`, `REVIEW.md` do `.worktreeinclude`.
+- **Worktree (krok 8):** `.claude/worktrees/` → lokálne `info/exclude`, tím `~ .gitignore`; lokálne aj riadky `.claude/rules/`, `CLAUDE.local.md`, `REVIEW.md` a `docs/plans/` do `.worktreeinclude`.
 - **Návrh `devkit.json`** (celý JSON) zo `${CLAUDE_PLUGIN_ROOT}/templates/<stack>/devkit.json`, vyplň `{{container}}`, `{{appRoot}}`, `{{phpstanConfig}}` a ostatné `{{…}}`:
   - kľúče šablóny začínajúce `_` (napr. `_init`) sú pokyny pre teba — prečítaj, do projektu ich nezapisuj;
-  - kroky `check.steps` a `lint` len pre existujúce nástroje (vypustené vymenuj), mená testsuite podľa `phpunit.xml`;
+  - kroky `check.steps` a `lint` len pre existujúce nástroje (vypustené vymenuj, aj „testy kit nespúšťa“, keď projekt nemá PHPUnit/pytest), mená testsuite podľa `phpunit.xml`;
+  - pravidlá overovania projektu platia už tu: napr. „PHPStan vždy celý projekt“ → krok len s `run` (bez `runFiles` a `changedLinesOnly`), config z projektu;
   - `fullWhen` = jadro projektu (modely, doménová logika, migrácie); `migrations.paths`; `handoffDoc`; `secrets.forbidFiles` = lokálne configy a credentials, ktoré naozaj existujú; projekt používa dlhé hex tokeny (napr. 50 hex v API) → navrhni do `secrets.patterns` `\b[0-9a-f]{N}\b` s presnou dĺžkou (v JSON `\\b`);
   - `pairs`: rady „pri zmene X urob Y" z existujúceho `CLAUDE.md` navrhni ako párové pravidlá (`when` / `unless` / `say`).
+- **DB vrstva** (php-nette) s dôkazom `composer.json:N` a **rozpory šablóny s pravidlami projektu** (zásady).
 - **Pravidlá:** ktoré `templates/<stack>/rules/*.md` (s ich `paths:`), čo pôjde do `projekt-*.md` (krok 7) a `conventions.md` (krok 6).
 - **Ďalej:** `.worktreeinclude`, `REVIEW.md` (z `common/`), permissions (krok 5), vrstva B z `${CLAUDE_PLUGIN_ROOT}/templates/skills/*/SKILL.md` — meno + 1 riadok z `description`; odporuč len tie, pre ktoré má projekt signál (dizajn systém/CSS, verejné API, legacy kód, verejný web).
-- **CLAUDE.md:** čo navrhuješ, každá zmena jedným riadkom (detail v kroku 7).
-- **Otázky naraz (max 3):** 1) potvrdiť kontajner a príkazy · 2) lokálne (len ty, `.git/info/exclude`) alebo tím (na commit) · 3) ktoré B-kusy.
+- **CLAUDE.md / AGENTS.md:** čo navrhuješ, každá zmena jedným riadkom (detail v kroku 7).
+- **Otázky naraz (max 4):** 1) potvrdiť kontajner a príkazy · 2) lokálne (len ty, `.git/info/exclude`) alebo tím (na commit) · 3) ktoré B-kusy · 4) len ak treba: DB vrstva pri viacerých kandidátoch a súhlas s rozpornými šablónovými rules.
 
 `--dry-run` končí tu.
 
@@ -79,7 +85,7 @@ Zhrnutie detekcie: každé zistenie jedným riadkom s dôkazom.
    - `3` chyba configu → oprav JSON, spusti znova;
    - `4` neúplné overenie: `SKIP` (nič nebežalo, zvyčajne nebežiaci kontajner) alebo `PARTIAL` (riadok `! <krok>` — nástroj chýba, chyba prostredia) → povedz to, kontajner nespúšťaj, `knownFailures` nenavrhuj; pri `!` navrhni opravu príkazu alebo `requires`;
    - `1` FAIL → pri každom kroku rozlíš chybu príkazu (cesta, suite, config → oprav `devkit.json`) od chyby v kóde (pôvodný stav).
-     - Statická analýza alebo linter (phpstan, phpcs, mypy, latte-lint) padá na nezmenenom stave → `knownFailures` sa na ňu nevzťahuje (len PHPUnit `Trieda::metóda` a pytest `FAILED`); so súhlasom ponúkni: (a) phpstan baseline: `php vendor/bin/phpstan analyse -c <cfg> --generate-baseline <cfg-dir>/phpstan-baseline.neon` (v kontajneri `docker exec -i -w <appRoot> <container>`) + `includes:` v configu, (b) `"changedLinesOnly": true` pre krok, (c) vypustiť krok; latte-lint neprejde nezmenené šablóny (vlastné tagy appky) → vypusť `.latte` lint aj krok `latte`.
+     - Statická analýza alebo linter (phpstan, phpcs, mypy, latte-lint) padá na nezmenenom stave → `knownFailures` sa na ňu nevzťahuje (len PHPUnit `Trieda::metóda` a pytest `FAILED`); z (a)–(c) ponúkni len to, čo pravidlá projektu nevylučujú (napr. „celý projekt, bez baseline“ → bez (a) aj (b)), so súhlasom: (a) phpstan baseline: `php vendor/bin/phpstan analyse -c <cfg> --generate-baseline <cfg-dir>/phpstan-baseline.neon` (v kontajneri `docker exec -i -w <appRoot> <container>`) + `includes:` v configu, (b) `"changedLinesOnly": true` pre krok, (c) vypustiť krok; latte-lint neprejde nezmenené šablóny (vlastné tagy appky) → vypusť `.latte` lint aj krok `latte`.
 4. `– <krok>: chýba <cesta>` → navrhni opravu `requires`/príkazu alebo vypustenie kroku. `– <krok>: žiadne zmenené súbory` (krok len s `runFiles`) → over ho raz cez `--files <1–2 existujúce súbory s jeho ext>`; stále SKIP → v závere „neoverené".
 5. **`knownFailures` len so súhlasom**, po krokoch: ukáž padajúce identifikátory (PHPUnit `N) <id>`, pytest `FAILED <id>`) a návrh `{"step": "<krok>", "pattern": "^<id>$"}` — v `<id>` escapuj ERE metaznaky (`\ . [ ] ( ) { } * + ? | ^ $`), v JSON každú `\` zdvoj (`Tests\\\\Unit\\\\FooTest::testX`). Povedz dôsledok: bez nich commit gate zablokuje každý commit kvôli starým chybám; alternatíva je opraviť ich.
 6. Kroky len pre `full` (napr. integration): ponúkni `--full` ako východiskový stav (bez neho commit gate pri zmene vo `fullWhen` narazí na staré chyby). Beží minúty → len po súhlase, Bash s `timeout: 600000` alebo na pozadí; padajúce testy ako v bode 5.
@@ -90,6 +96,7 @@ Zhrnutie detekcie: každé zistenie jedným riadkom s dôkazom.
   - YAML frontmatter → hlavička na riadok hneď za uzatváracie `---` (frontmatter musí ostať prvý, inak sa `paths:` neuplatní);
   - `.worktreeinclude` → `# dev-kit: <stack>/.worktreeinclude @ <VER>` (HTML komentár by bol vzor);
   - JSON súbory a `CLAUDE.md` hlavičku nemajú (krok 9 porovnáva JSON podľa `id`, CLAUDE.md je projektový).
+- php-nette: z `db-dibi.md` a `db-doctrine.md` len ten pre DB vrstvu z kroku 1 (oba len na výslovnú voľbu); `nette/database` bez Dibi a Doctrine → žiadny.
 - Rules: `templates/<stack>/rules/<f>.md` → `.claude/rules/<f>.md`. **Kopírovať, nikdy symlink** (symlinkované path-scoped rules sa nenačítajú). `{{…}}` vyplň z detekcie, neznáme sa opýtaj.
 - Šablónové kópie nechaj čisté; projektový obsah patrí do `projekt-*.md` a `conventions.md` → `--sync` bez konfliktov.
 - `.worktreeinclude`: zo šablóny len riadky, ktoré v projekte existujú a sú gitignored (`git check-ignore -q <cesta>`); existujúci súbor → doplň chýbajúce riadky.
@@ -116,9 +123,17 @@ Zhrnutie detekcie: každé zistenie jedným riadkom s dôkazom.
 - Výstup: všetky konvencie, ktoré prešli filtrom, zoradené podľa sily dôkazu: `N. <konvencia ako pokyn> — dôkaz: a.php:12, b.php:40, c.php:7 (k/n)`.
 - Schvaľuje sa po jednom (`áno 1,3`). Schválené → `.claude/rules/conventions.md`: `paths:` = globy pokrývajúce dôkazy, 1 pokyn = 1 riadok, ≤ 60 riadkov, bez hlavičky `dev-kit:`. Konvencie bez súborového rozsahu (commit správy) patria do `CLAUDE.md`.
 
-## 7. CLAUDE.md (≤ 120 riadkov)
+## 7. CLAUDE.md a AGENTS.md (≤ 120 riadkov)
 
-- Kostra `${CLAUDE_PLUGIN_ROOT}/templates/<stack>/CLAUDE.md.tmpl`: Projekt · Stack · Príkazy · Architektúra · Pravidlá · Pasce · 3 riadky pre kompakciu. Úvodný komentár šablóny `<!-- … -->` sú pokyny pre teba — do `CLAUDE.md` ho neprenášaj.
+- **`AGENTS.md` existuje** (spoločné pravidlá pre viac nástrojov):
+  - projektový obsah kostry (Projekt, Stack, Príkazy, Architektúra, Pravidlá, Pasce) navrhni ako diff do `AGENTS.md`; bez `/dev:*`, `.claude/` a iných vecí len pre Claude;
+  - `CLAUDE.md` = prvý riadok `@AGENTS.md` + len časti pre Claude (riadok `/dev:check` a overovanie cez neho, odkaz na `.claude/rules/`, Compact instructions); obsah `AGENTS.md` v ňom neopakuj;
+  - `CLAUDE.md` už existuje a `AGENTS.md` len spomína textom → zmienku zmaž a `@AGENTS.md` daj na prvý riadok (diff, súhlas);
+  - `CLAUDE.md` bez `@AGENTS.md` nikdy nevytváraj: Claude Code číta `AGENTS.md` sám len vtedy, keď `CLAUDE.md` neexistuje;
+  - `AGENTS.md` nerozsekávaj do `.claude/rules/` (ostatné nástroje by o pravidlá prišli); lokálny režim → `AGENTS.md` ani sledovaný `CLAUDE.md` neupravuj, `@AGENTS.md` a časti pre Claude daj do `CLAUDE.local.md`.
+- **Bez `AGENTS.md`:** ako doteraz, nižšie.
+
+- Kostra `${CLAUDE_PLUGIN_ROOT}/templates/<stack>/CLAUDE.md.tmpl`: Projekt · Stack · Príkazy · Architektúra · Pravidlá · Pasce · 3 riadky pre kompakciu. Úvodný komentár šablóny `<!-- … -->` sú pokyny pre teba — do `CLAUDE.md` ho neprenášaj. Riadky so značkou `<!-- db:dibi -->` / `<!-- db:doctrine -->`: ponechaj len vrstvu z kroku 1, značku odstráň. Zoznam rules v Pravidlách uprav na skutočne skopírované.
 - **Overovací blok (V9):** ku každému príkazu tvar zdravého výstupu (`OK (… tests, … assertions)`, `[OK] No errors`) z reálneho behu v kroku 3 — bez presných počtov testov a časov, tie zastarávajú.
 - **3 riadky pre kompakciu** zo šablóny ponechaj (zmenené súbory + stav `/dev:check` · otvorené rozhodnutia + ďalší krok · príkazy na overenie).
 - `CLAUDE.md` neexistuje → vyplň kostru z detekcie.
@@ -145,8 +160,8 @@ Zhrnutie detekcie: každé zistenie jedným riadkom s dôkazom.
    - `BASE` = šablóna vo verzii `OLD`: `git -C "${CLAUDE_PLUGIN_ROOT}" show "dev--v<OLD>:./templates/<cesta>"` (funguje, keď je kit git repo s release tagmi);
    - s `BASE` → `git merge-file -p LOCAL BASE TEMPLATE` (lokálne úpravy ostanú); bez `BASE` → `diff -u LOCAL TEMPLATE` po blokoch: prevziať / ponechať.
 3. Per súbor ukáž diff výsledku, zapíš až po súhlase, v hlavičke nastav `@ <VER>`. Konfliktné značky (`<<<<<<<`) nikdy nezapíš — vyrieš ich s používateľom.
-4. Nové súbory šablóny, ktoré projekt nemá (rules, B-kusy) → ponúkni ako v kroku 4. Rovnako chýbajúce riadky z kroku 8 (režim: `.claude/devkit.json` v gite = tím, inak lokálne): `.claude/worktrees/`, nesledovaný `handoffDoc` a `docs/plans/` v `info/exclude` (lokálne) alebo `.claude/worktrees/` v `.gitignore` (tím, so súhlasom); lokálne `.claude/rules/`, `CLAUDE.local.md`, `REVIEW.md` (len existujúce a ignorované) a `docs/plans/` v `.worktreeinclude`.
-5. `devkit.json` a settings (bez hlavičky): porovnaj `guards`, `pairs`, `check.steps` podľa `id` a `permissions.ask`/`deny` so šablónou; navrhni len **nové** položky, existujúce hodnoty nemeň.
+4. Nové súbory šablóny, ktoré projekt nemá (rules, B-kusy) → ponúkni ako v kroku 4; php-nette: DB vrstva = skopírovaný `db-*.md`, inak detekcia z kroku 1 — Dibi projektu neponúkaj `db-doctrine.md` ani položky `doctrine-*`, Doctrine projektu `db-dibi.md`. Rovnako chýbajúce riadky z kroku 8 (režim: `.claude/devkit.json` v gite = tím, inak lokálne): `.claude/worktrees/`, nesledovaný `handoffDoc` a `docs/plans/` v `info/exclude` (lokálne) alebo `.claude/worktrees/` v `.gitignore` (tím, so súhlasom); lokálne `.claude/rules/`, `CLAUDE.local.md`, `REVIEW.md` (len existujúce a ignorované) a `docs/plans/` v `.worktreeinclude`.
+5. `devkit.json` a settings (bez hlavičky): porovnaj `guards`, `pairs`, `check.steps` podľa `id` a `permissions.ask`/`deny` so šablónou; navrhni len **nové** položky (bez `doctrine-*` mimo Doctrine projektu), existujúce hodnoty nemeň.
 6. Súhrn: tabuľka súbor · stav (aktualizované/aktuálne/konflikt/nové) · čo sa zmenilo.
 
 ## 10. Záver

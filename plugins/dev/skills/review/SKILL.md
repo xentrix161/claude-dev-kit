@@ -73,14 +73,15 @@ Pri diffe hodnoť zmenený kód; nezmenený len pri CRITICAL bezpečnostnom prob
 
 ### Checklist podľa stacku
 
-**Nette / Latte / Dibi**
+**Nette / Latte / Dibi / Doctrine**
 - presenter: nová `action*` / `handle*` bez kontroly oprávnenia (`$this->getUser()->isAllowed()`, `startup()` base presentera); stav meniaci kód v `action*` / `render*` cez GET
 - formuláre: `addProtection()` na formulároch meniacich stav; validácia na serveri, nie len v JS; `getValues()` rovno do `update()` (mass assignment)
 - Dibi / Nette Database: parametre (`?`, `%s`, `%i`, `%in`), nie reťazec; identifikátory a `ORDER BY` zo vstupu len cez whitelist
 - Latte: `|noescape` (v Latte 2 aj `{!$x}`) len s dôvodom; v Latte 3 je `{!$x}` výpis negácie — vždy chyba; odkazy cez `n:href` / `{link}`; dáta do JS cez `data-*` atribút s `{$x}`
 - markup, na ktorý sa viaže JS (triedy, `data-*`, `.closest()` / `.next()` traverz) — zmena rozloženia rozbije JS ticho
 - `die()` / `exit()` → `throw` alebo `$this->terminate()`; služba chýba v neon configu
-- Phinx: úprava už commitnutej migrácie (vytvor novú); zmena schémy bez migrácie
+- migrácie (Phinx, Doctrine): úprava už commitnutej migrácie (vytvor novú); zmena schémy alebo entity bez migrácie
+- Doctrine v Nette: body `Doctrine` zo Symfony checklistu nižšie
 
 **Symfony / Twig / Doctrine**
 - controller/route bez `#[IsGranted]`, `denyAccessUnlessGranted()` alebo votera; API Platform operácia bez `security:`

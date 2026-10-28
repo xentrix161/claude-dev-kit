@@ -20,7 +20,7 @@ paths:
 - debug výpisy `dump()`, `dd()`, `bdump()`, `var_dump()`, `print_r()` — hook ich hlási
 - `die()` / `exit()` → `throw` alebo `$this->terminate()`
 - potlačenie chýb operátorom `@` → over podmienku alebo chyť výnimku
-- SQL skladané reťazcom → parametre Dibi (`db-dibi.md`)
+- SQL skladané reťazcom → parametre (`db-dibi.md` / `db-doctrine.md`)
 
 ## Komentáre
 
