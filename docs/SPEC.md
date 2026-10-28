@@ -412,7 +412,7 @@ tokens, measured by `tools/details.sh` by the docs rule: `disable-model-invocati
 | `ecc-production-audit` | `skills/production-audit` | — | `disable-model-invocation: true` (user runs before deploy) |
 | `ecc-python-patterns` | `skills/python-patterns` | `**/*.py` | F7 |
 | `ecc-python-testing` | `skills/python-testing` | `tests/**/*.py`, `**/test_*.py`, `**/*_test.py` | F7, pytest |
-| `task-tldr` | byte-identical copy of `~/.claude/skills/task-tldr/SKILL.md` | — | user's own skill; its 399-char description is accepted; the installer moves the original to a backup and the README tells users to do so |
+| `task-tldr` | byte-identical copy of `~/.claude/skills/task-tldr/SKILL.md` | — | user's own skill; its 399-char description is accepted; the installer moves the original to a backup |
 Adaptation rules for every `ecc-*` piece: dir AND frontmatter `name` = `ecc-<original>`; keep the
 original description meaning; translate body to Slovak and trim (output stručne, ale úplne (§0), no "80 % coverage" mandates, no
 conventional-commit rules, no npm/Node assumptions, `docker exec` instead), keep the best checklists; add
@@ -498,12 +498,11 @@ summary line. Verify frontmatter keys in `sub-agents.md`.
   adopted ECC piece (incl. python skills, layer-B template skills and review sources) and per kit file
   whose content was derived from ECC (fix, learn, check, project-init); ECC commit `b92f181`, date
   adopted `2026-10-27`. `tools/upstream.sh` reads the columns by position.
-- `README.md` (Slovak, stručne, ale úplne (§0)): what it is, install (`claude plugin marketplace add
-  ~/Projects/_tools/claude-dev-kit`, `claude plugin install dev@dev-kit --scope user`, moving the old
-  `~/.claude/skills/task-tldr` and `~/.claude/commands/*` aside), project setup (`/dev:project-init`),
-  hooks table, commands table, maintenance (P1–P5), how to report a noisy hook (`/dev:stats`, `disabledRules`), how
-  to disable the kit (`/plugin` → disable + `/reload-plugins`), release flow (version bump +
-  `claude plugin tag --push`), dependencies.
+- `README.md` (Slovak, stručne, ale úplne (§0)), written for a colleague first: what it is, install from
+  the GitHub marketplace + requirements, project setup (`/dev:project-init`), what the hooks do,
+  commands table, noisy hook and disabling (`/dev:stats`, `disabledRules`, `claude plugin disable`), then
+  kit development (clone, `make check`, maintenance, release flow with version bump +
+  `claude plugin tag --push`) and license.
 - `CHANGELOG.md`: `## 0.1.0 — 2026-10-27` initial.
 - `Makefile`: `check` (= `claude plugin validate --strict plugins/dev` + `claude plugin validate
   --strict .` + `selftest` + `details` when installed), `selftest`, `upstream`, `release
