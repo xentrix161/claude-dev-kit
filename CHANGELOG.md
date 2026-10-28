@@ -3,6 +3,14 @@
 - Formát: `## <verzia> — <dátum>`, najnovšie hore; verzia = `version` v `plugins/dev/.claude-plugin/plugin.json`.
 - Posun pinu ECC (P3) zapíš ako odrážku: kusy + nový commit.
 
+## 0.2.0 — 2026-10-28
+
+- `check.sh`: krok, ktorý sa nedal spustiť (exit 125–127, chyba prostredia, nebežiaci kontajner, krok bez príkazu), má riadok `! <krok>: dôvod` a verdikt je `PARTIAL` s exit 4 namiesto PASS. `pass.json` sa nezapíše, takže commit gate taký stav nepustí. Riadok `–` ostáva pre kroky, ktoré sa zmien netýkajú; phpcs `No files were checked` patrí medzi ne.
+- `check.sh`: kroky so známymi zlyhaniami sa v súhrne rátajú zvlášť (`· N známe`), nie medzi `ok`.
+- Stop: stav kontroly je per session (`sessions/<id>.stop.json`), takže súbežná session nevynuluje počítadlo blokov; pri `PARTIAL` dostane model pripomienku, ktoré kroky neprebehli.
+- Hlášky o tajomstvách ukazujú len `súbor:riadok — ****`, bez znakov hodnoty.
+- SPEC opisuje, čo commit gate dokazuje (obsah súborov skontrolovaný v pracovnom strome, nie výsledný strom commitu).
+
 ## 0.1.1 — 2026-10-28
 
 Opravy z prvých `/dev:project-init` (prvé tri projekty):

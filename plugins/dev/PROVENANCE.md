@@ -15,7 +15,7 @@
 | `skills/ecc-e2e-testing/` | `skills/e2e-testing` | b92f181 | 2026-10-27 | SK, skrátené; Playwright POM, flaky testy; bez Vercel/npm častí |
 | `skills/ecc-change-impact/` | `skills/change-impact` | b92f181 | 2026-10-27 | SK, skrátené; pred rizikovou zmenou jadra (validátory, triggery, verejné API) |
 | `skills/ecc-accessibility/` | `skills/accessibility` | b92f181 | 2026-10-27 | SK, skrátené; WCAG 2.2 pre serverové šablóny (Latte, Twig), bez Reactu; `paths:` |
-| `skills/ecc-production-audit/` | `skills/production-audit` | b92f181 | 2026-10-27 | SK, skrátené; `disable-model-invocation: true` |
+| `skills/ecc-production-audit/` | `skills/production-audit` | b92f181 | 2026-10-27 | SK, skrátené; `disable-model-invocation: true`; exit 4 = neúplné overenie (PARTIAL/SKIP) |
 | `skills/ecc-python-patterns/` | `skills/python-patterns` | b92f181 | 2026-10-27 | SK, skrátené; `paths: **/*.py` |
 | `skills/ecc-python-testing/` | `skills/python-testing` | 25278e7d | 2026-10-28 | SK, skrátené; pytest; bez povinného pokrytia |
 | `agents/ecc-silent-failure-hunter.md` | `agents/silent-failure-hunter.md` | b92f181 | 2026-10-27 | SK, read-only, `model: inherit`, `maxTurns: 30`, bez pamäte, voliteľný riadok „Na zapamätanie:“ pre /dev:learn, výstup max 15 nálezov |

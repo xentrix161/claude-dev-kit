@@ -77,7 +77,7 @@ Zhrnutie detekcie: každé zistenie jedným riadkom s dôkazom.
 3. Exit kód:
    - `0` PASS → ďalej;
    - `3` chyba configu → oprav JSON, spusti znova;
-   - `4` nič nebežalo (zvyčajne nebežiaci kontajner) → povedz to, kontajner nespúšťaj, `knownFailures` nenavrhuj;
+   - `4` neúplné overenie: `SKIP` (nič nebežalo, zvyčajne nebežiaci kontajner) alebo `PARTIAL` (riadok `! <krok>` — nástroj chýba, chyba prostredia) → povedz to, kontajner nespúšťaj, `knownFailures` nenavrhuj; pri `!` navrhni opravu príkazu alebo `requires`;
    - `1` FAIL → pri každom kroku rozlíš chybu príkazu (cesta, suite, config → oprav `devkit.json`) od chyby v kóde (pôvodný stav).
      - Statická analýza alebo linter (phpstan, phpcs, mypy, latte-lint) padá na nezmenenom stave → `knownFailures` sa na ňu nevzťahuje (len PHPUnit `Trieda::metóda` a pytest `FAILED`); so súhlasom ponúkni: (a) phpstan baseline: `php vendor/bin/phpstan analyse -c <cfg> --generate-baseline <cfg-dir>/phpstan-baseline.neon` (v kontajneri `docker exec -i -w <appRoot> <container>`) + `includes:` v configu, (b) `"changedLinesOnly": true` pre krok, (c) vypustiť krok; latte-lint neprejde nezmenené šablóny (vlastné tagy appky) → vypusť `.latte` lint aj krok `latte`.
 4. `– <krok>: chýba <cesta>` → navrhni opravu `requires`/príkazu alebo vypustenie kroku. `– <krok>: žiadne zmenené súbory` (krok len s `runFiles`) → over ho raz cez `--files <1–2 existujúce súbory s jeho ext>`; stále SKIP → v závere „neoverené".

@@ -469,6 +469,7 @@ dk_changed_files() {
 }
 
 dk_session_file() { printf '%s/sessions/%s.files' "$DK_PDATA" "$DK_SESSION"; }
+dk_stop_file() { printf '%s/sessions/%s.stop.json' "$DK_PDATA" "$DK_SESSION"; }
 
 dk_session_add() {
     local sf
@@ -573,18 +574,13 @@ EOF
 }
 
 # Maskovaná hodnota tajomstva; návrat 1, keď je to zástupný text (nie tajomstvo).
-dk_mask() {
-    local m="$1" v len
+dk_mask() { # žiadny znak hodnoty — hláška ide do kontextu modelu aj transkriptu
+    local m="$1" v
     v=${m##*[=:]}
     v=$(printf '%s' "$v" | sed -E "s/^[[:space:]>\"']+//; s/[\"'[:space:];,)]+\$//")
     [ -n "$v" ] || v=$m
     if printf '%s' "$v" | grep -Eq -e "$DK_SECRET_PLACEHOLDER"; then return 1; fi
-    len=${#v}
-    if [ "$len" -ge 8 ]; then
-        printf '%s****%s' "${v:0:2}" "${v:$((len - 2))}"
-    else
-        printf '****'
-    fi
+    printf '****'
 }
 
 # Tajomstvá v pridaných riadkoch súboru (on-edit). pats: vzory po riadkoch (lib defaults ∪ config).

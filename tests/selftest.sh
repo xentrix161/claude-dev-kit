@@ -570,13 +570,75 @@ t_check_all_skip() {
   check --quick --project "$REPO"
   want_rc 4 && want_out 'chýba vendor/bin/nic'
 }
+t_check_blocked_partial() {
+  new_case
+  cfg '.check.steps += [{"id": "tests", "run": "vendor/bin/phpunit", "modes": ["stop", "quick", "full"]}]'
+  add app/Foo.php '$b = 21;'
+  check --quick --project "$REPO"
+  want_rc 4 && want_out '[dev-kit] check quick: PARTIAL · 2 ok · 0 fail · 1 skip' \
+    && want_out '! tests: príkaz sa nedá spustiť (exit 127)' || return 1
+  [ ! -f "$PDATA/pass.json" ] || fail "pass.json zapísaný napriek PARTIAL"
+}
+t_check_infra_partial() {
+  new_case
+  cfg --arg c "printf '%s\n' 'Cannot connect to the Docker daemon. Is the docker daemon running?'; exit 1" \
+    '.check.steps += [{"id": "stan", "run": $c, "modes": ["quick"]}]'
+  add app/Foo.php '$b = 22;'
+  check --quick --project "$REPO"
+  want_rc 4 && want_out 'check quick: PARTIAL' && want_out '! stan: chyba prostredia, nie kódu (Cannot connect to the Docker daemon)'
+}
+t_bash_commit_after_partial() {
+  new_case
+  cfg '.check.steps += [{"id": "tests", "run": "vendor/bin/phpunit", "modes": ["quick", "full"]}]'
+  add app/Foo.php '$b = 23;'
+  g add app/Foo.php
+  check --quick --project "$REPO"
+  want_rc 4 "check.sh --quick" || return 1
+  pre_bash 'git commit -m "x"'
+  want_decision deny && want_out 'commit gate'
+}
+t_stop_partial_once() {
+  new_case
+  cfg '.check.steps += [{"id": "tests", "run": "vendor/bin/phpunit", "modes": ["stop"]}]'
+  add app/Foo.php '$p = 24;'
+  session_files app/Foo.php
+  stop_check
+  want_rc 0 "1. Stop" && want_no_block "1. Stop" \
+    && want_json '.hookSpecificOutput.additionalContext | contains("[partial]") and contains("! tests")' "1. Stop" || return 1
+  want_jfile "$PDATA/sessions/$SID.stop.json" '.result == "PARTIAL"' || return 1
+  local calls
+  calls=$(unit_calls)
+  stop_check true
+  want_rc 0 "2. Stop" && want_silent "2. Stop" || return 1
+  [ "$(unit_calls)" = "$calls" ] || fail "nezmenený hash po PARTIAL, kontrola napriek tomu bežala (unit $calls → $(unit_calls))"
+}
+t_stop_sessions_separate() {
+  new_case
+  add app/Foo.php '$p = 25;'
+  session_files app/Foo.php
+  fail_unit 'Tests\X::testY'
+  stop_check
+  want_json '.decision == "block"' "A 1. Stop" || return 1
+  local a=$SID
+  SID="$a-b"
+  add app/Old.php '$q = 26;'
+  session_files app/Old.php
+  stop_check
+  want_json '.decision == "block"' "B 1. Stop" || return 1
+  SID=$a
+  stop_check true
+  want_json '.decision == "block"' "A 2. Stop" || return 1
+  stop_check true
+  want_rc 0 "A 3. Stop" && want_json '(.decision // "") != "block" and (.systemMessage | contains("3"))' "A 3. Stop"
+}
 t_check_known_failures() {
   new_case
   cfg --arg p 'Tests\\X::testY' '.check.knownFailures = [{"step": "unit", "pattern": $p}]'
   fail_unit 'Tests\X::testY'
   add app/Foo.php '$m = 13;'
   check --quick --project "$REPO"
-  want_rc 0 "jediné zlyhanie je známe" && want_out 'známe zlyhania' "jediné zlyhanie je známe" || return 1
+  want_rc 0 "jediné zlyhanie je známe" && want_out 'známe zlyhania' "jediné zlyhanie je známe" \
+    && want_out 'PASS · 1 ok · 1 známe · 0 fail' "jediné zlyhanie je známe" || return 1
   fail_unit 'Tests\X::testY' 'Tests\X::testZ'
   check --quick --project "$REPO"
   want_rc 1 "neznáme zlyhanie testZ"
@@ -966,9 +1028,10 @@ t_bash_add_force_forbidden() {
   g add .gitignore && g commit -qm ignore
   put .test-credentials 'APP_TEST_PASS=hunter2pass'
   pre_bash 'git add -f .test-credentials && git commit -m x'
-  want_decision deny "-f" && want_out 'zakázaný súbor' "-f" && want_out 'hu****ss' "-f" && want_not 'hunter2pass' "-f" || return 1
+  want_decision deny "-f" && want_out 'zakázaný súbor' "-f" && want_out ' — ****' "-f" && want_not 'hu****' "-f" \
+    && want_not 'hunter2pass' "-f" || return 1
   pre_bash 'git add --force .test-credentials; git commit -m x'
-  want_decision deny "--force" && want_out 'zakázaný súbor' "--force" && want_out 'hu****ss' "--force"
+  want_decision deny "--force" && want_out 'zakázaný súbor' "--force" && want_out ' — ****' "--force" && want_not 'hu****' "--force"
 }
 t_bash_add_force_all() {
   new_case
@@ -1070,7 +1133,7 @@ t_check_phpcs_no_files_checked() {
   cfg --arg c "$(real phpcs-excluded-by-ruleset 16)" '.check.steps += [{"id": "phpcs", "runFiles": $c, "ext": [".php"], "modes": ["quick"]}]'
   add app/Foo.php '$f = 6;'
   check --quick --project "$REPO"
-  want_out '– phpcs: chyba prostredia, nie kódu (No files were checked)' && want_not 'check quick: FAIL'
+  want_rc 0 && want_out '– phpcs: nástroj nič neskontroloval (No files were checked)' && want_not 'check quick: FAIL'
 }
 t_edit_latte_error_unchanged_line() {
   new_case
@@ -1225,7 +1288,7 @@ t_edit_secret_added_line() {
   new_case
   add app/Foo.php "$SECRET_PHP"
   on_edit app/Foo.php
-  want_rc 2 && want_err 'Su****23' && want_err '[secrets]' && want_not 'SuperSecretValue123' || return 1
+  want_rc 2 && want_err '(****)' && want_err '[secrets]' && want_not 'Su****' && want_not 'SuperSecretValue123' || return 1
   want_logged on-edit secrets block
 }
 t_edit_secret_ignored_file() {
@@ -1279,14 +1342,16 @@ t_stop_pairs_after_pass_shortcut() {
   on_edit app/x.php
   stop_check
   want_rc 0 "session 1" && want_no_block "session 1" || return 1
-  want_jfile "$PDATA/stop.json" '.result == "PASS"' || return 1
-  local calls
-  calls=$(unit_calls)
+  want_jfile "$PDATA/sessions/$SID.stop.json" '.result == "PASS"' || return 1
   SID="$SID-b"
   on_edit app/x.php
   stop_check
   want_rc 0 "session 2" && want_json '(.decision // "") != "block"
     and (.hookSpecificOutput.additionalContext | contains("PAIRSAY app-x"))' "session 2" || return 1
+  local calls
+  calls=$(unit_calls)
+  stop_check true
+  want_rc 0 "session 2, 2. Stop" && want_no_block "session 2, 2. Stop" || return 1
   [ "$(unit_calls)" = "$calls" ] || fail "session 2: kontrola bežala napriek rovnakému hashu (unit $calls → $(unit_calls))"
 }
 t_stop_pairs_non_code_only() {
@@ -1465,6 +1530,7 @@ t "pre-edit: iný agent mimo kitu → ticho" t_pre_edit_other_agent_allow
 t "pre-bash: príkaz bez commitu (ls) → ticho" t_bash_not_commit
 t "pre-bash: commit .php bez pass.json → deny (aj --amend --no-edit)" t_bash_commit_no_pass
 t "pre-bash: commit po check --quick PASS (aj zmazaný súbor) → allow" t_bash_commit_after_pass
+t "pre-bash: commit po check PARTIAL → deny" t_bash_commit_after_partial
 t "pre-bash: git commit -am bez PASS → deny, po PASS → allow" t_bash_commit_all_flag
 t "pre-bash: zmena a git add po PASS → deny" t_bash_commit_restaged
 t "pre-bash: commit len .md → allow" t_bash_commit_docs_only
@@ -1492,6 +1558,8 @@ t "check.sh --quick: všetko PASS → exit 0, riadky krokov, log, pass.json s bl
 t "check.sh: zlyhaný krok → exit 1, ≤ 20 riadkov, ✗ krok" t_check_fail
 t "check.sh: chýbajúci requires → SKIP riadok" t_check_skip_missing
 t "check.sh: všetky kroky SKIP → exit 4" t_check_all_skip
+t "check.sh: krok sa nedá spustiť (exit 127) → PARTIAL, exit 4, bez pass.json" t_check_blocked_partial
+t "check.sh: chyba prostredia v jednom kroku → PARTIAL" t_check_infra_partial
 t "check.sh: knownFailures pokryje všetky zlyhania → PASS" t_check_known_failures
 t "check.sh: changedLinesOnly ignoruje staré nálezy kroku" t_check_changed_lines_only
 t "check.sh --auto: zmena vo fullWhen → full kroky" t_check_auto_full
@@ -1500,6 +1568,8 @@ t "stop-check: zlyhaný unit → decision block s dôvodom" t_stop_block
 t "stop-check: guard v pridanom riadku (zmena cez Bash) → block" t_stop_guard
 t "stop-check: po oprave bez bloku, nezmenený hash → bez kontroly" t_stop_fixed_then_fast
 t "stop-check: 3× rovnaké zlyhanie → systemMessage namiesto bloku" t_stop_cap3
+t "stop-check: PARTIAL → pripomienka s krokom, nezmenený hash bez kontroly" t_stop_partial_once
+t "stop-check: zlyhanie inej session nevynuluje počítadlo blokov" t_stop_sessions_separate
 t "stop-check: pripomienka pair raz za session" t_stop_pair_once
 t "stop-check: pair so zmeneným testom (unless) → ticho" t_stop_pair_unless
 t "stop-check: bez súborov session → exit 0, ticho" t_stop_no_session
@@ -1535,7 +1605,7 @@ t "on-edit: tajomstvo v súbore ignorovanom gitom → ticho" t_edit_secret_ignor
 t "pre-edit: zámok testu pri ./, .., // a inej veľkosti písmen" t_pre_edit_lock_path_variants
 t "pre-edit: commitnutá migrácia s inou veľkosťou písmen → ask (case-insensitive FS)" t_pre_edit_migration_case
 t "lib.sh: dátový adresár s právami 700" t_data_dir_mode
-t "stop-check: pair v novej session aj pri skratke nezmeneného hashu (D8)" t_stop_pairs_after_pass_shortcut
+t "stop-check: pair v novej session, skratka nezmeneného hashu v rámci session (D8)" t_stop_pairs_after_pass_shortcut
 t "stop-check: pair nad nekódovým súborom session" t_stop_pairs_non_code_only
 t "stop-check: zmazaná test metóda → pripomienka raz" t_stop_removed_test_method
 t "session-card: systemMessage len s upozorneniami" t_card_warning_system_message

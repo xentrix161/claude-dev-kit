@@ -44,7 +44,7 @@ bash "${CLAUDE_PLUGIN_ROOT}/scripts/check.sh" --auto --project "${CLAUDE_PROJECT
 - `1` FAIL v súbore skupiny → commit nenavrhuj. Ukáž nálezy `súbor:riadok — chyba` a skonči otázkou, či opraviť.
 - `1` FAIL kroku nad celým projektom (unit, phpstan) len na cudzom kóde → nálezy označ `mimo commitu` a povedz, že commit gate potrebuje PASS, takže commit zatiaľ neprejde; skonči otázkou, ako postupovať.
 - `3` chýba `.claude/devkit.json` → gate nebeží, pokračuj; v návrhu `kontrola: preskočená — chýba devkit.json (/dev:project-init)`. Neplatný JSON → nahlás chybu (`jq . .claude/devkit.json`) a skonči.
-- `4` nič nebežalo → nahlás dôvod (kontajner nebeží, chýba nástroj) a skonči; commit gate by commit kódu odmietol. Kontajnery sám nespúšťaj.
+- `4` neúplné overenie (`PARTIAL` alebo `SKIP`) → nahlás dôvody z riadkov `!`/`–` (kontajner nebeží, chýba nástroj) a skonči; commit gate by commit kódu odmietol. Kontajnery sám nespúšťaj.
 
 ## Krok 4: Návrh + jedno potvrdenie
 

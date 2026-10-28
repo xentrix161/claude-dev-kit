@@ -71,7 +71,7 @@ bash "${CLAUDE_PLUGIN_ROOT}/scripts/check.sh" --auto --project "${CLAUDE_PROJECT
 
 - `1` FAIL → oprav kód (nie test) a zopakuj; zlyhania mimo tvojich zmien len nahlás. Po 2 neúspešných kolách zastav, nahlás stav (čo padá, hypotéza) a navrhni /clear s presnejším zadaním; test ostáva zamknutý.
 - `3` bez devkit.json → spusti celú unit sadu zjavným príkazom projektu; zelená → odomkni ako pri `0`. Spomeň `/dev:project-init`.
-- `4` nič nebežalo → nahlás dôvod (kontajner, nástroje), PASS netvrď, test nechaj zamknutý.
+- `4` neúplné overenie (`PARTIAL` alebo `SKIP`) → nahlás dôvod (kontajner, nástroje), PASS netvrď, test nechaj zamknutý.
 - `0` PASS → odomkni:
 
 ```bash

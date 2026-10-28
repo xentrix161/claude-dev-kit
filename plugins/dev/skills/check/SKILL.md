@@ -32,10 +32,11 @@ bash "${CLAUDE_PLUGIN_ROOT}/scripts/check.sh" --project "${CLAUDE_PROJECT_DIR}" 
 | 0 | PASS | výstup podľa §5; commit gate je odomknutý pre aktuálny obsah súborov |
 | 1 | FAIL | rozbor podľa §3 |
 | 3 | chýba alebo je chybný `.claude/devkit.json` | §4 |
-| 4 | nič nebežalo (všetko SKIP) | vypíš dôvody z riadkov `–`; nikdy netvrď PASS |
+| 4 | neúplné overenie: `PARTIAL` (krok sa nedal spustiť) alebo `SKIP` (nič nebežalo) | vypíš dôvody z riadkov `!` a `–`; nikdy netvrď PASS; commit gate ostáva zamknutý |
 | iný | chyba skriptu | ukáž výstup, nehádaj; detail v `${DEVKIT_DATA:-$HOME/.claude/dev-kit}/errors.log` |
 
 Pri kóde 4:
+- `! <krok>: príkaz sa nedá spustiť` alebo `chyba prostredia` → nástroj alebo prostredie chýba; povedz, ktorý krok neprebehol.
 - `kontajner <c> nebeží` → navrhni spustenie (napr. `make start`, `docker compose up -d`). Kontajnery sám nespúšťaj, nereštartuj ani nezastavuj.
 - `chýba <cesta>` → nástroj nie je nainštalovaný (`composer install`, venv).
 - `žiadne zmenené súbory` → nie je čo overiť.
@@ -72,8 +73,8 @@ Pri kóde 4:
 
 ## 5. Výstup
 
-- Prvý riadok = verdikt zo skriptu: `check <režim>: PASS|FAIL · N ok · N fail · N skip · N s`.
-- SKIP kroky vždy spomeň s dôvodom (PASS so SKIP nie je úplné overenie).
+- Prvý riadok = verdikt zo skriptu: `check <režim>: PASS|FAIL|PARTIAL|SKIP · N ok · N fail · N skip · N s` (pri známych zlyhaniach aj `· N známe`).
+- Preskočené kroky vždy spomeň s dôvodom: `!` = nedal sa spustiť (overenie neúplné), `–` = netýka sa zmien.
 - FAIL: všetky nálezy z výstupu a logu, číslované `N. súbor:riadok — chyba (krok)`, potom `Poradie opráv: 2 → 1 → 3` a jednou-dvoma vetami prečo.
 - Posledný riadok `log: <cesta>`.
 - FAIL bez pokynu na opravu ukonči jednou otázkou: „Opraviť v tomto poradí?"

@@ -28,7 +28,7 @@ Spúšťaj z koreňa repa.
 | vydanie | `make release VERSION=x.y.z` | postup v `README.md`, sekcia Vydanie |
 
 - `FAIL N/M`, `not ok - …` alebo chyba validate = nie je hotovo.
-- `SKIP` v `/dev:check` nie je PASS — povedz to výslovne.
+- `SKIP` ani `PARTIAL` v `/dev:check` nie je PASS — povedz to výslovne.
 
 ## Overovanie práce
 

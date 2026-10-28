@@ -28,7 +28,7 @@ Inžinierske triedenie rizík z lokálnych dôkazov, nie certifikácia ani práv
    ```
 2. Kontroly kitu (Bash timeout 600000 ms, beží aj integračné testy):
    `bash "${CLAUDE_PLUGIN_ROOT}/scripts/check.sh" --full --project "${CLAUDE_PROJECT_DIR}"`
-   - exit 0 = PASS · 1 = FAIL · 3 = chýba `.claude/devkit.json` · 4 = nič nebežalo; PASS tvrď len podľa výstupu
+   - exit 0 = PASS · 1 = FAIL · 3 = chýba `.claude/devkit.json` · 4 = neúplné overenie (PARTIAL/SKIP); PASS tvrď len podľa výstupu
 3. Prejdi oblasti nižšie len tam, kde ich repozitár naozaj má; každé tvrdenie opri o `súbor:riadok` alebo príkaz
 4. Výstup podľa šablóny dole
 

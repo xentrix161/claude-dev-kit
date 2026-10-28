@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Stop: pripomienky (pairs, zmazané testy) raz za session, potom check.sh --stop nad kódom session + guardy v pridaných riadkoch.
-# Infra (kontajner dole, nič nebežalo) nikdy neblokuje; rovnaký padajúci stav blokuje najviac 2×, potom len upozorní.
+# Infra (kontajner dole, krok sa nedal spustiť, nič nebežalo) nikdy neblokuje; rovnaký padajúci stav blokuje najviac 2×, potom len upozorní.
 . "$(dirname "$0")/lib.sh" || exit 0
 DK_HOOK=stop-check
 
@@ -105,16 +105,17 @@ EOF2
     if [ -z "$files" ]; then dk_remind "$rem"; return 0; fi
     hash=$(set -f; IFS=$DK_NL; dk_hash_files $files)
 
-    local phash="" pres="" pfails=0 pfh=""
-    if [ -f "$DK_PDATA/stop.json" ]; then
+    local phash="" pres="" pfails=0 pfh="" stf
+    stf=$(dk_stop_file)
+    if [ -f "$stf" ]; then
         local out
-        out=$(jq -r '[.hash // "", .result // "", (.fails // 0 | tostring), .failHash // ""] | join("\u001f")' "$DK_PDATA/stop.json" 2>/dev/null)
+        out=$(jq -r '[.hash // "", .result // "", (.fails // 0 | tostring), .failHash // ""] | join("\u001f")' "$stf" 2>/dev/null)
         IFS=$DK_US read -r phash pres pfails pfh <<EOF
 $out
 EOF
         case "$pfails" in ''|*[!0-9]*) pfails=0 ;; esac
     fi
-    if [ "$hash" = "$phash" ] && [ "$pres" = PASS ]; then
+    if [ "$hash" = "$phash" ] && { [ "$pres" = PASS ] || [ "$pres" = PARTIAL ]; }; then
         dk_log stop-check stopCheck skip "" $(( $(dk_ms) - t0 ))
         dk_remind "$rem"
         return 0
@@ -131,6 +132,9 @@ EOF
     logp=$(printf '%s\n' "$cout" | sed -n 's/^log: //p' | tail -n 1)
     if [ "$crc" = 3 ] || [ "$crc" -gt 4 ]; then
         dk_err "check.sh --stop exit $crc: $(printf '%s' "$cout" | head -n 1)"
+    fi
+    if [ "$crc" = 4 ] && printf '%s\n' "$cout" | head -n 1 | grep -q ': PARTIAL'; then
+        rem="$rem- [partial] tieto kroky sa nedali spustiť — netvrď, že sú overené:$DK_NL$(printf '%s\n' "$cout" | grep '^! ' | head -n 5 | sed 's/^/  /')$DK_NL"
     fi
 
     # 3. Guardy (súbory mohli byť zmenené aj cez Bash).
@@ -159,7 +163,7 @@ EOF
         if [ "$hash" = "$pfh" ] && [ "$pres" = FAIL ]; then fails=$((pfails + 1)); fi
         jq -n --arg h "$hash" --argjson t "$(dk_now)" --argjson n "$fails" \
             '{hash: $h, time: $t, fails: $n, failHash: $h, result: "FAIL"}' \
-            2>/dev/null > "$DK_PDATA/stop.json.tmp" && mv "$DK_PDATA/stop.json.tmp" "$DK_PDATA/stop.json"
+            2>/dev/null > "$stf.tmp.$$" && mv "$stf.tmp.$$" "$stf"
         if [ "$fails" -ge 3 ]; then
             dk_log stop-check stopCheck warn "" "$ms"
             local sm="[dev-kit] kontrola stále padá (3×) — blokovanie vypnuté pre tento stav, pozri ${logp:-$DK_PDATA/logs}; vypnutie: disabledRules stopCheck"

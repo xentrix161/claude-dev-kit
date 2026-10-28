@@ -64,9 +64,9 @@ $DK_DATA/decisions.jsonl                          # V8 log, all projects
 $DK_DATA/errors.log
 $DK_DATA/maintenance.json                         # {"lastUpstreamCheck": <epoch>} written by tools/upstream.sh
 $DK_DATA/projects/<phash>/pass.json               # commit-gate PASS marker
-$DK_DATA/projects/<phash>/stop.json               # last stop-check state
 $DK_DATA/projects/<phash>/test-lock.json          # V3
 $DK_DATA/projects/<phash>/sessions/<session_id>.files   # files edited in that session (repo-relative, one per line)
+$DK_DATA/projects/<phash>/sessions/<session_id>.stop.json   # last stop-check state of that session
 $DK_DATA/projects/<phash>/pairs-<session_id>.done # Stop reminders already given (pairs, testRemoved)
 $DK_DATA/projects/<phash>/logs/check-<mode>-<epoch>.log  # full check output (keep last 20)
 $DK_DATA/projects/<phash>/card-hint.<YYYYMMDD>    # "no devkit.json" hint shown today
@@ -159,8 +159,8 @@ Semantics:
   `testLock`, `stopCheck`, `commitGate`, `testRemoved`. Hook messages print these ids (§4.2, §4.6).
 - `knownFailures`: when a step fails, extract failing identifiers from its output — only PHPUnit lines
   `^[0-9]+\) <Class>::<method>` and pytest `^FAILED <id>`; other numbered lines are not identifiers. If ≥1
-  identifier was found and every one matches some pattern for that step ⇒ the step counts as PASS with
-  note `známe zlyhania: N`.
+  identifier was found and every one matches some pattern for that step ⇒ the step does not fail; its
+  line gets the note `známe zlyhania: N` and the summary counts it as `známe`, not `ok` (§4.5).
 
 ## 4. Hooks (`ROOT/hooks/hooks.json`)
 
@@ -197,8 +197,8 @@ exit code, merges stderr into stdout), `dk_container_ok` (0 when container unset
 <rel>…` (combined content hash via git hash-object), `dk_log <hook> <rule> <decision> [file] [ms]`
 (append one JSON line: ts, project, session, hook, rule, decision ∈ block|deny|ask|warn|pass|skip, file,
 ms), `dk_err <msg>` (append to errors.log), `dk_now` (epoch seconds), `dk_ms` (best-effort ms: `perl
--MTime::HiRes` if available else seconds*1000), `dk_mask <match>` (masked secret value `ab****yz`; shared
-by on-edit and pre-bash), `dk_secret_scan <rel> <added-spec> <patterns>` (one `line<US>masked value`
+-MTime::HiRes` if available else seconds*1000), `dk_mask <match>` (always `****`, no character of the value;
+returns 1 for a placeholder value; shared by on-edit and pre-bash), `dk_secret_scan <rel> <added-spec> <patterns>` (one `line<US>masked value`
 per added line that matches; used by on-edit), `dk_data_dir` (creates `$DK_DATA` with mode 700, §2). Shared values: `DK_RE_GITPFX`, `DK_RE_COMMIT`, `DK_RE_ADD` (§4.4), `DK_RE_INFRA`
 (infrastructure errors, §4.5), `DK_MIN_CC` (minimum Claude Code version, §4.7).
 
@@ -268,7 +268,7 @@ deleted = `-`.
    the to-be-committed diff matched against the lib defaults ∪ `secrets.patterns` (defaults: generic
    password/token assignment, `-----BEGIN [A-Z ]*PRIVATE KEY-----`, `AKIA[0-9A-Z]{16}`,
    `[A-Z0-9_]*TEST_PASS(WORD)?=[^[:space:]]+`), one finding per `file:line`; skip files whose path matches an `allow`
-   prefix/glob ⇒ deny listing `file:line` with the secret value masked (`ab****yz`, `dk_mask`). The deny
+   prefix/glob ⇒ deny listing `file:line` with the secret value masked (`****`, `dk_mask`). The deny
    text tells Claude to report the finding to the user, not to remove the value on its own, and names
    `secrets.allow` for a false positive. Never print the full secret.
 2. Gate (rule `commitGate`, enabled default true when config exists): code files = to-be-committed
@@ -279,6 +279,9 @@ deleted = `-`.
    /dev:check --full`. Deny reason lists up to 8 files and ends with `Spusti kontrolu: bash "<scripts>/check.sh"
    --auto|--full --project "<P>" (to isté robí /dev:check), pri PASS commit zopakuj.` — command skills
    have `disable-model-invocation`, so Claude must get a command it can run itself.
+   What the gate proves: the content of every committed code file passed `check.sh` in the working tree
+   (together with the other uncommitted changes present at that time) — not that the resulting commit tree
+   passes. A commit hidden in `sh -c '…'` / `bash -c '…'` is not recognised (§4.4 header).
 3. Deny ⇒ JSON `permissionDecision":"deny"` with reason, exit 0. Allow ⇒ exit 0 silently. Log;
    `commitGate` entries carry a content key (hash of the to-be-committed code blobs) so `/dev:stats` can
    group attempts on the same content (§4.9).
@@ -303,18 +306,27 @@ flags in any order; `--files` consumes paths until the next `--` flag.
   `žiadne zmenené súbory`), substitute `{files}`; in stop mode prefer `runFiles` when files exist, else
   `run` (for steps without ext, e.g. unit tests, always `run`). `changedLinesOnly` (`true` | `"stop"`,
   §3) filters like on-edit.
+- Two kinds of skipped step. **Not applicable** (line `– <id>: <reason>`, verdict unaffected): missing
+  `requires`, no changed files for its `ext`, tool output `No files were checked` without any numbered
+  line (`nástroj nič neskontroloval (No files were checked)`). **Blocked** — the step should run but could
+  not (line `! <id>: <reason>`, verdict at most PARTIAL): container not running or worktree outside its
+  mount, no `run`/`runFiles`, exit 125–127, output without any numbered line that matches `DK_RE_INFRA`
+  (`chyba prostredia, nie kódu (<match>)`). Both count in `<n> skip`.
 - Each step: elapsed time, exit code, output (ANSI sequences stripped) appended to the full log file.
-  Result PASS/FAIL/SKIP; knownFailures may turn FAIL into PASS with note. Exit 126/127, or output
-  without any numbered line that matches `DK_RE_INFRA` (command not found, docker/OCI errors, …) ⇒ SKIP,
+  Result PASS/FAIL/skip; knownFailures may turn FAIL into a non-failing step with note. Blocked steps are
   never FAIL.
-- Output (stdout, ≤ 20 lines): `[dev-kit] check <mode>: PASS|FAIL|SKIP · <n> ok · <n> fail · <n> skip · <s> s`,
-  one line per step `✓ phpstan 2,1 s` / `✗ unit 0,4 s` / `– phpcs: chýba vendor/bin/phpcs`, then for
-  failing steps up to 8 most relevant output lines each (total cap 20), then `log: <path>`.
-- Exit: 0 = no FAIL and ≥1 PASS; 1 = some FAIL; 3 = config error; 4 = nothing ran (all SKIP, verdict
-  SKIP).
+- Output (stdout, ≤ 20 lines): `[dev-kit] check <mode>: PASS|FAIL|PARTIAL|SKIP · <n> ok[ · <n> známe] · <n> fail · <n> skip · <s> s`
+  (`známe` only when > 0), one line per step `✓ phpstan 2,1 s` / `✗ unit 0,4 s` / `– phpcs: chýba
+  vendor/bin/phpcs` / `! unit: príkaz sa nedá spustiť (exit 127)`, then for failing steps up to 8 most
+  relevant output lines each (total cap 20), then `log: <path>`.
+- Verdict and exit: some FAIL ⇒ FAIL, 1; else some blocked step ⇒ PARTIAL, 4; else ≥1 `ok` or `známe`
+  ⇒ PASS, 0; else (nothing ran) ⇒ SKIP, 4. 3 = config error. Exit 4 = incomplete verification — never
+  report it as PASS.
 - On exit 0 in quick/full: write `pass.json` = `{"time":…,"mode":"quick|full","head":"<sha>","blobs":{"<rel>":"<blob sha or ->"}}`
-  for the checked file set (CHANGED files, or exactly the `--files` set). Stop mode on exit 0 writes
-  `stop.json` (`{"hash": <dk_hash_files of session files>, "time":…, "fails":0}`).
+  for the checked file set (CHANGED files, or exactly the `--files` set); PARTIAL never writes it. Stop
+  mode on PASS or PARTIAL writes `sessions/<session_id>.stop.json` (`{"hash": <dk_hash_files of session
+  files>, "time":…, "fails":0, "result":"PASS|PARTIAL"}`). Markers are written via a per-process temp
+  file and `mv`.
 - Prune logs to the newest 20 per project.
 
 ### 4.6 `stop-check.sh` — Stop
@@ -327,7 +339,8 @@ flags in any order; `--files` consumes paths until the next `--` flag.
      e.g. `function test…` in PHP, `def test_…` in Python) ⇒ reminder naming file and test.
 3. Session code files = session files with extension in any `lint` key or any step `ext`. Shortcuts that
    skip the check (reminders from step 2 are still emitted): no code files; hash (`dk_hash_files`) equal
-   to `stop.json.hash` with last result PASS; the same failing hash already reached the 3× cap.
+   to `hash` in the session's `stop.json` with last result PASS or PARTIAL; the same failing hash already
+   reached the 3× cap. State is per session, so another session's result never resets this one's counter.
 4. Run `check.sh --stop --session <id> --project <P>` (+ guards over those files' added lines,
    because files may have been changed via Bash).
 5. Output on stdout, exit 0:
@@ -336,11 +349,13 @@ flags in any order; `--files` consumes paths until the next `--` flag.
      (`[guard:<id>]`), reminders (`[pair:<id>]`, `[testRemoved]`) and `log: <path>`.
    - Reminders only ⇒ `{"hookSpecificOutput":{"hookEventName":"Stop","additionalContext":"<reminders>"}}`
      (non-error feedback, no hook error shown to the user).
-   - Track consecutive blocks for the same failure hash in `stop.json.fails`; when it reaches 3 ⇒ do not
+   - Check PARTIAL (exit 4, verdict PARTIAL) ⇒ never block; add reminder `[partial] tieto kroky sa nedali
+     spustiť — netvrď, že sú overené:` followed by up to 5 `!` lines.
+   - Track consecutive blocks for the same failure hash in the session's `stop.json` (`fails`); when it reaches 3 ⇒ do not
      block, instead `{"systemMessage":"[dev-kit] kontrola stále padá (3×) — blokovanie vypnuté pre tento stav, pozri <log>"}`
      plus `hookSpecificOutput.additionalContext` when there are reminders.
    - `stop_hook_active` true is allowed (we cap ourselves).
-6. Container down / nothing ran ⇒ never block on infrastructure; reminders still go out as in step 5.
+6. Container down / blocked step / nothing ran ⇒ never block on infrastructure; reminders still go out as in step 5.
 
 ### 4.7 `session-card.sh` — SessionStart (one JSON object on stdout, card ≤ 10 lines, < 1 s)
 - stdout = one JSON object: `hookSpecificOutput.additionalContext` (`hookEventName` `SessionStart`) =
@@ -388,7 +403,7 @@ composer.json (nette/symfony) / pyproject.toml.
 Command skills — all `disable-model-invocation: true` (0 always-on tokens):
 | name | source material | essence |
 |---|---|---|
-| `check` | plan §15.3 D, ECC `skills/verification-loop` | run `check.sh $ARGUMENTS` (only known flags pass through; default quick), report stručne, ale úplne (§0); exit 4 ⇒ verdict SKIP, not PASS; FAIL ⇒ list failures with file:line and propose fix order; never claim PASS without the script output |
+| `check` | plan §15.3 D, ECC `skills/verification-loop` | run `check.sh $ARGUMENTS` (only known flags pass through; default quick), report stručne, ale úplne (§0); exit 4 ⇒ PARTIAL or SKIP, not PASS (list `!`/`–` reasons); FAIL ⇒ list failures with file:line and propose fix order; never claim PASS without the script output |
 | `commit` | `~/.claude/commands/commit.md` (keep ALL its rules: `[#XX] type: výstih`, one confirmation, explicit `git add <files>`, never push, never `--no-verify`, never amend unless asked, NO Co-Authored-By / AI attribution) | step 0: `check.sh --auto` must PASS (the hook gate enforces it anyway); show grouping+message+check result in ONE message; secrets reminder |
 | `review` | `~/.claude/commands/review.md` (format with 🔴🟡🔵, numbering, verification, `.review-notes.md` only on request) + `~/.claude/commands/security.md` (as `--security` pass) + ECC `agents/code-reviewer.md`, `skills/security-review` | scopes: none = uncommitted, `branch [base]`; passes Bugs · Security · Súlad s `docs/plans/*.md` (V1) · stale CLAUDE.md/rules (V9); read project `REVIEW.md` if present (V2: Important vs Nit, max 5 nits, do-not-report list); confidence > 80 %, merge similar, security first; Nette/Symfony/Python checklists; optional delegation to agents `dev:ecc-silent-failure-hunter`, `dev:ecc-performance-optimizer` for large diffs |
 | `test` | `~/.claude/commands/test.md` + ECC `skills/tdd-workflow` | RED→GREEN→REFACTOR with evidence, AAA, naming, mirror structure, run via `check.sh`-configured command or `dk`-style docker exec from devkit.json; PHPUnit + pytest branches |

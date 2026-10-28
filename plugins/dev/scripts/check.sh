@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Jediný zdroj pravdy kontrol: /dev:check, Stop hook (--stop), commit gate (pass.json), CI.
-# Exit: 0 = PASS (žiadny FAIL, ≥ 1 PASS) · 1 = FAIL · 3 = chyba configu/argumentov · 4 = nič nebežalo.
+# Exit: 0 = PASS (žiadny FAIL ani BLOCK, ≥ 1 PASS) · 1 = FAIL · 3 = chyba configu/argumentov
+#       · 4 = neúplné overenie (PARTIAL: krok sa nedal spustiť · SKIP: nič nebežalo).
 . "$(dirname "$0")/lib.sh" || { echo "[dev-kit] chýba scripts/lib.sh"; exit 3; }
 DK_HOOK=check
 DK_NO_STDIN=1
@@ -117,7 +118,7 @@ LOG="$DK_PDATA/logs/check-$mode-$DK_T0.log"
     echo "# súbory: $(printf '%s' "$EXIST" | tr '\n' ' ')"
 } 2>/dev/null > "$LOG"
 
-NOK=0 NFAIL=0 NSKIP=0 STEPLINES="" FAILSTEPS="" ENV_READY=0 ENV_SKIP=""
+NOK=0 NKNOWN=0 NFAIL=0 NSKIP=0 NBLOCK=0 STEPLINES="" FAILSTEPS="" ENV_READY=0 ENV_SKIP=""
 
 dk_env_check() { # kontajner + workdir raz pre všetky kroky
     [ "$ENV_READY" = 1 ] && return 0
@@ -143,7 +144,9 @@ $EXIST
 EOF
 }
 
+# skip = krok sa zmien netýka · block = krok sa nedal spustiť (verdikt najviac PARTIAL)
 dk_skip() { STEPLINES="${STEPLINES}– $1: $2$DK_NL"; NSKIP=$((NSKIP + 1)); }
+dk_block() { STEPLINES="${STEPLINES}! $1: $2$DK_NL"; NSKIP=$((NSKIP + 1)); NBLOCK=$((NBLOCK + 1)); }
 
 dk_known_ok() { # <step-id> <outfile> → 0 keď všetky zlyhania sú známe; počet v KNOWN_N
     local id="$1" ids pats x p gi hit
@@ -178,7 +181,7 @@ while IFS=$DK_US read -r tag id req run runf exts modes cl <&3; do
     dk_rule_on "step:$id" || continue
     if [ -n "$req" ] && [ ! -e "$DK_PROJECT/$req" ]; then dk_skip "$id" "chýba $req"; continue; fi
     dk_env_check
-    if [ -n "$ENV_SKIP" ]; then dk_skip "$id" "$ENV_SKIP"; continue; fi
+    if [ -n "$ENV_SKIP" ]; then dk_block "$id" "$ENV_SKIP"; continue; fi
 
     targets="" cmd=""
     if [ -n "$exts" ]; then
@@ -198,7 +201,7 @@ while IFS=$DK_US read -r tag id req run runf exts modes cl <&3; do
         [ -n "$targets" ] || { dk_skip "$id" "žiadne zmenené súbory"; continue; }
         cmd=$runf
     else
-        dk_skip "$id" "bez príkazu (run/runFiles)"; continue
+        dk_block "$id" "bez príkazu (run/runFiles)"; continue
     fi
     case "$cmd" in
         *"{files}"*)
@@ -231,11 +234,14 @@ EOF
         STEPLINES="${STEPLINES}✓ $id $(dk_fmt_s "$ms") s$DK_NL"; NOK=$((NOK + 1)); continue
     fi
     if [ "$rc" -ge 125 ] && [ "$rc" -le 127 ]; then
-        dk_skip "$id" "príkaz sa nedá spustiť (exit $rc)"; continue
+        dk_block "$id" "príkaz sa nedá spustiť (exit $rc)"; continue
     fi
-    # Zlyhal nástroj alebo docker, nie kód (žiadny riadok s číslom) → SKIP, Stop na infraštruktúre neblokuje.
+    # Zlyhal nástroj alebo docker, nie kód (žiadny riadok s číslom) → BLOCK, Stop na infraštruktúre neblokuje.
+    if ! grep -Eq ':[0-9]|on line [0-9]' "$DK_TMP/step.out" && grep -q 'No files were checked' "$DK_TMP/step.out"; then
+        dk_skip "$id" "nástroj nič neskontroloval (No files were checked)"; continue
+    fi
     if ! grep -Eq ':[0-9]|on line [0-9]' "$DK_TMP/step.out" && grep -Eq "$DK_RE_INFRA" "$DK_TMP/step.out"; then
-        dk_skip "$id" "chyba prostredia, nie kódu ($(grep -Eo "$DK_RE_INFRA" "$DK_TMP/step.out" | head -n 1))"; continue
+        dk_block "$id" "chyba prostredia, nie kódu ($(grep -Eo "$DK_RE_INFRA" "$DK_TMP/step.out" | head -n 1))"; continue
     fi
     src="$DK_TMP/step.out"
     if [ "$cl" = true ] || { [ "$cl" = stop ] && [ "$mode" = stop ]; }; then
@@ -260,7 +266,7 @@ EOF
     fi
     if dk_known_ok "$id" "$DK_TMP/step.out"; then
         STEPLINES="${STEPLINES}✓ $id $(dk_fmt_s "$ms") s (známe zlyhania: $KNOWN_N)$DK_NL"
-        NOK=$((NOK + 1)); continue
+        NKNOWN=$((NKNOWN + 1)); continue
     fi
     STEPLINES="${STEPLINES}✗ $id $(dk_fmt_s "$ms") s$DK_NL"
     NFAIL=$((NFAIL + 1))
@@ -274,22 +280,23 @@ EOF
 
 TOTAL=$(( $(dk_ms) - T0 ))
 if [ "$NFAIL" -gt 0 ]; then VERDICT=FAIL RC=1
-elif [ "$NOK" -gt 0 ]; then VERDICT=PASS RC=0
+elif [ "$NBLOCK" -gt 0 ]; then VERDICT=PARTIAL RC=4
+elif [ $((NOK + NKNOWN)) -gt 0 ]; then VERDICT=PASS RC=0
 else VERDICT=SKIP RC=4
 fi
 [ -n "$STEPLINES" ] || { STEPLINES="– žiadne kroky pre režim $mode$DK_NL"; }
 
 # Markery a log pred výpisom: zatvorený stdout (SIGPIPE) ich nesmie zahodiť.
-if [ "$RC" = 0 ]; then
-    if [ "$mode" = stop ]; then
-        jq -n --arg h "$SNAP_HASH" --argjson t "$(dk_now)" '{hash: $h, time: $t, fails: 0, result: "PASS"}' \
-            2>/dev/null > "$DK_PDATA/stop.json.tmp" && mv "$DK_PDATA/stop.json.tmp" "$DK_PDATA/stop.json"
-    else
-        HEAD_SHA=$(dk_git rev-parse --verify -q HEAD 2>/dev/null)
-        jq -Rn --argjson t "$(dk_now)" --arg m "$mode" --arg h "$HEAD_SHA" \
-            '{time: $t, mode: $m, head: $h, blobs: ([inputs | select(length > 0) | split("\t") | {(.[0]): .[1]}] | add // {})}' \
-            < "$DK_TMP/blobs.snap" 2>/dev/null > "$DK_PDATA/pass.json.tmp" && mv "$DK_PDATA/pass.json.tmp" "$DK_PDATA/pass.json"
-    fi
+# PARTIAL ide len do stavu Stop (neopakovať kontrolu nad tým istým obsahom), commit gate ho nedostane.
+if [ "$mode" = stop ] && { [ "$RC" = 0 ] || [ "$VERDICT" = PARTIAL ]; }; then
+    SF=$(dk_stop_file)
+    jq -n --arg h "$SNAP_HASH" --argjson t "$(dk_now)" --arg r "$VERDICT" '{hash: $h, time: $t, fails: 0, result: $r}' \
+        2>/dev/null > "$SF.tmp.$$" && mv "$SF.tmp.$$" "$SF"
+elif [ "$RC" = 0 ]; then
+    HEAD_SHA=$(dk_git rev-parse --verify -q HEAD 2>/dev/null)
+    jq -Rn --argjson t "$(dk_now)" --arg m "$mode" --arg h "$HEAD_SHA" \
+        '{time: $t, mode: $m, head: $h, blobs: ([inputs | select(length > 0) | split("\t") | {(.[0]): .[1]}] | add // {})}' \
+        < "$DK_TMP/blobs.snap" 2>/dev/null > "$DK_PDATA/pass.json.tmp.$$" && mv "$DK_PDATA/pass.json.tmp.$$" "$DK_PDATA/pass.json"
 fi
 
 ls -1t "$DK_PDATA"/logs/check-*.log 2>/dev/null | tail -n +21 | while IFS= read -r f; do rm -f "$f"; done
@@ -301,7 +308,9 @@ BUDGET=$((20 - NSTEP - 2))
 PER=$BUDGET
 [ "$NFAIL" -gt 0 ] && PER=$((BUDGET / NFAIL))
 {
-    printf '[dev-kit] check %s: %s · %s ok · %s fail · %s skip · %s s\n' "$mode" "$VERDICT" "$NOK" "$NFAIL" "$NSKIP" "$(dk_fmt_s "$TOTAL")"
+    kn=""
+    [ "$NKNOWN" -gt 0 ] && kn=" · $NKNOWN známe"
+    printf '[dev-kit] check %s: %s · %s ok%s · %s fail · %s skip · %s s\n' "$mode" "$VERDICT" "$NOK" "$kn" "$NFAIL" "$NSKIP" "$(dk_fmt_s "$TOTAL")"
     printf '%s' "$STEPLINES" | head -n 17
     if [ -n "$FAILSTEPS" ] && [ "$BUDGET" -gt 1 ]; then
         while IFS=$DK_US read -r id k; do

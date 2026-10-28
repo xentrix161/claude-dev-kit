@@ -67,7 +67,7 @@ Na záver statická analýza a štýl aj pre nové testy (Bash timeout 300000 ms
 bash "${CLAUDE_PLUGIN_ROOT}/scripts/check.sh" --quick --project "${CLAUDE_PROJECT_DIR}"
 ```
 
-Exit 3 = bez devkit.json (preskoč s poznámkou), 4 = nič nebežalo (uveď dôvod), 1 = oprav nálezy v nových a zmenených súboroch a zopakuj; zlyhania mimo tvojich zmien len nahlás.
+Exit 3 = bez devkit.json (preskoč s poznámkou), 4 = neúplné overenie, `PARTIAL` alebo `SKIP` (uveď dôvod, PASS netvrď), 1 = oprav nálezy v nových a zmenených súboroch a zopakuj; zlyhania mimo tvojich zmien len nahlás.
 
 Necommituj — commit ide cez `/dev:commit`.
 

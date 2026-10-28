@@ -200,7 +200,7 @@ EOF
 
     # Údržba dát kitu: staré zoznamy session, veľký log rozhodnutí.
     if [ "${DK_SOURCE:-startup}" = startup ]; then
-        find "$DK_PDATA/sessions" -name '*.files' -mtime +14 -exec rm -f {} + 2>/dev/null
+        find "$DK_PDATA/sessions" \( -name '*.files' -o -name '*.stop.json' \) -mtime +14 -exec rm -f {} + 2>/dev/null
         find "$DK_PDATA" -maxdepth 1 -name 'pairs-*.done' -mtime +14 -exec rm -f {} + 2>/dev/null
         if [ -f "$DK_DATA/decisions.jsonl" ] && [ "$(wc -c < "$DK_DATA/decisions.jsonl" | tr -d ' ')" -gt 10485760 ]; then
             mv "$DK_DATA/decisions.jsonl" "$DK_DATA/decisions.jsonl.1" 2>/dev/null
