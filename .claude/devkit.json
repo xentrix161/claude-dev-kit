@@ -1,0 +1,37 @@
+{
+  "version": 1,
+  "stack": "shell",
+  "container": "",
+  "lint": {
+    ".sh": ["bash -n {file}"],
+    ".json": ["jq empty {file}"]
+  },
+  "lintChangedLinesOnly": false,
+  "check": {
+    "steps": [
+      {"id": "selftest", "run": "bash tests/selftest.sh", "ext": [".sh", ".json"], "modes": ["stop", "quick", "full"]},
+      {"id": "validate", "run": "claude plugin validate --strict plugins/dev && claude plugin validate --strict .", "ext": [".md", ".json"], "modes": ["stop", "quick", "full"]},
+      {"id": "details", "run": "bash tools/details.sh plugins/dev", "modes": ["quick", "full"]}
+    ]
+  },
+  "guards": [
+    {"id": "bash4", "ext": [".sh"], "pattern": "^[^#]*(\\b(declare -A|mapfile|readarray)\\b|\\$\\{[A-Za-z_][A-Za-z0-9_]*(,,|\\^\\^))", "message": "konštrukcia z bash 4+ — skripty kitu musia bežať na macOS bash 3.2"},
+    {"id": "gnu-only", "ext": [".sh"], "pattern": "^[^#]*(grep[[:space:]]+(-[a-zA-Z]+[[:space:]]+)*-[a-zA-Z]*P|readlink[[:space:]]+-f|date[[:space:]]+-d[[:space:]]|stat[[:space:]]+-c|sed[[:space:]]+-i[[:space:]]+(['\"][^'\"]|-)|sed[[:space:]]+-r|xargs[[:space:]]+-r|sort[[:space:]]+-V|find[[:space:]][^|]*-printf)", "message": "GNU-only prepínač — na macOS (BSD) nefunguje"}
+  ],
+  "pairs": [
+    {"id": "script-selftest", "when": "plugins/dev/scripts/**", "unless": "tests/**",
+     "say": "Zmena skriptu kitu bez zmeny tests/selftest.sh: navrhni používateľovi prípad do selftestu, nepridávaj ho sám."},
+    {"id": "script-spec", "when": "plugins/dev/scripts/**", "unless": "docs/SPEC.md",
+     "say": "Zmena skriptu kitu: over, či sa nemení kontrakt v docs/SPEC.md (názvy, cesty, výstupy, hlášky)."},
+    {"id": "template-changelog", "when": "plugins/dev/templates/**", "unless": "CHANGELOG.md",
+     "say": "Zmena šablóny: zapíš ju do CHANGELOG.md — projekty ju dostanú cez /dev:project-init --sync."}
+  ],
+  "secrets": {
+    "allow": ["tests/"],
+    "forbidFiles": []
+  },
+  "stopCheck": true,
+  "commitGate": {"enabled": true, "ext": [".sh", ".json", ".md", ".tmpl"]},
+  "handoffDoc": "docs/handoff.md",
+  "disabledRules": []
+}
