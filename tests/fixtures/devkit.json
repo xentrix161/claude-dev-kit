@@ -1,0 +1,35 @@
+{
+  "version": 1,
+  "stack": "php-nette",
+  "container": "",
+  "appRoot": "/application",
+  "lint": {
+    ".php": ["sh bin/fake-lint {file}"]
+  },
+  "lintChangedLinesOnly": true,
+  "check": {
+    "steps": [
+      {"id": "lint", "requires": "bin/fake-lint", "runFiles": "sh bin/fake-lint {files}", "ext": [".php"], "modes": ["stop", "quick", "full"]},
+      {"id": "unit", "requires": "bin/fake-phpunit", "run": "sh bin/fake-phpunit", "modes": ["stop", "quick", "full"]},
+      {"id": "fullonly", "requires": "bin/fake-ok", "run": "sh bin/fake-ok fullonly", "modes": ["full"]}
+    ],
+    "fullWhen": ["app/models/**"],
+    "knownFailures": []
+  },
+  "guards": [
+    {"id": "debug-php", "ext": [".php", ".latte"], "pattern": "\\b(dump|dd|bdump|var_dump|print_r)\\(", "message": "debug výpis v kóde"}
+  ],
+  "pairs": [
+    {"id": "validator-test", "when": "libs/Validator/**", "unless": "tests/**",
+     "say": "Zmena validátora bez zmeny testu: navrhni používateľovi regresný test, nepridávaj ho sám."}
+  ],
+  "secrets": {
+    "allow": ["tests/fixtures/"],
+    "forbidFiles": ["app/config/config.local.neon", ".test-credentials", "**/.env"]
+  },
+  "migrations": {"paths": ["db/migrations/**"]},
+  "testLock": {"ttlHours": 6},
+  "stopCheck": true,
+  "commitGate": {"enabled": true, "ext": [".php", ".latte", ".neon"]},
+  "disabledRules": []
+}

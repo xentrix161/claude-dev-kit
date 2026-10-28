@@ -1,0 +1,4 @@
+#!/bin/sh
+# Prehrá zaznamenaný výstup reálneho nástroja (tests/fixtures/real/) s daným exit kódom.
+cat "$1"
+exit "${2:-1}"

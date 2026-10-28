@@ -1,0 +1,95 @@
+<!--
+dev-kit šablóna php-symfony. /dev:project-init doplní {{…}}, zmaže riadky, ktoré pre projekt neplatia,
+a tento komentár odstráni. Cieľ ≤ 120 riadkov; témy patria do .claude/rules/*.md (načítajú sa podľa paths:).
+Placeholdery:
+  {{projectName}}     názov projektu
+  {{projectDescription}} 1–2 vety: čo appka robí a pre koho
+  {{phpVersion}} {{symfonyVersion}} {{database}}   napr. 8.4 · 8.0 · MySQL 8.0
+  {{container}} {{appRoot}}   PHP kontajner a cesta projektu v ňom (rovnaké ako v .claude/devkit.json)
+  {{run}} = prefix príkazov vrátane medzery na konci: `docker exec {{container}} ` (bez -it; pri inom workdir `docker exec -w {{appRoot}} {{container}} `)
+                      alebo prázdne, keď sa príkazy púšťajú na hostiteľovi
+  {{phpstanConfig}}   napr. phpstan.dist.neon
+-->
+# CLAUDE.md
+
+Kontext pre Claude Code v tomto repozitári. Tematické pravidlá sú v `.claude/rules/` a načítajú sa podľa cesty
+súboru: `php-core`, `symfony`, `doctrine`, `twig-frontend`, `api-platform`, `tests`.
+
+## Projekt
+
+{{projectName}} — {{projectDescription}}
+
+## Stack
+
+- PHP {{phpVersion}}, Symfony {{symfonyVersion}}, Twig, Doctrine ORM + Migrations
+- API Platform — verejné API (ak projekt API Platform nemá, riadok zmaž)
+- {{database}} · PHPUnit · PHPStan + phpstan-symfony (`{{phpstanConfig}}`)
+- Docker: kontajner `{{container}}`, projekt je v ňom pod `{{appRoot}}`
+
+## Príkazy
+
+Agent nemá TTY → nikdy `docker exec -it` (padne na „the input device is not a TTY").
+
+```bash
+{{run}}php bin/console cache:clear
+{{run}}php bin/console doctrine:migrations:migrate --no-interaction
+{{run}}php bin/console debug:router            # routy; debug:container <id>, debug:autowiring <typ>
+{{run}}php bin/console importmap:install       # stiahne assets/vendor/ po čerstvom klone
+```
+
+### Overenie — zdravý výstup
+
+Hotovo = príkaz prebehol a výstup to dokazuje. PASS nikdy nehlás bez výstupu.
+
+| Príkaz | Zdravý výstup |
+|---|---|
+| `/dev:check` · `/dev:check --full` | `[dev-kit] check quick: PASS · …` |
+| `{{run}}php vendor/bin/phpunit` | `OK (… tests, … assertions)` |
+| `{{run}}php vendor/bin/phpstan analyse -c {{phpstanConfig}}` | `[OK] No errors` |
+| `{{run}}php bin/console lint:container` | `[OK] The container was linted successfully: …` |
+| `{{run}}php bin/console lint:yaml config --parse-tags` | `[OK] All … YAML files contain valid syntax.` |
+| `{{run}}php bin/console lint:twig templates` | `[OK] All … Twig files contain valid syntax.` |
+| `{{run}}php bin/console doctrine:schema:validate` | `[OK] The mapping files are correct.` + `… in sync with the mapping files.` |
+
+Počty testov ani časy sem nepíš — zastarávajú; `/dev:review` hlási zastaraný CLAUDE.md a rules.
+
+## Architektúra
+
+- `src/Controller/` — tenké controllery (`#[Route]`), logika v `src/Service/`
+- `src/Entity/` + `src/Repository/` — Doctrine mapovanie atribútmi, dotazy len v repozitároch
+- `src/ApiResource/`, `src/State/` — API Platform zdroje, providery a processory
+- `src/Command/` — CLI a cron príkazy (`#[AsCommand]`)
+- `src/EventSubscriber/`, `src/Security/` — listenery, votery, autentifikácia
+- `config/` — `services.yaml` (autowire + autoconfigure), `packages/*.yaml`, `routes/`
+- `templates/` (Twig) · `assets/` (AssetMapper, `importmap.php`) · `translations/`
+- `migrations/` (Doctrine migrácie) · `tests/` (PHPUnit, zrkadlí `src/`)
+<!-- doplň: kľúčové doménové vzory, vstupné body a kde čo hľadať (max ~10 riadkov) -->
+
+## Pravidlá
+
+1. Pred commitom `/dev:check` (commit gate ho vynúti); zmena entít alebo migrácií → `/dev:check --full`.
+2. Zmena v `src/Entity/**` → spýtaj sa na migráciu (`doctrine:migrations:diff`); bez súhlasu ju nevytváraj.
+3. Commitnutú migráciu neupravuj — vytvor novú.
+4. Služby a routy atribútmi + autowiring; YAML len na parametre a výnimky.
+5. SQL/DQL len s parametrami (`setParameter()`, DBAL `?`/`:name`), nikdy skladané reťazcom.
+6. Twig escapuje sám; `|raw` len na sanitizovaný obsah a s dôvodom.
+7. Oprava bugu = najprv test, ktorý chybu zachytí (červený), potom oprava kódu (`/dev:fix`).
+8. PHPStan baseline sa nedopĺňa — nový nález oprav v kóde.
+9. Tajomstvá patria do `.env.local` alebo do vaultu (`secrets:set`); `.env` v gite drží len defaulty.
+10. V commitnutom kóde žiadne `dump()`/`dd()`, `die()`/`exit()`, operátor `@`.
+<!-- doplň: projektové pravidlá, ktorých porušenie už raz niečo rozbilo -->
+
+## Pasce
+
+- Po zmene `.env*`, `config/` alebo po prepnutí vetvy drží dev stará cache (kontajner, Twig) → `cache:clear`.
+- Existujúci `public/assets/` (po `asset-map:compile`) tieni zmeny v `assets/` aj v dev → zmaž ho a sprav hard reload.
+- Worker mód (FrankenPHP, RoadRunner): stav služby prežije request → per-request cache cez `ResetInterface`.
+- Premenné z `environment:` v docker compose prebijú `.env*` súbory (aj `.env.test`) → over, akú DB používajú testy.
+- Worktree (`claude --worktree`) izoluje len kód; DB, cache servera a web sú spoločné → migrácie a fixtures len z jednej session.
+<!-- doplň: projektové pasce (čo sa pokazilo ticho, bez chyby v logu) -->
+
+## Compact instructions
+
+- Zachovaj zoznam zmenených súborov, stav každého (hotové / rozpracované) a posledný výsledok `/dev:check`.
+- Zachovaj číslo úlohy, otvorené rozhodnutia, čo používateľ zamietol, a ďalší krok.
+- Zachovaj presné príkazy na overenie.

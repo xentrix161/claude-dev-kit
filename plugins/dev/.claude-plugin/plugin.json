@@ -1,0 +1,8 @@
+{
+  "name": "dev",
+  "version": "0.1.1",
+  "description": "Vývojársky kit pre PHP Nette/Symfony a Python: kontroly po edite, Stop kontrola, commit gate, príkazy /dev:check, /dev:commit, /dev:review a šablóny projektov.",
+  "author": {
+    "name": "dev-kit"
+  }
+}

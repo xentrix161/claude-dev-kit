@@ -1,0 +1,92 @@
+<!--
+Šablóna dev-kit (python). /dev:project-init vyplní {{…}} z repa a z odpovedí používateľa.
+{{run}} = prefix príkazov: `.venv/bin/` (venv na hostiteľovi, netreba ho aktivovať), `uv run `,
+alebo `docker exec -w {{appRoot}} {{container}} ` (bez -it). Riadok, ktorý sa nedá vyplniť, zmaž.
+Limit 120 riadkov; tematické detaily patria do .claude/rules/*.md (paths:). Bez počtov testov a časov.
+-->
+# CLAUDE.md — {{projectName}}
+
+## Projekt
+
+- {{projectDescription}}
+- Doménové pojmy: {{domainTerms}}
+- Stav úloh a rozhodnutia: `{{handoffDoc}}`
+
+## Stack
+
+- Python {{pythonVersion}} · {{framework}}
+- {{database}} · migrácie {{migrationTool}}
+- Závislosti: {{packageManager}} (`pyproject.toml` + lock súbor v gite)
+- Prostredie: {{runtime}}
+- Kvalita: ruff (lint + formát), mypy, pytest — konfigurácia v `pyproject.toml`
+
+## Príkazy
+
+Spúšťaj z koreňa repa; nástroje vždy z venv projektu alebo z kontajnera, nie zo systémového Pythonu.
+
+| Úloha | Príkaz | Zdravý výstup |
+|---|---|---|
+| kontrola zmien | `/dev:check` · `/dev:check --full` | `[dev-kit] check quick: PASS · N ok · 0 fail · 0 skip · S s` |
+| lint | `{{run}}ruff check .` | `All checks passed!` |
+| formát | `{{run}}ruff format --check .` | `N files already formatted` |
+| typy | `{{run}}mypy {{mypyTarget}}` | `Success: no issues found in N source files` |
+| rýchle testy | `{{run}}pytest -q -m "not slow and not integration"` | `N passed, M deselected in 0.NNs` |
+| všetky testy | `{{run}}pytest -q` | `N passed in 0.NNs` |
+| jeden test | `{{run}}pytest -x -q tests/test_x.py::test_y` | `1 passed in 0.NNs` |
+| migrácie | `{{migrateCommand}}` | {{migrateHealthyOutput}} |
+| závislosti | `{{installCommand}}` | bez chyby, lock súbor bez nečakaných zmien |
+| prostredie | `{{startCommand}}` | {{startHealthyOutput}} |
+
+- Iný výstup (`FAILED …`, `Found N errors`, `error: …`) = nie je hotovo.
+- Exit kód 5 z pytest = nevybrali sa žiadne testy — nie je to PASS.
+- `SKIP` v `/dev:check` (chýba nástroj, kontajner nebeží) nie je PASS — povedz to výslovne.
+
+## Overovanie práce
+
+- Pred „hotovo" spusti `/dev:check`; zmena modelov, migrácií, `conftest.py` alebo závislostí → `/dev:check --full`.
+- Do odpovede vlož súhrnný riadok výstupu. Bez výstupu netvrď, že testy prešli.
+- Padá test → oprav kód, nie test. Test meníš len keď je preukázateľne zlý — povedz prečo.
+- Žiadne `skip`/`xfail`, mazanie asercií ani `# type: ignore` bez kódu kvôli zelenej.
+- UI alebo API zmena → over aj reálnym requestom ({{appUrl}}), nielen testami.
+- Po 2 neúspešných pokusoch o tú istú opravu zastav, zhrň zistenia a navrhni iný prístup.
+
+## Architektúra
+
+```
+src/{{package}}/       aplikačný kód
+tests/unit/            rýchle testy bez DB a siete
+tests/integration/     testy s DB/službami (marker integration)
+pyproject.toml         závislosti a konfigurácia ruff, mypy, pytest
+```
+
+- {{architectureNotes}}
+
+## Pravidlá
+
+1. Drž štýl a vzory okolitého kódu; nové knižnice a vzory len po dohode.
+2. Typové anotácie na verejných funkciách; mypy nesmie pribudnúť chyba.
+3. Žiadny debug kód (`breakpoint()`, `pdb`, dočasné `print()`); logovanie cez `logging`.
+4. SQL len s parametrami alebo cez ORM, nikdy f-stringom, `%`, `+` ani `.format()`.
+5. Výnimky konkrétne; žiadne `except:` ani tiché `except Exception: pass`.
+6. Zmena modelu bez migrácie → opýtaj sa, či ju chcem; commitnutú migráciu neupravuj, vytvor novú.
+7. Novú závislosť pridaj len so súhlasom, cez {{packageManager}}; lock súbor commitni spolu.
+8. Nová funkcionalita → test; oprava bugu → test, ktorý by bug odhalil.
+9. Komentáre krátke alebo žiadne: len čo z kódu nevidno; bez histórie, meraní a produkčných dát.
+10. `.env` a iné lokálne tajomstvá nikdy necommituj ani nevypisuj.
+11. Commit: {{commitStyle}}; `git push` len na výslovný pokyn.
+12. Zmena zastará tento súbor alebo `.claude/rules/` → uprav ich v tom istom commite.
+13. Detaily v `.claude/rules/` (python-core, tests) — načítajú sa podľa cesty.
+
+## Pasce
+
+- Vo worktree (`.claude/worktrees/…`) `.venv` nie je a nekopíruje sa — editable inštalácia by ukazovala do hlavného checkoutu; vytvor nový: `{{installCommand}}`.
+- `{{run}}` vynechaný → spustí sa systémový Python bez závislostí projektu (ImportError, iná verzia).
+- `mock.patch` mieri tam, kde sa meno používa, nie kde je definované.
+- `datetime.now()` bez časovej zóny; naivné a aware dátumy sa nedajú porovnať.
+- {{projectPitfalls}}
+
+## Compact instructions
+
+- Zachovaj zoznam zmenených súborov, stav každého (hotové / rozpracované) a posledný výsledok `/dev:check`.
+- Zachovaj číslo úlohy, otvorené rozhodnutia, čo používateľ zamietol, a ďalší krok.
+- Zachovaj presné príkazy na overenie.

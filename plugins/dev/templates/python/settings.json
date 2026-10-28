@@ -1,0 +1,20 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-settings.json",
+  "permissions": {
+    "ask": [
+      "Bash(git push *)",
+      "Bash(git checkout *)",
+      "Bash(git switch *)",
+      "Bash(docker stop *)",
+      "Bash(docker restart *)",
+      "Bash(docker compose *down*)",
+      "Bash(*alembic downgrade *)",
+      "Bash(*manage.py flush*)"
+    ],
+    "deny": [
+      "Edit(/.venv/**)",
+      "Edit(/**/site-packages/**)",
+      "Edit(/node_modules/**)"
+    ]
+  }
+}

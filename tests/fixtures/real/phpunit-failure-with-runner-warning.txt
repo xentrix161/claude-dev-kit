@@ -1,0 +1,28 @@
+PHPUnit 13.2.4 by Sebastian Bergmann and contributors.
+
+Runtime:       PHP 8.4.24
+Configuration: /application/phpunit-old.xml
+
+F                                                                   1 / 1 (100%)
+
+Time: 00:00.001, Memory: 24.00 MB
+
+There was 1 PHPUnit test runner warning:
+
+1) Test results may not be as expected because the XML configuration file did not pass validation:
+
+  Line 2:
+  - Element 'phpunit', attribute 'convertErrorsToExceptions': The attribute 'convertErrorsToExceptions' is not allowed.
+
+
+--
+
+There was 1 failure:
+
+1) Tests\Unit\CalcTest::testAdd
+Failed asserting that -1 is identical to 3.
+
+/application/tests/Unit/CalcTest.php:14
+
+FAILURES!
+Tests: 1, Assertions: 1, Failures: 1, PHPUnit Warnings: 1.

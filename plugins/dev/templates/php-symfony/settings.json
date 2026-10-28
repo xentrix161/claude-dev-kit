@@ -1,0 +1,28 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-settings.json",
+  "permissions": {
+    "ask": [
+      "Bash(git push *)",
+      "Bash(git checkout *)",
+      "Bash(git switch *)",
+      "Bash(make db-import*)",
+      "Bash(docker stop *)",
+      "Bash(docker restart *)",
+      "Bash(docker rm *)",
+      "Bash(docker compose *down*)",
+      "Bash(*doctrine:database:drop*)",
+      "Bash(*doctrine:schema:drop*)",
+      "Bash(*doctrine:schema:update*--force*)",
+      "Bash(*doctrine:fixtures:load*)"
+    ],
+    "deny": [
+      "Edit(/vendor/**)",
+      "Edit(/var/**)",
+      "Edit(/assets/vendor/**)",
+      "Edit(/public/assets/**)",
+      "Edit(/public/bundles/**)",
+      "Edit(/node_modules/**)",
+      "Edit(/config/reference.php)"
+    ]
+  }
+}

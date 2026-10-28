@@ -1,0 +1,5 @@
+#!/bin/sh
+# Stub úspešného kroku; zanechá značku .marks/ran-<meno>, podľa ktorej test pozná, že krok bežal.
+mkdir -p .marks
+: > ".marks/ran-${1:-ok}"
+printf 'ok %s\n' "${1:-ok}"

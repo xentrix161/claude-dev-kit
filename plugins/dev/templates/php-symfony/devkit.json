@@ -1,0 +1,69 @@
+{
+  "_init": [
+    "Pokyny pre /dev:project-init — tento kľúč do projektu nezapisuj.",
+    "lint a kroky vypusti pre chýbajúce balíky: .twig + lint-twig (symfony/twig-bundle), .yaml/.yml + lint-yaml (symfony/yaml), doctrine-schema (doctrine/doctrine-bundle), php-cs-fixer.",
+    "phpunit: viac <testsuite> v phpunit.xml(.dist) → rýchla sada v stop/quick/full, pomalé (DB, HTTP) ako samostatný krok len s full.",
+    "doctrine-schema: lokálna DB trvalo mimo sync (drift indexov) → pridaj --skip-sync, inak commit gate pri zmene entít neprejde.",
+    "fullWhen: config/doctrine/** ponechaj len pri XML/YAML mapovaní."
+  ],
+  "version": 1,
+  "stack": "php-symfony",
+  "container": "{{container}}",
+  "appRoot": "{{appRoot}}",
+  "lint": {
+    ".php": ["php -l {file}"],
+    ".twig": ["php bin/console lint:twig {file}"],
+    ".yaml": ["php vendor/bin/yaml-lint --parse-tags {file}"],
+    ".yml": ["php vendor/bin/yaml-lint --parse-tags {file}"]
+  },
+  "lintChangedLinesOnly": true,
+  "check": {
+    "steps": [
+      {"id": "phpstan", "requires": "vendor/bin/phpstan",
+       "run": "php vendor/bin/phpstan analyse -c {{phpstanConfig}} --no-progress --error-format=raw --memory-limit=1G",
+       "runFiles": "php vendor/bin/phpstan analyse -c {{phpstanConfig}} --no-progress --error-format=raw --memory-limit=1G {files}",
+       "ext": [".php"], "modes": ["stop", "quick", "full"], "changedLinesOnly": "stop"},
+      {"id": "phpunit", "requires": "vendor/bin/phpunit", "run": "php vendor/bin/phpunit", "modes": ["stop", "quick", "full"]},
+      {"id": "php-cs-fixer", "requires": "vendor/bin/php-cs-fixer",
+       "runFiles": "php vendor/bin/php-cs-fixer fix --dry-run --diff --show-progress=none --path-mode=intersection {files}",
+       "ext": [".php"], "modes": ["quick", "full"]},
+      {"id": "lint-container", "requires": "bin/console", "run": "php bin/console lint:container", "modes": ["quick", "full"]},
+      {"id": "lint-yaml", "requires": "vendor/symfony/yaml/composer.json", "run": "php bin/console lint:yaml config --parse-tags", "modes": ["quick", "full"]},
+      {"id": "lint-twig", "requires": "vendor/symfony/twig-bundle/composer.json", "run": "php bin/console lint:twig templates", "modes": ["quick", "full"]},
+      {"id": "doctrine-schema", "requires": "vendor/doctrine/doctrine-bundle/composer.json", "run": "php bin/console doctrine:schema:validate", "modes": ["full"]}
+    ],
+    "fullWhen": ["src/Entity/**", "migrations/**", "config/doctrine/**", "config/packages/doctrine*.yaml", "config/packages/*/doctrine*.yaml"],
+    "knownFailures": []
+  },
+  "guards": [
+    {"id": "debug-php", "ext": [".php"], "pattern": "(^|[^>:$_[:alnum:]])(dump|dd|var_dump|print_r)\\(", "message": "debug výpis v kóde (dump/dd/var_dump/print_r)"},
+    {"id": "debug-twig", "ext": [".twig"], "pattern": "(\\{%-?[[:space:]]*dump[[:space:]%-]|[^.[:alnum:]_]dump\\()", "message": "dump v šablóne"},
+    {"id": "die", "ext": [".php"], "pattern": "(^|[^>:$_[:alnum:]])(die|exit)[[:space:]]*(\\(|;)", "message": "die()/exit() — vráť Response alebo vyhoď výnimku"},
+    {"id": "twig-raw", "ext": [".twig"], "pattern": "\\|[[:space:]]*raw\\b", "message": "|raw vypína escapovanie — len na sanitizovaný obsah, s dôvodom"},
+    {"id": "error-suppress", "ext": [".php"], "pattern": "^[[:space:]]*(@|([^*[:space:]/#]|/[^*/])(.*[^[:alnum:]_])?@)\\$?[a-zA-Z_]+\\(", "message": "potlačenie chyby operátorom @"},
+    {"id": "sql-concat", "ext": [".php"], "pattern": "(SELECT|UPDATE|DELETE|INSERT)[^;]*['\"][[:space:]]*\\.[[:space:]]*\\$", "message": "SQL/DQL skladané reťazcom — použi parametre"},
+    {"id": "dql-concat", "ext": [".php"], "pattern": "->(where|andWhere|orWhere|having|andHaving|orHaving)\\([^)]*['\"][[:space:]]*\\.[[:space:]]*\\$", "message": "podmienka QueryBuildera skladaná reťazcom — hodnoty cez setParameter(), názvy polí len z whitelistu"},
+    {"id": "test-skip", "ext": [".php"], "pattern": "(->|::)mark(TestSkipped|TestIncomplete)\\(", "message": "vypnutý test (markTestSkipped/markTestIncomplete) — len so súhlasom používateľa, nie ako obídenie zlyhania"}
+  ],
+  "pairs": [
+    {"id": "entity-migration", "when": "src/Entity/**", "unless": "migrations/**",
+     "say": "Zmena entity bez migrácie: spýtaj sa používateľa, či vygenerovať migráciu (doctrine:migrations:diff); bez súhlasu ju nevytváraj."}
+  ],
+  "secrets": {
+    "patterns": [
+      "(?i)(password|passwd|heslo|secret|api[_-]?key|token)[\"']?[[:space:]]*[:=]>?[[:space:]]*[\"'][^\"'[:space:]%$][^\"'[:space:]]{5,}",
+      "^[[:space:]]*[A-Z0-9_]*(PASS|SECRET|TOKEN|API_KEY|PRIVATE_KEY|AUTH|_HASH)[A-Z0-9_]*[[:space:]]*[:=][[:space:]]*[\"']?[^[:space:]\"'%$][^[:space:]\"']{5,}",
+      "[a-z][a-z0-9+.-]*://[^:/@[:space:]\"']*:[^@/[:space:]\"'%$!][^@/[:space:]\"']{3,}@",
+      "-----BEGIN [A-Z ]*PRIVATE KEY-----",
+      "AKIA[0-9A-Z]{16}"
+    ],
+    "allow": ["tests/", ".env.test", ".env.dev"],
+    "forbidFiles": ["**/.env.local", "**/.env.*.local", ".env.local.php", "auth.json", "config/secrets/prod/*.decrypt.private.php", "config/jwt/private.pem"]
+  },
+  "migrations": {"paths": ["migrations/**"]},
+  "testLock": {"ttlHours": 6},
+  "stopCheck": true,
+  "commitGate": {"enabled": true, "ext": [".php", ".twig", ".yaml", ".yml", ".xml", ".neon", ".sql"]},
+  "handoffDoc": "docs/handoff.md",
+  "disabledRules": []
+}

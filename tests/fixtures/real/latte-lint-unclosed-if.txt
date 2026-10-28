@@ -1,0 +1,6 @@
+
+Latte linter
+------------
+Scanning templates/default.latte
+templates/default.latte[ERROR]       templates/default.latte:5:1    Unexpected {/block}, expecting {/if} (on line 5 at column 1)
+...                    Done (checked 1 files, found errors in 1)

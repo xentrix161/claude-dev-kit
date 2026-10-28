@@ -1,0 +1,1 @@
+/application/db/migrations/20260301000000_add_x.php:7:7: error - Each class must be in a namespace of at least one level (a top-level vendor name)

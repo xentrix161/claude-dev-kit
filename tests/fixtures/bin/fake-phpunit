@@ -1,0 +1,19 @@
+#!/bin/sh
+# Stub PHPUnit: každý riadok .marks/fail-unit = jeden zlyhaný test („N) Trieda::metóda"), potom exit 1.
+# Každé spustenie pridá riadok do .marks/unit.calls (test tak vie, či kontrola bežala).
+mkdir -p .marks
+echo run >> .marks/unit.calls
+printf 'PHPUnit 13.0.0 by Sebastian Bergmann and contributors.\n\n'
+if [ -s .marks/fail-unit ]; then
+  n=$(grep -c . .marks/fail-unit)
+  printf 'There were %s failures:\n\n' "$n"
+  i=0
+  while IFS= read -r id; do
+    [ -n "$id" ] || continue
+    i=$((i + 1))
+    printf '%s) %s\nFailed asserting that false is true.\n\n%s/tests/FooTest.php:12\n\n' "$i" "$id" "$PWD"
+  done < .marks/fail-unit
+  printf 'FAILURES!\nTests: %s, Assertions: %s, Failures: %s.\n' "$n" "$n" "$n"
+  exit 1
+fi
+printf 'OK (1 test, 1 assertion)\n'

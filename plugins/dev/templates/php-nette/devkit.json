@@ -1,0 +1,67 @@
+{
+  "version": 1,
+  "stack": "php-nette",
+  "container": "{{container}}",
+  "appRoot": "{{appRoot}}",
+  "lint": {
+    ".php": ["php -l {file}", "php vendor/bin/phpcs -q -n --report=emacs --standard=PSR12 --ignore=*/db/migrations/*,*/migrations/* {file}"],
+    ".latte": ["php vendor/bin/latte-lint {file}"]
+  },
+  "lintChangedLinesOnly": true,
+  "check": {
+    "steps": [
+      {"id": "phpstan", "requires": "vendor/bin/phpstan",
+       "run": "php vendor/bin/phpstan analyse -c {{phpstanConfig}} --no-progress --error-format=raw --memory-limit=1G",
+       "runFiles": "php vendor/bin/phpstan analyse -c {{phpstanConfig}} --no-progress --error-format=raw --memory-limit=1G {files}",
+       "ext": [".php"], "modes": ["stop", "quick", "full"], "changedLinesOnly": "stop"},
+      {"id": "unit", "requires": "vendor/bin/phpunit",
+       "run": "php vendor/bin/phpunit --testsuite unit",
+       "modes": ["stop", "quick", "full"]},
+      {"id": "phpcs", "requires": "vendor/bin/phpcs",
+       "runFiles": "php vendor/bin/phpcs -q -n --report=emacs --standard=PSR12 --ignore=*/db/migrations/*,*/migrations/* {files}",
+       "ext": [".php"], "modes": ["quick", "full"], "changedLinesOnly": true},
+      {"id": "latte", "requires": "vendor/bin/latte-lint",
+       "runFiles": "r=0; for f in {files}; do php vendor/bin/latte-lint \"$f\" || r=1; done; exit $r",
+       "ext": [".latte"], "modes": ["quick", "full"]},
+      {"id": "integration", "requires": "vendor/bin/phpunit",
+       "run": "php vendor/bin/phpunit --testsuite integration",
+       "modes": ["full"]}
+    ],
+    "fullWhen": ["app/models/**", "app/model/**", "app/Model/**", "libs/**", "db/**", "migrations/**",
+                 "app/presenters/**", "app/Presentation/**"],
+    "knownFailures": []
+  },
+  "guards": [
+    {"id": "debug-php", "ext": [".php", ".latte"], "pattern": "\\b(dump|dd|bdump|var_dump|print_r)\\(",
+     "message": "debug výpis v kóde"},
+    {"id": "debug-latte", "ext": [".latte"], "pattern": "\\{(dump|debugbreak)([[:space:]}]|$)",
+     "message": "{dump}/{debugbreak} v šablóne"},
+    {"id": "die", "ext": [".php"], "pattern": "\\b(die|exit)[[:space:]]*[(;]",
+     "message": "die()/exit() — použi throw alebo $this->terminate()"},
+    {"id": "latte-raw", "ext": [".latte"], "pattern": "\\{!\\$",
+     "message": "{!$var}: v Latte 3 vypíše negáciu výrazu, v Latte 2 vypína escapovanie — {$var|noescape} len s jasným dôvodom"},
+    {"id": "error-suppress", "ext": [".php"], "pattern": "(^|[^[:alnum:]_])@\\$?[a-zA-Z_]+\\(",
+     "message": "potlačenie chyby operátorom @"},
+    {"id": "sql-concat", "ext": [".php"], "pattern": "(SELECT|UPDATE|DELETE|INSERT)[^;]*['\"]\\s*\\.\\s*\\$",
+     "message": "SQL skladané reťazcom — použi parametre Dibi"},
+    {"id": "test-skip", "ext": [".php"], "pattern": "(->|::)mark(TestSkipped|TestIncomplete)\\(",
+     "message": "vypnutý test (markTestSkipped/markTestIncomplete) — len so súhlasom používateľa, nie ako obídenie zlyhania"}
+  ],
+  "pairs": [
+    {"id": "model-test", "when": "app/models/**", "unless": "tests/**",
+     "say": "Zmena modelu bez zmeny testu: spusti integračné testy (/dev:check --full) a navrhni test na zmenené správanie."}
+  ],
+  "secrets": {
+    "patterns": ["(?i)(password|passwd|heslo|secret|api[_-]?key|token)[\"']?\\s*(=>|[:=])\\s*[\"'][^\"'[:space:]]{6,}",
+                 "(?i)^[[:space:]]*[A-Za-z0-9_]*(password|passwd|heslo|secret|api[_-]?key|token)[A-Za-z0-9_]*[[:space:]]*[:=][[:space:]]*[^[:space:]\"'%$#{([\\0-9][^[:space:]\"'(\\]{5,}[[:space:]]*$",
+                 "-----BEGIN [A-Z ]*PRIVATE KEY-----", "AKIA[0-9A-Z]{16}"],
+    "allow": ["tests/fixtures/"],
+    "forbidFiles": ["app/config/config.local.neon", ".test-credentials", "**/.env", "**/.env.local"]
+  },
+  "migrations": {"paths": ["db/migrations/**", "migrations/**"]},
+  "testLock": {"ttlHours": 6},
+  "stopCheck": true,
+  "commitGate": {"enabled": true, "ext": [".php", ".latte", ".neon", ".xml", ".sql", ".yml", ".yaml"]},
+  "handoffDoc": "docs/handoff.md",
+  "disabledRules": []
+}

@@ -1,0 +1,90 @@
+{
+  "_init": [
+    "Pokyny pre /dev:project-init — tento kľúč do projektu nezapisuj.",
+    "{{bin}} = adresár nástrojov s lomkou na konci: .venv/bin/ (venv na hostiteľovi, aj uv), /opt/venv/bin/ v kontajneri, alebo prázdne (nástroje v PATH).",
+    "requires ponechaj len keď {{bin}} je relatívna cesta v projekte (kontroluje sa na hostiteľovi); inak ho z krokov vypusť.",
+    "{{container}} a {{appRoot}}: prázdne pre venv na hostiteľovi; inak kontajner a cieľ mountu koreňa repa.",
+    "{{mypyTarget}}: balík alebo src podľa repa; '.' ak nie je jasné; prázdne, ak [tool.mypy] má files=.",
+    "Lint nemá requires: nástroj, ktorý projekt nepoužíva (ruff, mypy), vypusť z lint aj check.steps — inak každý edit hlási „not found“.",
+    "Krok unit končí exit 5, keď projekt nemá testy alebo sú všetky pod markerom slow/integration — uprav -m alebo krok vypusť.",
+    "Legacy s množstvom chýb mypy: pri kroku mypy zmeň changedLinesOnly zo \"stop\" na true. Čistý ruff (ruff check . prejde): kroku ruff môžeš pridať run nad celým repom.",
+    "pairs.unless a migrations.paths prispôsob nástroju migrácií (Django app/migrations, Alembic alembic/versions, Flask-Migrate migrations/versions)."
+  ],
+  "version": 1,
+  "stack": "python",
+  "container": "{{container}}",
+  "appRoot": "{{appRoot}}",
+  "lint": {
+    ".py": [
+      "{{bin}}python3 -m py_compile {file}",
+      "{{bin}}ruff check --quiet --no-fix --force-exclude --output-format=concise {file}"
+    ],
+    ".pyi": [
+      "{{bin}}ruff check --quiet --no-fix --force-exclude --output-format=concise {file}"
+    ]
+  },
+  "lintChangedLinesOnly": true,
+  "check": {
+    "steps": [
+      {"id": "ruff", "requires": "{{bin}}ruff",
+       "runFiles": "{{bin}}ruff check --quiet --no-fix --force-exclude --output-format=concise {files}",
+       "ext": [".py", ".pyi"], "modes": ["quick", "full"], "changedLinesOnly": true},
+      {"id": "mypy", "requires": "{{bin}}mypy",
+       "run": "{{bin}}mypy {{mypyTarget}}",
+       "runFiles": "{{bin}}mypy {files}",
+       "ext": [".py", ".pyi"], "modes": ["stop", "quick", "full"], "changedLinesOnly": "stop"},
+      {"id": "unit", "requires": "{{bin}}pytest",
+       "run": "{{bin}}pytest -q -m 'not slow and not integration'",
+       "modes": ["stop", "quick"]},
+      {"id": "pytest", "requires": "{{bin}}pytest",
+       "run": "{{bin}}pytest -q",
+       "modes": ["full"]}
+    ],
+    "fullWhen": [
+      "**/models.py", "**/models/**", "**/migrations/**", "alembic/**",
+      "**/settings.py", "**/settings/**", "**/conftest.py",
+      "pyproject.toml", "**/requirements*.txt", "uv.lock", "poetry.lock"
+    ],
+    "knownFailures": []
+  },
+  "guards": [
+    {"id": "debug-py", "ext": [".py"],
+     "pattern": "\\b(breakpoint|set_trace)\\(|(^|[^a-zA-Z0-9_.])(import|from)[[:space:]]+(pdb|ipdb|pudb)\\b",
+     "message": "debug kód (breakpoint, pdb) v kóde"},
+    {"id": "sql-concat", "ext": [".py"],
+     "pattern": "\\b(SELECT|INSERT|UPDATE|DELETE)\\b[^\"']*([\"']?[{][a-zA-Z_]|[\"']+([[:space:]]*\\+|[[:space:]]+%[[:space:]]*[(a-zA-Z_]|[[:space:]]*%[[:space:]]+[(a-zA-Z_]|%\\(|[[:space:]]*\\.format\\())",
+     "message": "SQL skladané f-stringom, %, + alebo .format() — použi parametre"},
+    {"id": "shell-true", "ext": [".py"],
+     "pattern": "shell[[:space:]]*=[[:space:]]*True",
+     "message": "shell=True — predaj zoznam argumentov (riziko injekcie príkazu)"},
+    {"id": "tls-verify", "ext": [".py"],
+     "pattern": "(^|[^a-zA-Z0-9_])verify[[:space:]]*=[[:space:]]*False",
+     "message": "verify=False vypína overenie TLS certifikátu"},
+    {"id": "eval", "ext": [".py"],
+     "pattern": "(^|[^.a-zA-Z0-9_])(eval|exec)\\(",
+     "message": "eval()/exec() — nad vstupom zvonku nikdy; literály cez ast.literal_eval"},
+    {"id": "test-skip", "ext": [".py"],
+     "pattern": "pytest\\.(skip|xfail)\\(|@pytest\\.mark\\.(skip|skipif|xfail)\\b|@unittest\\.skip|\\.skipTest\\(",
+     "message": "vypnutý test (pytest.skip/xfail, @skip, skipTest) — len so súhlasom používateľa, nie ako obídenie zlyhania"}
+  ],
+  "pairs": [
+    {"id": "model-migration", "when": "**/models.py", "unless": "**/migrations/**",
+     "say": "Zmena modelu bez migrácie: spýtaj sa používateľa, či ju chce (makemigrations / alembic revision --autogenerate); nevytváraj ju sám."}
+  ],
+  "secrets": {
+    "patterns": [
+      "(?i)(password|passwd|heslo|secret|api[_-]?key|token)[\"']?[[:space:]]*(:[[:space:]]*[a-z_][]a-z0-9_.,| []*=|[:=])[[:space:]]*[\"'][^\"'[:space:]]{6,}",
+      "[A-Z0-9_]*(SECRET|PASSWORD|PASSWD|TOKEN|API_KEY)[A-Z0-9_]*[[:space:]]*=[[:space:]]*[\"'][^\"'[:space:]]{8,}[\"']",
+      "-----BEGIN [A-Z ]*PRIVATE KEY-----",
+      "AKIA[0-9A-Z]{16}"
+    ],
+    "allow": ["tests/fixtures/", "tests/data/"],
+    "forbidFiles": ["**/.env", "**/.env.local", "**/.env.*.local"]
+  },
+  "migrations": {"paths": ["**/migrations/0*.py", "**/migrations/versions/**", "alembic/versions/**"]},
+  "testLock": {"ttlHours": 6},
+  "stopCheck": true,
+  "commitGate": {"enabled": true, "ext": [".py", ".pyi", ".toml", ".cfg", ".ini", ".sql", ".yml", ".yaml"]},
+  "handoffDoc": "docs/handoff.md",
+  "disabledRules": []
+}

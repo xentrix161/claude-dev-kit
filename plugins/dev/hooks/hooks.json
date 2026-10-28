@@ -1,0 +1,18 @@
+{
+  "description": "dev-kit: úvodná karta, zámok testu a commitnuté migrácie, commit gate s tajomstvami, lint, guardy a tajomstvá po edite, Stop kontrola s pripomienkami",
+  "hooks": {
+    "SessionStart": [
+      {"matcher": "startup|resume|clear|compact", "hooks": [{"type": "command", "command": "bash \"${CLAUDE_PLUGIN_ROOT}/scripts/session-card.sh\"", "timeout": 10}]}
+    ],
+    "PreToolUse": [
+      {"matcher": "Edit|Write|MultiEdit", "hooks": [{"type": "command", "command": "bash \"${CLAUDE_PLUGIN_ROOT}/scripts/pre-edit.sh\"", "timeout": 10}]},
+      {"matcher": "Bash", "hooks": [{"type": "command", "command": "bash \"${CLAUDE_PLUGIN_ROOT}/scripts/pre-bash.sh\"", "timeout": 30}]}
+    ],
+    "PostToolUse": [
+      {"matcher": "Edit|Write|MultiEdit", "hooks": [{"type": "command", "command": "bash \"${CLAUDE_PLUGIN_ROOT}/scripts/on-edit.sh\"", "timeout": 60}]}
+    ],
+    "Stop": [
+      {"hooks": [{"type": "command", "command": "bash \"${CLAUDE_PLUGIN_ROOT}/scripts/stop-check.sh\"", "timeout": 300}]}
+    ]
+  }
+}

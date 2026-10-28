@@ -1,0 +1,2 @@
+/application/lib/LegacyStan.php:11:Function legacy_undefined_fn not found.
+/application/lib/LegacyStan.php:16:Function fresh_undefined_fn not found.

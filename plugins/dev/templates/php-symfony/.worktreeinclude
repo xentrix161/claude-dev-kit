@@ -1,0 +1,5 @@
+# Súbory ignorované gitom, ktoré Claude Code skopíruje do každého nového worktree (claude --worktree).
+vendor/
+assets/vendor/
+.env.local
+.env.*.local

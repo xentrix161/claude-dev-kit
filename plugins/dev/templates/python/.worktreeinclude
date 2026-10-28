@@ -1,0 +1,7 @@
+# Súbory ignorované gitom, ktoré Claude Code skopíruje do nového worktree (syntax .gitignore).
+# .venv/ sa zámerne NEkopíruje: editable inštalácia (pip install -e) ukazuje do hlavného
+# checkoutu, testy vo worktree by bežali proti cudziemu kódu. Vo worktree vytvor nový venv:
+#   uv sync   alebo   python3 -m venv .venv && .venv/bin/pip install -e '.[dev]'
+.env
+.env.local
+.env.*.local

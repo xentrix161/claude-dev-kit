@@ -1,0 +1,11 @@
+.DS_Store
+*.swp
+*~
+# výsledky claude plugin eval
+**/evals/results/
+# dočasné súbory make release a skriptov
+*.tmp
+# lokálne nastavenia Claude Code pri práci na kite
+.claude/settings.local.json
+# worktree Claude Code pri práci na kite
+.claude/worktrees/

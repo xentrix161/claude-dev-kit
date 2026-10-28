@@ -1,0 +1,5 @@
+# Súbory ignorované gitom, ktoré Claude Code skopíruje do každého nového worktree (syntax .gitignore).
+# Kopíruje sa len to, čo je zároveň v .gitignore — verzované súbory nikdy.
+vendor/
+app/config/config.local.neon
+.test-credentials

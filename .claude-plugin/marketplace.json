@@ -1,0 +1,14 @@
+{
+  "name": "dev-kit",
+  "description": "Osobný a tímový marketplace s pluginom dev (vývojársky kit pre Claude Code).",
+  "owner": {
+    "name": "dev-kit"
+  },
+  "plugins": [
+    {
+      "name": "dev",
+      "source": "./plugins/dev",
+      "description": "Vývojársky kit pre PHP Nette/Symfony a Python: hooky na kontroly, /dev:check, /dev:commit, /dev:review a šablóny projektov."
+    }
+  ]
+}

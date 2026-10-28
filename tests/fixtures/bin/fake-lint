@@ -1,0 +1,8 @@
+#!/bin/sh
+# Stub lintera, exit 1 pri náleze: LINTERR → emacs formát (phpcs), PARSEERR → formát php -l („on line N").
+[ $# -gt 0 ] || exit 0
+awk '
+/LINTERR/ { printf "%s:%d:1: error - stub: značka LINTERR\n", FILENAME, FNR; bad = 1 }
+/PARSEERR/ { printf "PHP Parse error:  syntax error, unexpected token \";\" in %s on line %d\n", FILENAME, FNR; bad = 1 }
+END { exit bad }
+' "$@"
