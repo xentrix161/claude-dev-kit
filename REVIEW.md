@@ -29,7 +29,7 @@
 ## Projektové kontroly
 
 - Zmena správania skriptu alebo hooku bez úpravy `docs/SPEC.md` alebo bez prípadu v `tests/selftest.sh` = Important.
-- Hook, ktorý môže blokovať projekt bez `.claude/devkit.json`, pri nebežiacom kontajneri alebo chýbajúcom nástroji = Important. Výnimka: commit gate pri PARTIAL, ak hlásenie povie prečo a ako ďalej.
+- Hook, ktorý môže blokovať projekt bez `.claude/devkit.json`, pri nebežiacom kontajneri alebo chýbajúcom nástroji = Important. Výnimky: commit gate pri PARTIAL, ak hlásenie povie prečo a ako ďalej; `agentReadOnly` aj bez configu (agenti kitu zapisujú len do svojej pamäte).
 - Meno človeka, klienta či projektu alebo osobná cesta v obsahu repa = Important (repo je verejné).
 - Hláška pre ľudí nie po slovensky alebo bez diakritiky = Nit.
 

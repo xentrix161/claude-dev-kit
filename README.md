@@ -38,7 +38,7 @@ Nebežiaci kontajner ani chýbajúci nástroj nič nezablokujú, kontrola sa len
 
 | Príkaz | Na čo |
 |---|---|
-| `/dev:check [--quick · --full]` | kontroly projektu; PASS odomkne commit |
+| `/dev:check [--quick · --full · --auto] [--files …]` | kontroly projektu; PASS odomkne commit |
 | `/dev:commit` | kontrola, zoskupenie zmien a správa `[#XX] typ: výstih`; nikdy nerobí push |
 | `/dev:review [branch [base]] [--security]` | review diffu: bugy, bezpečnosť, súlad s plánom, zastarané `CLAUDE.md` |
 | `/dev:fix` | repro test → zámok testu → oprava kódu → kontrola |
@@ -81,7 +81,7 @@ make check                                        # validate --strict, selftest,
 
 - **Hlučné pravidlo:** oprav vzor alebo prah v šablóne kitu, pridaj prípad do `tests/selftest.sh` a v projektoch spusti `/dev:project-init --sync`.
 - **Claude Code:** po `claude update` spusti `make check`. Ak novú funkciu Claude Code zvládne sám, príslušný kus kitu zruš.
-- **ECC:** raz mesačne `make upstream` (karta to pripomenie po 30 dňoch, len keď plugin beží z pracovnej kópie kitu) vypíše zmenené prevzaté kusy. Zmeny preber ručne a posuň pin v `plugins/dev/PROVENANCE.md`. Klon ECC hľadá v `~/Projects/_tools/ECC`, iný nastavíš cez `ECC_DIR`.
+- **ECC:** raz mesačne `make upstream` (karta to pripomenie po 30 dňoch, len keď plugin beží z pracovnej kópie kitu) vypíše zmenené prevzaté kusy. Zmeny preber ručne a posuň pin v `plugins/dev/PROVENANCE.md`. Klon ECC hľadá v `ECC_DIR`, predvolene `<KIT>/../ECC` (vedľa pracovnej kópie kitu).
 
 ### Vydanie
 

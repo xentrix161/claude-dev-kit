@@ -1984,6 +1984,38 @@ t_bash_gate_off_secrets_on() {
   done
 }
 
+# ---------------------------------------------------------------- nástroje kitu (A8)
+
+# tools/upstream.sh: klon ECC predvolene <kit>/../ECC podľa umiestnenia skriptu, ECC_DIR ho prebije (SPEC §9)
+t_upstream_ecc_default() {
+  new_case nocfg
+  unset ECC_DIR
+  local ecc="$CASE/ECC" pin
+  mkdir -p "$CASE/kit/tools" "$CASE/kit/plugins/dev" && cp "$KIT/tools/upstream.sh" "$CASE/kit/tools/" ||
+    { fail "fixture: kópia upstream.sh"; return 1; }
+  S="$CASE/kit/tools"
+  run upstream --no-fetch
+  want_rc 1 "bez klonu" && want_err "chýba klon ECC: $ecc → git clone" "bez klonu" || return 1
+  mkdir -p "$ecc/skills/x" && printf 'v1\n' > "$ecc/skills/x/SKILL.md"
+  git -C "$ecc" init -q && git -C "$ecc" add -A && git -C "$ecc" commit -qm v1 &&
+    git -C "$ecc" update-ref refs/remotes/origin/main HEAD || { fail "fixture: klon ECC"; return 1; }
+  pin=$(git -C "$ecc" rev-parse HEAD | cut -c1-7)
+  printf '| kit path | ECC source path | ECC commit | date adopted | changes |\n|---|---|---|---|---|\n| `skills/x/` | `skills/x/SKILL.md` | %s | 2026-10-27 | — |\n' \
+    "$pin" > "$CASE/kit/plugins/dev/PROVENANCE.md"
+  run upstream --no-fetch
+  want_rc 0 "klon vedľa kitu" && want_out 'bez zmien v 1 prevzatých zdrojoch' "klon vedľa kitu" || return 1
+  printf 'v2\n' > "$ecc/skills/x/SKILL.md"
+  git -C "$ecc" commit -qam v2 && git -C "$ecc" update-ref refs/remotes/origin/main HEAD ||
+    { fail "fixture: zmena v ECC"; return 1; }
+  run upstream --no-fetch
+  want_rc 0 "zmena v ECC" && want_out 'zmenených 1 z 1' "zmena v ECC" &&
+    want_out "detail: git -C $ecc diff $pin..origin/main -- skills/x/SKILL.md" "zmena v ECC" || return 1
+  [ ! -e "$DATA/maintenance.json" ] || { fail "--no-fetch zapísal maintenance.json"; return 1; }
+  export ECC_DIR="$CASE/iny"
+  run upstream --no-fetch
+  want_rc 1 "ECC_DIR" && want_err "chýba klon ECC: $CASE/iny →" "ECC_DIR"
+}
+
 # ---------------------------------------------------------------- beh
 
 N=0
@@ -2144,6 +2176,7 @@ t "on-edit: predvolené vzory AKIA… a BEGIN … PRIVATE KEY → exit 2 s masko
 t "pre-bash: predvolené vzory AKIA… a BEGIN … PRIVATE KEY → deny s maskou ****" t_bash_commit_secret_defaults
 t "stop-check: zmazaný celý test súbor (rm aj git rm) → pripomienka raz, nový súbor ticho" t_stop_removed_test_file
 t "pre-bash: commitGate enabled false / disabledRules → kód bez PASS prejde, tajomstvo deny" t_bash_gate_off_secrets_on
+t "tools/upstream.sh: klon ECC predvolene <kit>/../ECC, ECC_DIR ho prebije" t_upstream_ecc_default
 
 wait
 for f in "$RES"/*; do

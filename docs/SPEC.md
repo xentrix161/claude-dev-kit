@@ -1,21 +1,23 @@
-# dev-kit — build specification (v0.1.1)
+# dev-kit — build specification
 
-Source of truth for every builder agent; this file wins on contracts.
+Source of truth for every builder agent; this file wins on contracts. It describes the working copy; the
+version is only in `plugins/dev/.claude-plugin/plugin.json`, changes per version are in `CHANGELOG.md`.
 
 ## 0. Ground rules for all builders
 
-- Kit repo: `~/Projects/_tools/claude-dev-kit` (KIT). Plugin root: `KIT/plugins/dev` (ROOT). Write ONLY
-  inside KIT. Other projects and their containers are READ-ONLY reference — never write there, never
-  run git commands that change those repos, never run docker commands that stop, restart or modify
-  existing containers. Other Claude sessions work there.
-- ECC source (read-only): `~/Projects/_tools/ECC` pinned at commit `b92f181` (2026-10-11), MIT.
+- Kit repo: a working copy of this repository (`<KIT>`, `KIT/` in §1). Plugin root: `<KIT>/plugins/dev`
+  (ROOT). Write ONLY inside `<KIT>`. Other projects and their containers are READ-ONLY reference — never
+  write there, never run git commands that change those repos, never run docker commands that stop,
+  restart or modify existing containers. Other Claude sessions work there.
+- ECC source (read-only): a clone in `ECC_DIR` (default `<KIT>/../ECC`, §9) pinned at commit `b92f181`
+  (2026-10-11), MIT.
 - Claude Code docs (current for v2.1.308): `hooks.md`, `hooks-guide.md`, `plugins-reference.md`,
   `skills.md`, `sub-agents.md`, `settings.md`, `permissions.md`, `worktrees.md`, `plugin-evals.md`,
   `statusline.md`, `memory.md`, `plugins-loading.md`.
   When unsure about a frontmatter key, hook field or JSON output shape: check these docs, do not guess.
 - Language: everything a human or Claude reads at runtime (hook messages, skill bodies, agent prompts,
   README, templates) is **Slovak with full diacritics**. Code identifiers, commands and paths stay as is.
-- Style of user-facing output: the user's rule „Štýl odpovedí — stručne, ale úplne“ (`~/.claude/CLAUDE.md`):
+- Style of user-facing output „stručne, ale úplne“ (the user's global response-style rule, restated here):
   conclusion first, then evidence; short paragraphs of full sentences plus bullets as the content needs,
   no caps on list length; complete lists (findings, TODO, files) with ID/state/description; no intro
   phrases, no closing recap; `file:line` refs. Fixed formats stay: hook messages (≤ 20 lines, prefix
@@ -39,7 +41,7 @@ Source of truth for every builder agent; this file wins on contracts.
 KIT/
   .claude-plugin/marketplace.json     # {"name":"dev-kit","owner":{"name":"dev-kit"},"plugins":[{"name":"dev","source":"./plugins/dev","description":"…"}]}
   plugins/dev/
-    .claude-plugin/plugin.json        # {"name":"dev","version":"0.1.1","description":"…","author":{"name":"dev-kit"}}
+    .claude-plugin/plugin.json        # {"name":"dev","version":"x.y.z","description":"…","author":{"name":"dev-kit"}}
     hooks/hooks.json
     scripts/   lib.sh check.sh on-edit.sh pre-edit.sh pre-bash.sh stop-check.sh session-card.sh test-lock.sh stats.sh
     skills/    <command skills> <reference skills>   (see §5)
@@ -50,10 +52,10 @@ KIT/
   tests/selftest.sh  tests/fixtures/…   # deterministic, no docker, no network
   tools/upstream.sh                     # P3: diff of pinned ECC pieces vs upstream
   tools/details.sh                      # inventory + always-on budget (§5)
-  Makefile  README.md  CHANGELOG.md  docs/SPEC.md
+  Makefile  README.md  CHANGELOG.md  LICENSE  docs/SPEC.md
 ```
-Version lives only in `plugin.json` (never in the marketplace entry). No LICENSE for the kit's own code
-(the `LICENSE_MISSING` warning is accepted); the ECC MIT text stays in `plugins/dev/LICENSES/`.
+Version lives only in `plugin.json` (never in the marketplace entry). The kit's own code is MIT (`LICENSE`);
+the ECC MIT text stays in `plugins/dev/LICENSES/`.
 
 ## 2. Data directory
 
@@ -83,8 +85,8 @@ $DK_DATA/cc-version.<YYYYMMDD>                    # `claude --version` cached fo
 ## 3. Project config `.claude/devkit.json` (schema v1)
 
 Located at `<project>/.claude/devkit.json`. Missing file ⇒ every hook is a no-op (except the one-line
-hint in session-card). Unknown keys and keys starting with `_` (template notes such as `_init`) are
-ignored. Example (typical Nette project):
+hint in session-card and the `agentReadOnly` deny of the kit's agents in pre-edit, §4.3). Unknown keys
+and keys starting with `_` (template notes such as `_init`) are ignored. Example (typical Nette project):
 ```json
 {
   "version": 1,
@@ -184,10 +186,10 @@ Semantics:
 ```
 Verify tool names and matcher syntax against `hooks.md` (current tool names for file edits). Hook input
 fields used: `session_id`, `cwd`, `hook_event_name`, `tool_name`, `tool_input.file_path`,
-`tool_input.command`, `stop_hook_active`, `source`. Project dir = `$CLAUDE_PROJECT_DIR`, fallback
-`.cwd` from input, fallback `pwd`. A cwd inside a linked worktree of the same repo wins over
-`--project`/`CLAUDE_PROJECT_DIR` (scripts called from skills and hooks); `--project` of another repo is
-honoured. Skills keep passing `--project "${CLAUDE_PROJECT_DIR}"` and need no worktree workarounds.
+`tool_input.command`, `stop_hook_active`, `source`, `agent_type` (set when a subagent calls the tool).
+Project dir = `$CLAUDE_PROJECT_DIR`, fallback `.cwd` from input, fallback `pwd`. A cwd inside a linked
+worktree of the same repo wins over `--project`/`CLAUDE_PROJECT_DIR` (scripts called from skills and
+hooks); `--project` of another repo is honoured. Skills keep passing `--project "${CLAUDE_PROJECT_DIR}"` and need no worktree workarounds.
 
 ### 4.1 `lib.sh` (sourced by all scripts)
 Functions (names fixed, other scripts depend on them):
@@ -243,6 +245,12 @@ per added line that matches; used by on-edit), `dk_data_dir` (creates `$DK_DATA`
 6. Budget: typical run < 0.5 s plus the lint commands themselves.
 
 ### 4.3 `pre-edit.sh` — PreToolUse (edit/write)
+- Read-only agents (rule `agentReadOnly`): checked first, before the config is read, so it applies in
+  projects without `devkit.json` too (jq is still required). Input `agent_type` matching `dev:ecc-*` (the
+  kit's agents, §8) and a target outside `${CLAUDE_CONFIG_DIR:-$HOME/.claude}/agent-memory/` (or one
+  containing `..`) ⇒ deny, reason `[dev-kit] agent <agent_type> je len na čítanie — zapisovať smie iba do
+  svojej pamäte v <dir>. Opravu navrhni v odpovedi.`, logged as `agentReadOnly deny`. Not switchable via
+  `disabledRules`. Other agents and the main session are not affected.
 - Test lock (V3, rule `testLock`): if `test-lock.json` exists, not expired (`ttlHours`, default 6) and
   the target rel path (parent resolved physically, compared case-insensitively) is in its `files` ⇒ deny
   via JSON on stdout, exit 0:
@@ -447,6 +455,12 @@ flags in any order; `--files` consumes paths until the next `--` flag.
   7. test lock active ⇒ `zamknutý test: <files> (do <time>)`
   8. Claude Code version older than `DK_MIN_CC` ⇒ warning line; the version check runs at most once a
      day (result cached in `$DK_DATA`)
+- Subcommand outside the hook (used by `/dev:handoff`): `session-card.sh --record-handoff <path> <title>
+  [--project P]` (P defaults to `pwd`, stdin is not read) writes `last-handoff.json`
+  `{"time":<epoch>,"title":"…","path":"…"}` for card line 4; an absolute path inside P is stored relative,
+  `./` is stripped, an empty title becomes the file name. Prints one line `[dev-kit] handoff zaznamenaný:
+  <title> → <path> (úvodná karta ho ukáže 24 h)`, exit 0; no path ⇒ usage line, exit 2; no jq or a failed
+  write ⇒ one `[dev-kit]` line, exit 1.
 
 ### 4.8 `test-lock.sh` (called by /dev:fix)
 `test-lock.sh lock <rel>… [--project P]` | `unlock [--project P]` | `status [--project P]`. Writes
@@ -472,15 +486,15 @@ Command skills — all `disable-model-invocation: true` (0 always-on tokens):
 | name | source material | essence |
 |---|---|---|
 | `check` | plan §15.3 D, ECC `skills/verification-loop` | run `check.sh $ARGUMENTS` (only known flags pass through; default quick), report stručne, ale úplne (§0); exit 4 ⇒ PARTIAL or SKIP, not PASS (list `!`/`–` reasons); FAIL ⇒ list failures with file:line and propose fix order; never claim PASS without the script output |
-| `commit` | `~/.claude/commands/commit.md` (keep ALL its rules: `[#XX] type: výstih`, one confirmation, explicit `git add <files>`, never push, never `--no-verify`, never amend unless asked, NO Co-Authored-By / AI attribution) | step 0: `check.sh --auto` must PASS (the hook gate enforces it anyway); show grouping+message+check result in ONE message; secrets reminder |
-| `review` | `~/.claude/commands/review.md` (format with 🔴🟡🔵, numbering, verification, `.review-notes.md` only on request) + `~/.claude/commands/security.md` (as `--security` pass) + ECC `agents/code-reviewer.md`, `skills/security-review` | scopes: none = uncommitted, `branch [base]`; passes Bugs · Security · Súlad s `docs/plans/*.md` (V1) · stale CLAUDE.md/rules (V9); read project `REVIEW.md` if present (V2: Important vs Nit, max 5 nits, do-not-report list); confidence > 80 %, merge similar, security first; Nette/Symfony/Python checklists; optional delegation to agents `dev:ecc-silent-failure-hunter`, `dev:ecc-performance-optimizer` for large diffs |
-| `test` | `~/.claude/commands/test.md` + ECC `skills/tdd-workflow` | RED→GREEN→REFACTOR with evidence, AAA, naming, mirror structure, run via `check.sh`-configured command or `dk`-style docker exec from devkit.json; PHPUnit + pytest branches |
+| `commit` | the user's original command `commit` (keep ALL its rules: `[#XX] type: výstih`, one confirmation, explicit `git add <files>`, never push, never `--no-verify`, never amend unless asked, NO Co-Authored-By / AI attribution) | step 0: `check.sh --auto` must PASS (the hook gate enforces it anyway); show grouping+message+check result in ONE message; secrets reminder |
+| `review` | the user's original commands `review` (format with 🔴🟡🔵, numbering, verification, `.review-notes.md` only on request) and `security` (as `--security` pass) + ECC `agents/code-reviewer.md`, `skills/security-review` | scopes: none = uncommitted, `branch [base]`; passes Bugs · Security · Súlad s `docs/plans/*.md` (V1) · stale CLAUDE.md/rules (V9); read project `REVIEW.md` if present (V2: Important vs Nit, max 5 nits, do-not-report list); confidence > 80 %, merge similar, security first; Nette/Symfony/Python checklists; optional delegation to agents `dev:ecc-silent-failure-hunter`, `dev:ecc-performance-optimizer` for large diffs |
+| `test` | the user's original command `test` + ECC `skills/tdd-workflow` | RED→GREEN→REFACTOR with evidence, AAA, naming, mirror structure, run via `check.sh`-configured command or `dk`-style docker exec from devkit.json; PHPUnit + pytest branches |
 | `debug` | plan §5 Debugging row | Nette: Tracy `log/exception*.html`, `log/*.log`, docker logs, Mailpit, Typesense health, login via `.test-credentials`, `EXPLAIN`; Symfony: `var/log`, profiler, `bin/console debug:*`; Python: traceback/pytest -x; hypothesis → minimal repro → fix suggestion; never guess |
 | `fix` | ECC `commands/orch-fix-defect.md` | facts first (where, who calls, data); write failing repro test; run, confirm it fails for the expected reason; `test-lock.sh lock <test>`; fix code without touching the test; `check.sh --auto`; on PASS `test-lock.sh unlock`; offer `/dev:review` and `/dev:commit`. `--unlock` argument ⇒ only unlock and report |
 | `plan` | plan §18 V1 | write `docs/plans/<task>-<slug>.md` (no `#`) (Úloha+zdroj, Súbory, Poradie, Riziká, Dôkaz, Mimo rozsahu) from the agreed plan; task number from branch; small tasks (≤ 3 files, no risky paths) ⇒ tell the user it is not needed; local mode (`docs/plans/` ignored) ⇒ the plan stays on disk, never committed; team mode ⇒ committed with the first change, deviations in the same commit |
 | `learn` | ECC `commands/learn.md` + `learn-eval.md`, plan §13 | scan session for user corrections, resolved errors, discovered conventions ⇒ propose each as: native memory entry (feedback/project), project `.claude/rules/*.md` line, or new `guards`/`pairs` entry in devkit.json; user approves one by one; write only approved |
-| `handoff` | plan §14 Kontext row | write state (hotové, rozpracované, ďalší krok, rozhodnutia, zmenené súbory, príkazy na overenie) to `handoffDoc` from devkit.json (append dated section) or `docs/handoff.md`; update `last-handoff.json` via `jq` in `${HOME}/.claude/dev-kit/projects/<phash>/` using `bash "${CLAUDE_PLUGIN_ROOT}/scripts/lib.sh"` helper or a tiny dedicated subcommand (add `session-card.sh --record-handoff <path> <title>`); then suggest `/clear` |
-| `explain` | `~/.claude/commands/explain.md` | same structure (Čo to robí / Ako to funguje / Závislosti / Riziká pri zmene), Slovak, depth by request |
+| `handoff` | plan §14 Kontext row | write state (hotové, rozpracované, ďalší krok, rozhodnutia, zmenené súbory, príkazy na overenie) to `handoffDoc` from devkit.json (append dated section) or `docs/handoff.md`; record it with `session-card.sh --record-handoff <path> <title> --project "${CLAUDE_PROJECT_DIR}"` (§4.7); then suggest `/clear` |
+| `explain` | the user's original command `explain` | same structure (Čo to robí / Ako to funguje / Závislosti / Riziká pri zmene), Slovak, depth by request |
 | `stats` | §4.9 | run `stats.sh $ARGUMENTS`, interpret: which rules are noisy, propose `disabledRules`/pattern tweaks, never change config without approval |
 | `project-init` | ECC `skills/codebase-onboarding`, `commands/project-init.md`, plan §4.4, §14 PHP prax (infer-conventions), §16 P5, §17, §18 V2/V4/V6/V9 | see §6 |
 
@@ -495,7 +509,7 @@ tokens, measured by `tools/details.sh` by the docs rule: `disable-model-invocati
 | `ecc-production-audit` | `skills/production-audit` | — | `disable-model-invocation: true` (user runs before deploy) |
 | `ecc-python-patterns` | `skills/python-patterns` | `**/*.py` | F7 |
 | `ecc-python-testing` | `skills/python-testing` | `tests/**/*.py`, `**/test_*.py`, `**/*_test.py` | F7, pytest |
-| `task-tldr` | byte-identical copy of `~/.claude/skills/task-tldr/SKILL.md` | — | user's own skill; its 399-char description is accepted; the installer moves the original to a backup |
+| `task-tldr` | byte-identical copy of the user's original skill `task-tldr` | — | user's own skill; its 399-char description is accepted; the installer moves the original to a backup |
 Adaptation rules for every `ecc-*` piece: dir AND frontmatter `name` = `ecc-<original>`; keep the
 original description meaning; translate body to Slovak and trim (output stručne, ale úplne (§0), no "80 % coverage" mandates, no
 conventional-commit rules, no npm/Node assumptions, `docker exec` instead), keep the best checklists; add
@@ -574,7 +588,7 @@ init picks from `phpunit.xml`, python `-m 'not slow and not integration'`); slow
 step with `modes: ["full"]` (`integration`; python the whole `pytest`). The symfony template's 12 ask
 rules and broader deny are intended.
 Source material: `CLAUDE.md` of real Nette and Symfony projects — read-only — plus the
-user's global `~/.claude/CLAUDE.md` rules. Each rule file ≤ 60 lines, with a `## Pasce` section.
+user's global `CLAUDE.md` rules. Each rule file ≤ 60 lines, with a `## Pasce` section.
 
 ## 8. Agents (`ROOT/agents/*.md`)
 
@@ -586,7 +600,7 @@ performance-optimizer), `maxTurns: 30`. No `memory` (it would enable Write/Edit 
 pr-test-analyzer may end with an optional line `Na zapamätanie: <poznatok → .claude/rules/<súbor>.md>`,
 a suggestion that `/dev:learn` writes to project rules after approval (subagents load project rules).
 Revisit `memory: user` in F6 if agents keep repeating the same false positives; the pre-edit guard
-(`agentReadOnly`, writes only under `~/.claude/agent-memory/`) is already in place for that. No `isolation`. Body: read-only analysis; Bash only for read-only commands (git
+(`agentReadOnly`, §4.3: writes only under the user's `agent-memory/`) is already in place for that. No `isolation`. Body: read-only analysis; Bash only for read-only commands (git
 log/diff/grep, `docker exec <container> php vendor/bin/phpstan|phpunit --list-tests …` per devkit.json);
 return contract = numbered findings `N. <file>:<line> — <výstih>` with severity, max 15, then one
 summary line. Verify frontmatter keys in `sub-agents.md`.
@@ -606,9 +620,11 @@ summary line. Verify frontmatter keys in `sub-agents.md`.
 - `Makefile`: `check` (= `claude plugin validate --strict plugins/dev` + `claude plugin validate
   --strict .` + `selftest` + `details` when installed), `selftest`, `upstream`, `release
   VERSION=x.y.z` (bump plugin.json, remind CHANGELOG, `claude plugin tag --dry-run plugins/dev`).
-- `tools/upstream.sh`: parse PROVENANCE.md, `git -C ~/Projects/_tools/ECC fetch -q`, per row `git diff
-  --stat <pin>..origin/main -- <path>`, print changed pieces (stručne, ale úplne (§0)), write
-  `$DK_DATA/maintenance.json`.
+- `tools/upstream.sh [--no-fetch] [--ref <ref>]`: ECC clone = `ECC_DIR`, default `<KIT>/../ECC` with
+  `<KIT>` derived from the script's own location (never from `$HOME`); parse PROVENANCE.md, `git -C <ECC>
+  fetch -q`, per row `git diff --stat <pin>..origin/main -- <path>`, print changed pieces (stručne, ale
+  úplne (§0)), write `$DK_DATA/maintenance.json` only after a successful fetch. Missing clone ⇒ one line
+  with the path and the `git clone` command, exit 1.
 
 ## 10. Tests (`tests/selftest.sh`)
 

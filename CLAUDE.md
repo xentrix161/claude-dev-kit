@@ -62,7 +62,7 @@ docs/SPEC.md                      kontrakt
 3. Zmena správania skriptu alebo hooku → uprav `docs/SPEC.md` v tom istom commite.
 4. Oprava alebo nové správanie skriptu → prípad v `tests/selftest.sh`.
 5. Always-on kontext pluginu ≤ 3000 tokenov (`make details`); popisy skillov drž krátke.
-6. Hooky bez `.claude/devkit.json` musia ostať no-op; nebežiaci kontajner ani chýbajúci nástroj nikdy neblokujú. Výnimka: commit gate pri PARTIAL blokuje, hlásenie musí povedať prečo a ako ďalej.
+6. Hooky bez `.claude/devkit.json` musia ostať no-op; nebežiaci kontajner ani chýbajúci nástroj nikdy neblokujú. Výnimky: commit gate pri PARTIAL blokuje, hlásenie musí povedať prečo a ako ďalej; `agentReadOnly` platí aj bez configu (agenti kitu zapisujú len do svojej pamäte).
 7. Kusy z ECC: zmenu zapíš do `plugins/dev/PROVENANCE.md`; `plugins/dev/LICENSES/` nemeň.
 8. Šablóny sú generické: žiadne mená projektov, ľudí, klientov ani dáta. Platí pre celé repo — je verejné.
 9. Zmena šablóny → záznam v `CHANGELOG.md`; projekty ju dostanú cez `/dev:project-init --sync`.

@@ -4,7 +4,7 @@ set -u
 
 KIT_DIR=$(cd "$(dirname "$0")/.." && pwd)
 PROV="${DK_PROVENANCE:-$KIT_DIR/plugins/dev/PROVENANCE.md}"
-ECC="${ECC_DIR:-$HOME/Projects/_tools/ECC}"
+ECC="${ECC_DIR:-${KIT_DIR%/*}/ECC}"
 DK_DATA="${DEVKIT_DATA:-$HOME/.claude/dev-kit}"
 REF="origin/main"
 FETCH=1
@@ -14,7 +14,7 @@ usage() {
 Použitie: tools/upstream.sh [--no-fetch] [--ref <ref>]
   --no-fetch   bez git fetch (offline); dátum kontroly sa nezapíše
   --ref <ref>  porovnať s inou vetvou ECC (predvolené origin/main)
-Premenné: ECC_DIR (klon ECC), DEVKIT_DATA (dáta kitu), DK_PROVENANCE (iný PROVENANCE.md)
+Premenné: ECC_DIR (klon ECC, predvolene vedľa kitu: <kit>/../ECC), DEVKIT_DATA (dáta kitu), DK_PROVENANCE (iný PROVENANCE.md)
 EOF
 }
 

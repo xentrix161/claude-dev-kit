@@ -3,11 +3,24 @@
 - Formát: `## <verzia> — <dátum>`, najnovšie hore; verzia = `version` v `plugins/dev/.claude-plugin/plugin.json`.
 - Posun pinu ECC (P3) zapíš ako odrážku: kusy + nový commit.
 
-## 0.3.1 — nevydané
+## 0.3.1 — 2026-10-29
 
+- Úvodná karta: pripomienka „údržba kitu“ (`make upstream`) sa ukáže len vtedy, keď plugin beží z pracovnej kópie kitu (vedľa skriptov je `tools/upstream.sh`), a cestu v nej odvodí z umiestnenia skriptov. Inštalácia z marketplace ju už neukazuje.
+- Stop: párové pravidlá (`pairs`) rátajú aj súbory commitnuté počas session (`sessions/<id>.head` = HEAD pri prvej úprave v session), takže test commitnutý v tom istom ťahu už nevyvolá falošnú pripomienku.
+- Commit gate po kontrole s výsledkom PARTIAL (`partial.json` mladší ako 24 h) vypíše kroky, ktoré neprebehli, a únik: pri aspoň jednom ok kroku `disabledRules step:<id>` so všetkými blokovanými krokmi, keď neprebehol žiadny krok, `disabledRules commitGate` (kontrola tajomstiev beží ďalej). Spustenie kontajnera Claude len navrhne používateľovi.
+- Commit gate: keď sa cieľ `cd`, `git -C`, `--work-tree` alebo `--git-dir` nedá určiť (premenná, `$(…)`, spätný apostrof, `~iný`, `cd -`), zamietnutie to povie aj s úryvkom a poradí doslovnú cestu; kontrola ostáva v cwd session (fail closed). `cd "$(pwd)"` a `cd $PWD` sú aktuálny adresár, `cd` preskočí len `-L`/`-P` a jedno `--`. Známe obmedzenia rozpoznania `cd` sú v SPEC §4.4.
 - Stop hook má timeout 600 s (predtým 300 s).
 - Stop: keď sa po zlyhaní nič nezmenilo (súbory session, `devkit.json`, HEAD ani pracovný strom), ďalší Stop nespúšťa `check.sh` znova a zablokuje z uloženého dôvodu (`stop.json` má pole `reason`); počítadlo blokov a strop 3× ostávajú.
 - Šablóna `php-symfony`: krok `phpunit` púšťa len rýchle testy (`--exclude-group integration`), pomalé idú do nového kroku `integration` len s `full`. `_init` a `rules/tests.md` hovoria, že init vyberie sady podľa `phpunit.xml`; šablóna `php-nette` má v `_init` rovnakú poznámku.
+- Stop: rovnaké zlyhanie zablokuje koniec ťahu najviac 2×, pri treťom (strop 3×) len upozorní — znenie zjednotené v `/dev:check`, README a SPEC, správanie sa nemení.
+- Stop: keď `check.sh` skončí mimo 0/1/4 (chýbajúci alebo chybný `devkit.json`, rozbitý skript), Stop nezapíše `pass`, ale pripomenie „kontrola sa nedala spustiť (exit N)“ s cestou k `errors.log`.
+- `check.sh`: krok s `runFiles` bez `ext` dostane do `{files}` len kódové súbory; `--auto` pri zásahu `fullWhen` bez krokov len pre full vypíše `– full: rovnaké kroky ako quick`.
+- Stav kontajnera si on-edit a karta pamätajú 30 s (`container.state`); `check.sh` sa dockera pýta vždy.
+- Hashovanie súborov (`dk_blobs`) pri zlyhaní dávky pokračuje po jednom súbore a nečitateľný súbor zapíše do `errors.log`; symlink s príponou kódu sa nepočíta ani v commit gate.
+- Dátový adresár vzniká rovno s právami 700 (`umask 077`), `errors.log` nad 1 MB sa skráti na posledných 500 riadkov a cesty so spätnou lomkou idú do `awk` cez `ENVIRON`.
+- Selftest kryje aj `knownFailures` z pytest `FAILED`, predvolené vzory tajomstiev (AWS kľúč, súkromný kľúč) v on-edit aj v commit gate, zmazaný celý test súbor a vypnutý commit gate pri živej kontrole tajomstiev.
+- `make upstream` hľadá klon ECC v `ECC_DIR`, predvolene vedľa pracovnej kópie kitu (`<KIT>/../ECC`), nie v ceste pod `$HOME`.
+- Dokumentácia: SPEC bez osobných ciest a bez natvrdo zapísanej verzie, s licenciou MIT kitu, podpríkazom `session-card.sh --record-handoff` a výnimkou `agentReadOnly` (platí aj bez `devkit.json`); README uvádza všetky prepínače `/dev:check`.
 
 ## 0.3.0 — 2026-10-28
 
