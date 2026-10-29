@@ -1863,6 +1863,127 @@ t_awk_backslash_paths() {
 app/B.php:2: y" ] || fail "dk_strip_paths: $(flat "$got")"
 }
 
+# ---------------------------------------------------------------- medzery pokrytia (A9)
+
+# pytest: identifikátor z riadku „FAILED <id>“ krátkeho súhrnu (syntetický výstup vo formáte pytest 8)
+t_check_known_failures_pytest() {
+  new_case
+  cat > "$CASE/pytest.out" <<'EOF'
+============================= test session starts ==============================
+platform linux -- Python 3.12.3, pytest-8.3.3, pluggy-1.5.0
+rootdir: /app
+configfile: pyproject.toml
+collected 4 items
+
+tests/test_x.py .FF.                                                     [100%]
+
+=================================== FAILURES ===================================
+____________________________________ test_y ____________________________________
+
+    def test_y():
+>       assert add(1, 2) == 4
+E       assert 3 == 4
+
+tests/test_x.py:12: AssertionError
+_________________________________ test_z[2-3] __________________________________
+
+a = 2, b = 3
+
+    @pytest.mark.parametrize("a,b", [(1, 2), (2, 3)])
+    def test_z(a, b):
+>       assert a + b == 3
+E       assert (2 + 3) == 3
+
+tests/test_x.py:17: AssertionError
+=========================== short test summary info ============================
+FAILED tests/test_x.py::test_y - assert 3 == 4
+FAILED tests/test_x.py::test_z[2-3] - assert (2 + 3) == 3
+========================= 2 failed, 2 passed in 0.04s ==========================
+EOF
+  local c y='^tests/test_x\.py::test_y$' z='^tests/test_x\.py::test_z\[2-3\]$'
+  c="sh bin/replay $(q "$CASE/pytest.out") 1"
+  cfg --arg c "$c" --arg y "$y" \
+    '.check.steps |= map(if .id == "unit" then .run = $c else . end) | .check.knownFailures = [{"step": "unit", "pattern": $y}]'
+  add app/Foo.php '$f = 6;'
+  check --quick --project "$REPO"
+  want_rc 1 "test_z[2-3] nie je známe" && want_out '✗ unit' "test_z[2-3] nie je známe" || return 1
+  cfg --arg c "$c" --arg y "$y" --arg z "$z" \
+    '.check.steps |= map(if .id == "unit" then .run = $c else . end) | .check.knownFailures = [{"step": "unit", "pattern": $y}, {"step": "unit", "pattern": $z}]'
+  check --quick --project "$REPO"
+  want_rc 0 && want_out '✓ unit' && want_out '(známe zlyhania: 2)' && want_out 'PASS · 1 ok · 1 známe · 0 fail'
+}
+# Predvolené vzory tajomstiev (lib.sh) bez secrets.patterns; hodnoty skladané, aby ich v repe nenašiel skener tajomstiev.
+SECRET_AKIA="AKIA""SELFTEST0000EXMP"
+SECRET_PEM="-----BEGIN RSA ""PRIVATE KEY-----"
+t_edit_secret_defaults() {
+  new_case
+  put config/aws.ini '[default]'
+  g add config/aws.ini && g commit -qm aws || { fail "fixture: commit config/aws.ini"; return 1; }
+  add config/aws.ini "aws_access_key_id = $SECRET_AKIA"
+  on_edit config/aws.ini
+  want_rc 2 "AKIA" && want_err 'config/aws.ini:2 — možné tajomstvo (****)' "AKIA" && want_err '[secrets]' "AKIA" \
+    && want_not 'AKIA' "AKIA" || return 1
+  put config/deploy.pem "$SECRET_PEM"
+  add config/deploy.pem 'MIIEselftestBODYselftestBODY'
+  on_edit config/deploy.pem
+  want_rc 2 "PRIVATE KEY" && want_err 'config/deploy.pem:1 — možné tajomstvo (****)' "PRIVATE KEY" \
+    && want_not 'PRIVATE KEY' "PRIVATE KEY" && want_not 'BODY' "PRIVATE KEY" || return 1
+  want_logged on-edit secrets block
+}
+t_bash_commit_secret_defaults() {
+  new_case
+  put config/aws.ini "aws_access_key_id = $SECRET_AKIA"
+  put config/deploy.pem "$SECRET_PEM"
+  add config/deploy.pem 'MIIEselftestBODYselftestBODY'
+  g add config
+  pre_bash 'git commit -m x'
+  want_decision deny && want_out '(2)' && want_out 'config/aws.ini:1 — ****' && want_out 'config/deploy.pem:1 — ****' \
+    && want_not 'AKIA' && want_not 'PRIVATE KEY' && want_not 'BODY' && want_not 'commit gate' || return 1
+  want_logged pre-bash secrets deny || return 1
+  ! grep -rqF "$SECRET_AKIA" "$DATA" || fail "AWS kľúč je v $(grep -rlF "$SECRET_AKIA" "$DATA" | sed "s|$CASE/||" | head -1)"
+}
+# testRemoved: zmazaný celý commitnutý test súbor zo session; nový test súbor zmazaný v tej istej session mlčí
+t_stop_removed_test_file() {
+  new_case
+  session_files tests/FooTest.php
+  rm "$REPO/tests/FooTest.php"
+  stop_check
+  want_rc 0 "1. Stop" && want_json '(.decision // "") != "block"
+    and (.hookSpecificOutput.additionalContext | contains("[testRemoved] tests/FooTest.php: zmazaný testovací súbor — over s používateľom"))' \
+    "1. Stop" || return 1
+  want_logged stop-check testRemoved warn || return 1
+  stop_check true
+  want_rc 0 "2. Stop" && want_no_stdout "2. Stop (pripomienka už bola)" || return 1
+  g checkout -- tests/FooTest.php
+  SID="$SID-b"
+  session_files tests/NewTest.php tests/FooTest.php
+  g rm -q tests/FooTest.php
+  stop_check
+  want_rc 0 "git rm" && want_json '(.decision // "") != "block" and (.hookSpecificOutput.additionalContext
+    | contains("[testRemoved] tests/FooTest.php: zmazaný testovací súbor") and (contains("NewTest") | not))' "git rm"
+}
+# commitGate vypnutý (enabled: false aj disabledRules) → kód bez PASS prejde, tajomstvo ďalej blokuje
+t_bash_gate_off_secrets_on() {
+  local c
+  for c in '.commitGate.enabled = false' '.disabledRules = ["commitGate"]'; do
+    new_case
+    cfg "$c"
+    add app/Foo.php '$f = 6;'
+    g add app/Foo.php
+    pre_bash 'git commit -m x'
+    want_allow "$c: kód bez PASS" || return 1
+    bad_php
+    g add app/Bad.php
+    pre_bash 'git commit -m x'
+    want_decision deny "$c: tajomstvo" && want_out 'app/Bad.php:2 — ****' "$c: tajomstvo" \
+      && want_not 'SuperSecretValue123' "$c: tajomstvo" && want_not 'commit gate' "$c: tajomstvo" \
+      && want_not 'Spusti kontrolu' "$c: tajomstvo" || return 1
+    want_logged pre-bash secrets deny || return 1
+    ! jq -se 'any(.[]; .rule == "commitGate")' "$DATA/decisions.jsonl" >/dev/null 2>&1 ||
+      { fail "$c: decisions.jsonl má commitGate, hoci gate je vypnutý"; return 1; }
+  done
+}
+
 # ---------------------------------------------------------------- beh
 
 N=0
@@ -2018,6 +2139,11 @@ t "kontajner: on-edit číta container.state 30 s, check.sh vždy docker inspect
 t "check.sh: runFiles bez ext dostane do {files} len kódové súbory" t_check_runfiles_code_only
 t "check.sh --auto: fullWhen bez krokov len pre full → riadok „– full: rovnaké kroky ako quick“" t_check_auto_full_same_steps
 t "cesty so spätnou lomkou: on-edit, check.sh changedLinesOnly, dk_strip_paths (awk ENVIRON)" t_awk_backslash_paths
+t "check.sh: knownFailures z pytest „FAILED <id>“ (aj [param]) → známe, neznáme id → FAIL" t_check_known_failures_pytest
+t "on-edit: predvolené vzory AKIA… a BEGIN … PRIVATE KEY → exit 2 s maskou ****" t_edit_secret_defaults
+t "pre-bash: predvolené vzory AKIA… a BEGIN … PRIVATE KEY → deny s maskou ****" t_bash_commit_secret_defaults
+t "stop-check: zmazaný celý test súbor (rm aj git rm) → pripomienka raz, nový súbor ticho" t_stop_removed_test_file
+t "pre-bash: commitGate enabled false / disabledRules → kód bez PASS prejde, tajomstvo deny" t_bash_gate_off_secrets_on
 
 wait
 for f in "$RES"/*; do
