@@ -196,4 +196,6 @@
 
 ## Odchýlky
 
-- (zatiaľ žiadne)
+- A1: koreň kitu sa určuje fyzicky (`cd -P "$DK_SCRIPTS/../../.." && pwd`) a test je `[ -f "<koreň>/tools/upstream.sh" ]` — rovnaká podmienka ako v texte, ale cesta v hláške sedí aj pri symlinkovanom adresári pluginu.
+- A1: `t_card_stack_maintenance` dostal len prípravu `kit_scripts upstream` (asserty bez zmeny); bez nej by pri `DK_SELFTEST_SCRIPTS=<nainštalovaný plugin>` padal, hoci skript je správny.
+- A1: `README.md` sekcia Údržba — veta o pripomienke karty doplnená o „len keď plugin beží z pracovnej kópie kitu“ (pravidlo 13).

@@ -81,7 +81,7 @@ make check                                        # validate --strict, selftest,
 
 - **Hlučné pravidlo:** oprav vzor alebo prah v šablóne kitu, pridaj prípad do `tests/selftest.sh` a v projektoch spusti `/dev:project-init --sync`.
 - **Claude Code:** po `claude update` spusti `make check`. Ak novú funkciu Claude Code zvládne sám, príslušný kus kitu zruš.
-- **ECC:** raz mesačne `make upstream` (karta to pripomenie po 30 dňoch) vypíše zmenené prevzaté kusy. Zmeny preber ručne a posuň pin v `plugins/dev/PROVENANCE.md`. Klon ECC hľadá v `~/Projects/_tools/ECC`, iný nastavíš cez `ECC_DIR`.
+- **ECC:** raz mesačne `make upstream` (karta to pripomenie po 30 dňoch, len keď plugin beží z pracovnej kópie kitu) vypíše zmenené prevzaté kusy. Zmeny preber ručne a posuň pin v `plugins/dev/PROVENANCE.md`. Klon ECC hľadá v `~/Projects/_tools/ECC`, iný nastavíš cez `ECC_DIR`.
 
 ### Vydanie
 

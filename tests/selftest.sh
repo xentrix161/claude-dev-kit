@@ -215,6 +215,14 @@ mkpath() {
 wt_add() { # <cesta> — linked worktree fixtúry (bez .claude/, config ostáva v hlavnom checkoute)
   git -C "$REPO" worktree add -q --detach "$1" >/dev/null 2>&1 || fail "fixture: git worktree add $1"
 }
+# kit_scripts [upstream] — S = kópia skriptov v $CASE/kit/plugins/dev/scripts; s „upstream“ aj
+# $CASE/kit/tools/upstream.sh ako v pracovnej kópii kitu (SPEC §4.7 bod 6)
+kit_scripts() {
+  mkdir -p "$CASE/kit/plugins/dev/scripts" && cp "$S"/*.sh "$CASE/kit/plugins/dev/scripts/" ||
+    { fail "fixture: kópia skriptov"; return 1; }
+  S="$CASE/kit/plugins/dev/scripts"
+  [ "${1:-}" != upstream ] || { mkdir -p "$CASE/kit/tools" && : > "$CASE/kit/tools/upstream.sh"; }
+}
 
 # ---------------------------------------------------------------- asserty
 
@@ -789,6 +797,7 @@ t_card_hint_once() {
 }
 t_card_stack_maintenance() {
   new_case
+  kit_scripts upstream || return 1
   card
   want_rc 0 && want_out 'údržba kitu' || return 1
   printf '%s\n' "$OUT" | head -1 | grep -qF 'php-nette' || { fail "1. riadok bez stacku$(ctx)"; return 1; }
@@ -801,6 +810,25 @@ t_card_stack_maintenance() {
   printf '{"lastUpstreamCheck": %s}\n' "$(now)" > "$DATA/maintenance.json"
   card
   want_rc 0 "čerstvý maintenance.json" && want_not 'údržba kitu' "čerstvý maintenance.json"
+}
+t_card_maintenance_checkout_only() {
+  new_case
+  kit_scripts || return 1
+  card
+  want_rc 0 "bez tools/upstream.sh" && want_not 'údržba' "bez tools/upstream.sh" || return 1
+  case "$SYSMSG" in *'údržba'*) fail "bez tools/upstream.sh: systemMessage $(flat "$SYSMSG")"; return 1 ;; esac
+  printf '{"lastUpstreamCheck": %s}\n' $(($(now) - 40 * 86400 - 60)) > "$DATA/maintenance.json"
+  card
+  want_rc 0 "bez tools/upstream.sh, starý maintenance.json" &&
+    want_not 'údržba' "bez tools/upstream.sh, starý maintenance.json" || return 1
+  case "$SYSMSG" in *'údržba'*) fail "starý maintenance.json: systemMessage $(flat "$SYSMSG")"; return 1 ;; esac
+  mkdir -p "$CASE/kit/tools" && : > "$CASE/kit/tools/upstream.sh"
+  card
+  want_rc 0 "s tools/upstream.sh" && want_out "pred 40 dňami → make -C $CASE/kit upstream" "s tools/upstream.sh" || return 1
+  case "$SYSMSG" in *'[dev-kit] údržba kitu'*) ;; *) fail "s tools/upstream.sh: systemMessage $(flat "$RAW")"; return 1 ;; esac
+  rm -f "$DATA/maintenance.json"
+  card
+  want_rc 0 "bez maintenance.json" && want_out "ešte nebežala → make -C $CASE/kit upstream" "bez maintenance.json"
 }
 t_card_handoff() {
   new_case
@@ -1586,6 +1614,7 @@ t "stop-check: bez súborov session → exit 0, ticho" t_stop_no_session
 t "kontajner nebeží: on-edit bez lintu, Stop bez bloku, karta NEBEŽÍ" t_container_down
 t "session-card: bez devkit.json → jeden riadok, v ten istý deň ticho" t_card_hint_once
 t "session-card: 1. a 2. riadok, pripomienka údržby (chýba / > 30 dní)" t_card_stack_maintenance
+t "session-card: údržba kitu len s tools/upstream.sh vedľa skriptov, cesta z umiestnenia" t_card_maintenance_checkout_only
 t "session-card --record-handoff → posledný handoff (len < 24 h)" t_card_handoff
 t "test-lock.sh: lock/status/unlock, karta aj pre-edit" t_test_lock_roundtrip
 t "stats.sh: súhrn decisions.jsonl" t_stats

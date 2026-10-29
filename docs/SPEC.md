@@ -374,8 +374,12 @@ flags in any order; `--files` consumes paths until the next `--` flag.
   4. last handoff if < 24 h: `posledný handoff: <title> (pred <h> h) → <path>`
   5. worktree without `vendor/` while MAIN has it ⇒ `worktree nemá vendor/ → doplň .worktreeinclude alebo composer install`;
      stack python: worktree without `.venv/` while MAIN has it ⇒ `worktree nemá .venv/ → vytvor nový venv (…)`
-  6. maintenance: `$DK_DATA/maintenance.json` missing or older than 30 days ⇒
-     `údržba kitu: posledná kontrola upstreamu pred <d> dňami → make -C ~/Projects/_tools/claude-dev-kit upstream`
+  6. maintenance, only when `<kit>/tools/upstream.sh` exists, `<kit>` = `$DK_SCRIPTS/../../..` resolved
+     physically (`cd -P … && pwd`), i.e. the plugin runs in place from a kit checkout; a marketplace
+     install never shows it:
+     `$DK_DATA/maintenance.json` missing (or without a numeric `lastUpstreamCheck`) ⇒
+     `údržba kitu: kontrola upstreamu ešte nebežala → make -C <kit> upstream`;
+     older than 30 days ⇒ `údržba kitu: posledná kontrola upstreamu pred <d> dňami → make -C <kit> upstream`
   7. test lock active ⇒ `zamknutý test: <files> (do <time>)`
   8. Claude Code version older than `DK_MIN_CC` ⇒ warning line; the version check runs at most once a
      day (result cached in `$DK_DATA`)

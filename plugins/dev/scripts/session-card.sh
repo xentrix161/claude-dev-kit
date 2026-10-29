@@ -121,7 +121,7 @@ EOF
     now=$(dk_now)
 
     # Voliteľné riadky (4–7) majú prednosť pred výpisom git status.
-    local extra="" hout ht htitle hpath h m mt d
+    local extra="" hout ht htitle hpath h m mt d kit
     if [ -f "$DK_PDATA/last-handoff.json" ]; then
         hout=$(jq -r '[(.time // 0 | tostring), .title // "", .path // ""] | join("\u001f")' "$DK_PDATA/last-handoff.json" 2>/dev/null)
         IFS=$DK_US read -r ht htitle hpath <<EOF
@@ -151,16 +151,21 @@ EOF
         fi
     fi
     if [ -n "$w" ]; then extra="$extra$w$DK_NL"; warn="$warn[dev-kit] $w$DK_NL"; fi
-    mt=""
-    [ -f "$DK_DATA/maintenance.json" ] && mt=$(jq -r '.lastUpstreamCheck // empty' "$DK_DATA/maintenance.json" 2>/dev/null)
-    mt=${mt%%.*}
-    case "$mt" in *[!0-9]*) mt="" ;; esac
+    # Údržba len pri behu z pracovnej kópie kitu (plugin z marketplace nemá tools/).
     w=""
-    if [ -z "$mt" ]; then
-        w="údržba kitu: kontrola upstreamu ešte nebežala → make -C ~/Projects/_tools/claude-dev-kit upstream"
-    elif [ $((now - mt)) -gt $((30 * 86400)) ]; then
-        d=$(((now - mt) / 86400))
-        w="údržba kitu: posledná kontrola upstreamu pred $d dňami → make -C ~/Projects/_tools/claude-dev-kit upstream"
+    kit=$(cd -P "$DK_SCRIPTS/../../.." 2>/dev/null && pwd)
+    [ -n "$DK_SCRIPTS" ] && [ -f "$kit/tools/upstream.sh" ] || kit=""
+    if [ -n "$kit" ]; then
+        mt=""
+        [ -f "$DK_DATA/maintenance.json" ] && mt=$(jq -r '.lastUpstreamCheck // empty' "$DK_DATA/maintenance.json" 2>/dev/null)
+        mt=${mt%%.*}
+        case "$mt" in *[!0-9]*) mt="" ;; esac
+        if [ -z "$mt" ]; then
+            w="údržba kitu: kontrola upstreamu ešte nebežala → make -C $kit upstream"
+        elif [ $((now - mt)) -gt $((30 * 86400)) ]; then
+            d=$(((now - mt) / 86400))
+            w="údržba kitu: posledná kontrola upstreamu pred $d dňami → make -C $kit upstream"
+        fi
     fi
     if [ -n "$w" ]; then extra="$extra$w$DK_NL"; warn="$warn[dev-kit] $w$DK_NL"; fi
     if [ -f "$DK_PDATA/test-lock.json" ] && dk_lock_read "$ttl"; then
