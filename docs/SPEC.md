@@ -114,8 +114,8 @@ and keys starting with `_` (template notes such as `_init`) are ignored. Example
     "knownFailures": [{"step": "integration", "pattern": "Tests\\\\Integration\\\\Example::testFlaky"}]
   },
   "guards": [
-    {"id": "debug-php", "ext": [".php", ".latte"], "pattern": "\\b(dump|dd|bdump|var_dump|print_r)\\(", "message": "debug výpis v kóde"},
-    {"id": "die", "ext": [".php"], "pattern": "\\b(die|exit)\\(", "message": "die()/exit() — použi throw alebo $this->terminate()"},
+    {"id": "debug-php", "ext": [".php", ".latte"], "pattern": "(^|[^>:$_[:alnum:]])(dump|dd|bdump|var_dump|print_r)\\(", "message": "debug výpis v kóde"},
+    {"id": "die", "ext": [".php"], "pattern": "(^|[^>:$_[:alnum:]])(die|exit)[[:space:]]*(\\(|;)", "message": "die()/exit() — použi throw alebo $this->terminate()"},
     {"id": "latte-raw", "ext": [".latte"], "pattern": "\\{!\\$", "message": "{!$var} vypína escapovanie — len s jasným dôvodom"},
     {"id": "error-suppress", "ext": [".php"], "pattern": "(^|[^[:alnum:]_])@\\$?[a-zA-Z_]+\\(", "message": "potlačenie chyby operátorom @"},
     {"id": "sql-concat", "ext": [".php"], "pattern": "(SELECT|UPDATE|DELETE|INSERT)[^;]*['\"]\\s*\\.\\s*\\$", "message": "SQL skladané reťazcom — použi parametre"}
@@ -157,6 +157,7 @@ Semantics:
   backslash, not s"). Every pattern is passed to grep with `-e` (patterns may start with `-----BEGIN`).
   `secrets.patterns` EXTEND the lib defaults (union); one finding per `file:line`. Builders keep shipped
   default patterns compatible with BSD and GNU grep.
+- `pairs[].when` and `pairs[].unless` are one glob or a list of globs (a path matching any of them counts).
 - Globs (`fullWhen`, `when`, `unless`, `allow` entries ending with `/` are prefixes, `forbidFiles`,
   `migrations.paths`): `**/` = zero or more directories (so `**/*.php` matches `a.php` and `x/y/a.php`),
   trailing `/**` = everything below, other `**` = any chars incl `/`, `*` = any chars except `/`, `?` = one
@@ -391,7 +392,7 @@ flags in any order; `--files` consumes paths until the next `--` flag.
 2. Reminders first, once per session (`pairs-<session_id>.done`), over the session file list incl.
    non-code files:
    - Pairs (N, rule `pair:<id>`): a session file matches `when` and no file of the `unless` set matches
-     `unless` ⇒ add its `say`. The `unless` set = changed files (`dk_changed_files`) ∪ session files ∪
+     `unless` (each one glob or a list, §3) ⇒ add its `say`. The `unless` set = changed files (`dk_changed_files`) ∪ session files ∪
      `git diff --name-only <.head> HEAD` (only when `.head` holds a commit different from HEAD), so a
      test committed in the same turn still counts.
    - Removed tests (rule `testRemoved`): a test method/function removed in a session file (diff vs HEAD,
@@ -555,7 +556,9 @@ Arguments: none | `--sync` | `--dry-run`.
    `.claude/worktrees/` for `.gitignore`.
 8. `--sync` (P5): for each project file with a `dev-kit:` header (JSON files: by template id/keys),
    compare with current template version; show per-file diff and propose update keeping local edits;
-   update header version.
+   update header version. A JSON item with an existing id gets the new template value (with consent) only
+   when the project still holds the value of the template version it came from; an item the project
+   changed is listed with its difference, never overwritten.
 9. Final report stručne, ale úplne (§0): what was created, what to commit, how to undo.
 
 ## 7. Templates (`ROOT/templates/`)
@@ -566,7 +569,9 @@ common/plan.md                   # V1 template
 php-nette/CLAUDE.md.tmpl         # skeleton with {{placeholders}}, ≤ 120 lines incl. verification block (V9) and `## Compact instructions`;
                                  # DB-dependent lines end with `<!-- db:dibi -->` / `<!-- db:doctrine -->` (init keeps one variant, strips the marker)
 php-nette/devkit.json            # like §3 example with {{container}}, {{appRoot}}, {{phpstanConfig}} placeholders; `_init` notes;
-                                 # items with id `doctrine-*` (step doctrine-schema, pair doctrine-entity-migration) only for Doctrine
+                                 # items with id `doctrine-*` (step doctrine-schema, guard doctrine-dql-concat, pair doctrine-entity-migration) only for Doctrine;
+                                 # guards debug-php (+ bdump) and die use the php-symfony patterns: `->exit(`, `::dump(`, `$exit` are not findings;
+                                 # pair model-test `when` = app/models/**, app/model/**, app/Model/** (like fullWhen)
 php-nette/settings.json          # permissions.ask (V4: make db-import*, docker stop/restart/rm * (any container), git push*, git checkout*/git switch*, Doctrine commands that change the DB, migration history or files (`*migrations:migrate*` incl. `--dry-run`, `*migrations:diff*`, `*schema:update*`, `*schema-tool:*`, `*dbal:run-sql*`, …; inert in Dibi projects); project-init adds existing Makefile targets that stop/rebuild containers or change the DB/index) + permissions.deny (O: Edit(/vendor/**), Edit(/node_modules/**) …, anchored to the project root)
 php-nette/.worktreeinclude       # V6: vendor/, app/config/config.local.neon, .test-credentials
 php-nette/rules/php-core.md      # paths: **/*.php — PHP 8.x, PSR-12, strict types where project uses them, no die(), no @

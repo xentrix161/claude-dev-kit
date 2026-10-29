@@ -2016,6 +2016,55 @@ t_upstream_ecc_default() {
   want_rc 1 "ECC_DIR" && want_err "chýba klon ECC: $CASE/iny →" "ECC_DIR"
 }
 
+# ---------------------------------------------------------------- zjednotenie šablón (B2)
+
+# Guardy šablón php-nette a php-symfony cez on-edit: volanie metódy (->exit(, $this->dump(, ::dump() ani
+# premenná $exit nie sú nález; die(, exit; a dump( áno; podmienka QueryBuildera skladaná reťazcom áno.
+t_templates_php_guards() {
+  local stack dql n want got
+  for stack in php-nette php-symfony; do
+    new_case
+    cfg --slurpfile t "$KIT/plugins/dev/templates/$stack/devkit.json" '.guards = $t[0].guards' || return 1
+    dql=dql-concat
+    [ "$stack" = php-nette ] && dql=doctrine-dql-concat
+    add app/Foo.php "$(printf '%s\n' '$this->exit(1);' '$this->dump($x);' 'Debugger::dump($x);' 'return $exit;' \
+      "die('x');" '    exit;' 'dump($x);' "\$qb->where('a.id = ' . \$id);")"
+    on_edit app/Foo.php
+    want_rc 2 "$stack" || return 1
+    want="app/Foo.php:10 guard:debug-php|app/Foo.php:11 guard:$dql|app/Foo.php:8 guard:die|app/Foo.php:9 guard:die|"
+    got=$(printf '%s\n' "$ERR" | LC_ALL=C sed -n 's/^\(app\/Foo\.php:[0-9]*\) — .*\[\(guard:[a-z-]*\)\]$/\1 \2/p' |
+      LC_ALL=C sort | LC_ALL=C tr '\n' '|')
+    [ "$got" = "$want" ] || { fail "$stack: nálezy '$got', čakal som '$want'$(ctx)"; return 1; }
+    n=$(printf '%s\n' "$ERR" | LC_ALL=C grep -c '^app/Foo\.php:[4-7] ')
+    [ "$n" = 0 ] || { fail "$stack: nález na riadku 4–7 (volanie metódy, ::dump, \$exit)$(ctx)"; return 1; }
+  done
+}
+# pairs: when/unless ako zoznam globov (šablóna php-nette model-test pokrýva app/models, app/model, app/Model)
+t_stop_pair_glob_list() {
+  new_case
+  cfg --slurpfile t "$KIT/plugins/dev/templates/php-nette/devkit.json" \
+    '.pairs = [($t[0].pairs[] | select(.id == "model-test")),
+      {"id": "lib-spec", "when": "libs/**", "unless": ["tests/**", "spec/**"], "say": "PAIRSAY lib"}]' || return 1
+  put app/Model/User.php '<?php $user = 1;'
+  put libs/Lib.php '<?php $lib = 1;'
+  session_files app/Model/User.php libs/Lib.php
+  stop_check
+  want_rc 0 "1. session" && want_json '(.hookSpecificOutput.additionalContext | contains("[pair:model-test]"))
+    and (.hookSpecificOutput.additionalContext | contains("PAIRSAY lib"))' "1. session" || return 1
+  SID="$SID-b"
+  put app/model/Order.php '<?php $order = 1;'
+  put spec/LibSpec.php '<?php $spec = 1;'
+  put tests/OrderTest.php '<?php $test = 1;'
+  session_files app/model/Order.php libs/Lib.php spec/LibSpec.php tests/OrderTest.php
+  stop_check
+  want_rc 0 "2. session" && want_not '[pair:' "2. session (unless zo zoznamu)" || return 1
+  SID="$SID-c"
+  session_files app/model/Order.php
+  rm -f "$REPO/tests/OrderTest.php"
+  stop_check
+  want_rc 0 "3. session" && want_json '.hookSpecificOutput.additionalContext | contains("[pair:model-test]")' "3. session (app/model)"
+}
+
 # ---------------------------------------------------------------- beh
 
 N=0
@@ -2177,6 +2226,8 @@ t "pre-bash: predvolené vzory AKIA… a BEGIN … PRIVATE KEY → deny s maskou
 t "stop-check: zmazaný celý test súbor (rm aj git rm) → pripomienka raz, nový súbor ticho" t_stop_removed_test_file
 t "pre-bash: commitGate enabled false / disabledRules → kód bez PASS prejde, tajomstvo deny" t_bash_gate_off_secrets_on
 t "tools/upstream.sh: klon ECC predvolene <kit>/../ECC, ECC_DIR ho prebije" t_upstream_ecc_default
+t "šablóny php: guardy die, debug-php a dql-concat (->exit(, \$this->dump( nie; die(, exit;, ->where('…' . \$x) áno)" t_templates_php_guards
+t "stop-check: pairs when/unless ako zoznam globov (php-nette model-test)" t_stop_pair_glob_list
 
 wait
 for f in "$RES"/*; do

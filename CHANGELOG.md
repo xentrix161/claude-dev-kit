@@ -8,6 +8,9 @@
 - Príklady bez domény konkrétneho projektu: `task-tldr` ukazuje zhrnutie z e-shopu (stavy objednávky, export, krok po nasadení), `ecc-change-impact` menuje odberateľa „iný tenant“.
 - `/dev:debug`: zachytávanie mailov (Mailpit), vyhľadávací server a prihlásenie testovacím loginom len vtedy, keď ich projekt má; súbor s loginom menuje `CLAUDE.md` projektu.
 - Šablóna `php-nette`: `CLAUDE.md.tmpl` má namiesto natvrdo `.test-credentials` symbol `{{testCredentialsFile}}` na vlastnom riadku (init ho deteguje ako ignorovaný súbor s commitnutým vzorom, bez neho riadok zmaže); `rules/tests.md` hovorí o súbore s testovacím loginom všeobecne a `--sync` ho prenesie. Existujúci `CLAUDE.md` projektu sa nemení.
+- Šablóna `php-nette` `devkit.json`: guardy `debug-php` a `die` majú vzor zo `php-symfony` — volanie metódy (`->exit(`, `$this->dump(`, `Debugger::dump(`) ani premenná `$exit` už nie sú nález, `bdump` ostáva; nový guard `doctrine-dql-concat` (podmienka QueryBuildera skladaná reťazcom, len pri Doctrine); pair `model-test` pokrýva `app/models/`, `app/model/` aj `app/Model/` ako `fullWhen`.
+- `pairs`: `when` a `unless` môžu byť aj zoznam globov (stačí zhoda s jedným); jeden glob funguje ako doteraz.
+- `/dev:project-init --sync` navrhne novú hodnotu guardu, kroku či pairu s existujúcim `id`, keď ju projekt od skopírovania nezmenil (porovnanie so šablónou pôvodnej verzie); zmenenú položku len vypíše s rozdielom.
 
 ## 0.3.1 — 2026-10-29
 

@@ -42,11 +42,11 @@
     "knownFailures": []
   },
   "guards": [
-    {"id": "debug-php", "ext": [".php", ".latte"], "pattern": "\\b(dump|dd|bdump|var_dump|print_r)\\(",
-     "message": "debug výpis v kóde"},
+    {"id": "debug-php", "ext": [".php", ".latte"], "pattern": "(^|[^>:$_[:alnum:]])(dump|dd|bdump|var_dump|print_r)\\(",
+     "message": "debug výpis v kóde (dump/dd/bdump/var_dump/print_r)"},
     {"id": "debug-latte", "ext": [".latte"], "pattern": "\\{(dump|debugbreak)([[:space:]}]|$)",
      "message": "{dump}/{debugbreak} v šablóne"},
-    {"id": "die", "ext": [".php"], "pattern": "\\b(die|exit)[[:space:]]*[(;]",
+    {"id": "die", "ext": [".php"], "pattern": "(^|[^>:$_[:alnum:]])(die|exit)[[:space:]]*(\\(|;)",
      "message": "die()/exit() — použi throw alebo $this->terminate()"},
     {"id": "latte-raw", "ext": [".latte"], "pattern": "\\{!\\$",
      "message": "{!$var}: v Latte 3 vypíše negáciu výrazu, v Latte 2 vypína escapovanie — {$var|noescape} len s jasným dôvodom"},
@@ -54,11 +54,13 @@
      "message": "potlačenie chyby operátorom @"},
     {"id": "sql-concat", "ext": [".php"], "pattern": "(SELECT|UPDATE|DELETE|INSERT)[^;]*['\"]\\s*\\.\\s*\\$",
      "message": "SQL skladané reťazcom — hodnoty len cez parametre (Dibi %s/?, Doctrine :name + setParameter())"},
+    {"id": "doctrine-dql-concat", "ext": [".php"], "pattern": "->(where|andWhere|orWhere|having|andHaving|orHaving)\\([^)]*['\"][[:space:]]*\\.[[:space:]]*\\$",
+     "message": "podmienka QueryBuildera skladaná reťazcom — hodnoty cez setParameter(), názvy polí len z whitelistu"},
     {"id": "test-skip", "ext": [".php"], "pattern": "(->|::)mark(TestSkipped|TestIncomplete)\\(",
      "message": "vypnutý test (markTestSkipped/markTestIncomplete) — len so súhlasom používateľa, nie ako obídenie zlyhania"}
   ],
   "pairs": [
-    {"id": "model-test", "when": "app/models/**", "unless": "tests/**",
+    {"id": "model-test", "when": ["app/models/**", "app/model/**", "app/Model/**"], "unless": "tests/**",
      "say": "Zmena modelu bez zmeny testu: spusti integračné testy (/dev:check --full) a navrhni test na zmenené správanie."},
     {"id": "doctrine-entity-migration", "when": "{{entityGlob}}", "unless": "{{migrationsGlob}}",
      "say": "Zmena entity bez migrácie: spýtaj sa používateľa, či vygenerovať migráciu (migrations:diff); bez súhlasu ju nevytváraj."}

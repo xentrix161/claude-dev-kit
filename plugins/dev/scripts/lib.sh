@@ -3,12 +3,15 @@
 # Musí bežať na macOS /bin/bash 3.2 aj na bash 5 (bez asociatívnych polí, mapfile, ${x,,}, sed -i…).
 
 DK_US=$'\x1f'
+DK_RS=$'\x1e'
 DK_NL=$'\n'
 DK_TAB=$'\t'
 DK_SCRIPTS=$(cd "$(dirname "${BASH_SOURCE[0]}")" 2>/dev/null && pwd)
 
-# jq: s = bezpečný jednoriadkový reťazec; base = spoločné kľúče devkit.json (tagované riadky).
-DK_JQ_DEFS='def s: if . == null then "" elif type == "string" then gsub("[\n\r\u001f]"; " ") else tojson end;
+# jq: s = bezpečný jednoriadkový reťazec; gl = glob alebo zoznam globov oddelený DK_RS;
+# base = spoločné kľúče devkit.json (tagované riadky).
+DK_JQ_DEFS='def s: if . == null then "" elif type == "string" then gsub("[\n\r\u001f\u001e]"; " ") else tojson end;
+def gl: if type == "array" then map(s) | join("\u001e") else s end;
 def base: "C\u001f\(.container|s)", "A\u001f\(.appRoot|s)", "K\u001f\(.stack|s)",
   ((.disabledRules // []) | .[] | "D\u001f\(.|s)"),
   "X\u001f\([(.lint // {} | keys[]), ((.check.steps // [])[] | (.ext // [])[])] | unique | join(","))";'

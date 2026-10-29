@@ -28,7 +28,7 @@ dk_main() {
     t0=$(dk_ms)
     dk_cfg_read '"S\u001f\(if .stopCheck == false then "false" else "true" end)",
         ((.guards // [])[] | "G\u001f\(.id|s)\u001f\((.ext // []) | join(","))\u001f\(.pattern|s)\u001f\(.message|s)"),
-        ((.pairs // [])[] | "P\u001f\(.id|s)\u001f\(.when|s)\u001f\(.unless|s)\u001f\(.say|s)")' || return 0
+        ((.pairs // [])[] | "P\u001f\(.id|s)\u001f\(.when|gl)\u001f\(.unless|gl)\u001f\(.say|s)")' || return 0
     while IFS=$DK_US read -r tag a b c d; do
         case "$tag" in
             S) on=$a ;;
@@ -50,7 +50,7 @@ EOF
             dk_rule_on "pair:$id" || continue
             [ -f "$done_f" ] && grep -Fxq -- "$id" "$done_f" 2>/dev/null && continue
             hit=0
-            re=$(dk_glob_re "$when")
+            re=$(dk_globs_re "${when//$DK_RS/$DK_NL}")
             while IFS= read -r f; do
                 [ -n "$f" ] || continue
                 if [[ $f =~ $re ]]; then hit=1; break; fi
@@ -63,7 +63,7 @@ EOF
                     chg_loaded=1
                 fi
                 hit=0
-                re=$(dk_glob_re "$unless")
+                re=$(dk_globs_re "${unless//$DK_RS/$DK_NL}")
                 while IFS= read -r f; do
                     [ -n "$f" ] || continue
                     if [[ $f =~ $re ]]; then hit=1; break; fi
