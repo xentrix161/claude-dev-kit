@@ -59,7 +59,7 @@ Pri kóde 4:
 - Poradie opráv: syntax/parse → statická analýza (typy) → unit testy → integračné → štýl (phpcs). Príčina pred následkom: jedna chyba často zhodí ďalšie kroky.
 - Opakované zlyhanie mimo tvojich zmien navrhni do `check.knownFailures` — zapísať len so súhlasom. Neoveruj ho cez `git stash` ani prepnutím vetvy (v repe môžu pracovať iné sessions).
 - Bez pokynu neopravuj. Keď používateľ opravu žiada, oprav v navrhnutom poradí a spusti rovnaký príkaz znova (max 2 kolá, potom nahlás stav a navrhni /clear s presnejším zadaním).
-- Stop hook môže po FAIL zablokovať koniec ťahu (najviac 2×); keď čakáš na súhlas používateľa s opravou, ukonči ťah jednou vetou so stavom.
+- Stop hook môže po FAIL zablokovať koniec ťahu: rovnaké zlyhanie najviac 2×, pri treťom (strop 3×) už len upozorní; keď čakáš na súhlas používateľa s opravou, ukonči ťah jednou vetou so stavom.
 
 ## 4. Bez `.claude/devkit.json`
 

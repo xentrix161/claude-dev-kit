@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Stop: pripomienky (pairs, zmazané testy) raz za session, potom check.sh --stop nad kódom session + guardy v pridaných riadkoch.
-# Infra (kontajner dole, krok sa nedal spustiť, nič nebežalo) nikdy neblokuje; rovnaký padajúci stav blokuje najviac 2×, potom len upozorní.
+# Infra (kontajner dole, krok sa nedal spustiť, nič nebežalo) nikdy neblokuje; rovnaký padajúci stav blokuje najviac 2×, pri treťom zlyhaní (strop 3×) len upozorní.
 . "$(dirname "$0")/lib.sh" || exit 0
 DK_HOOK=stop-check
 
