@@ -16,6 +16,7 @@
 - Šablóny `php-nette` a `php-symfony` `rules/php-core.md`: rovnaké znenie politiky PHPStan baseline; `php-nette/rules/db-dibi.md` platí pre Dibi 4+.
 - Šablóna `python` `rules/tests.md` a skill `ecc-python-testing`: rýchle testy sú tie z kroku `unit` v `devkit.json`, nie natvrdo zapísaný príkaz.
 - Skill `ecc-mysql-patterns` sa načíta aj pri `**/Entity/**` a `**/Repository/**`; `/dev:review` a agent `ecc-silent-failure-hunter` hovoria „Dibi 4+“.
+- Hooky pred a po edite bežia aj pri `NotebookEdit` (cesta z `notebook_path`): zámok testu, otázka pri commitnutej migrácii, guardy a tajomstvá platia aj pre úpravu bunky notebooku. Šablóna `python` má guardy aj pre `.ipynb`; lint notebookov šablóna nemá (ruff hlási riadky v bunke, filter zmenených riadkov ich nespáruje) — `--sync` navrhne nové `ext` guardov ako zmenu položky.
 
 ## 0.3.1 — 2026-10-29
 

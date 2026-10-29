@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# PostToolUse (Edit|Write|MultiEdit): lint podľa prípony + guardy a tajomstvá v pridaných riadkoch. Nález → stderr + exit 2.
+# PostToolUse (Edit|Write|MultiEdit|NotebookEdit): lint podľa prípony + guardy a tajomstvá v pridaných riadkoch. Nález → stderr + exit 2.
 . "$(dirname "$0")/lib.sh" || exit 0
 DK_HOOK=on-edit
 

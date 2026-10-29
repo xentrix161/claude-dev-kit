@@ -198,7 +198,7 @@ dk_init() {
     DK_SESSION="" DK_CWD="" DK_FILE="" DK_EVENT="" DK_TOOL="" DK_STOP_ACTIVE="" DK_SOURCE="" DK_AGENT=""
     if [ -n "$DK_INPUT" ] && [ "$DK_HAS_JQ" = 1 ]; then
         local line
-        line=$(printf '%s' "$DK_INPUT" | jq -r '[.session_id, .cwd, .tool_input.file_path, .hook_event_name, .tool_name, .stop_hook_active, .source, .agent_type]
+        line=$(printf '%s' "$DK_INPUT" | jq -r '[.session_id, .cwd, (.tool_input.file_path // .tool_input.notebook_path), .hook_event_name, .tool_name, .stop_hook_active, .source, .agent_type]
             | map(if . == null then "" else (tostring | gsub("[\n\r\u001f]"; " ")) end) | join("\u001f")' 2>/dev/null)
         IFS=$DK_US read -r DK_SESSION DK_CWD DK_FILE DK_EVENT DK_TOOL DK_STOP_ACTIVE DK_SOURCE DK_AGENT <<EOF
 $line

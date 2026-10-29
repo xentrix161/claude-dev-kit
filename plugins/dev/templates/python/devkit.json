@@ -8,7 +8,8 @@
     "Lint nemá requires: nástroj, ktorý projekt nepoužíva (ruff, mypy), vypusť z lint aj check.steps — inak každý edit hlási „not found“.",
     "Krok unit končí exit 5, keď projekt nemá testy alebo sú všetky pod markerom slow/integration — uprav -m alebo krok vypusť.",
     "Legacy s množstvom chýb mypy: pri kroku mypy zmeň changedLinesOnly zo \"stop\" na true. Čistý ruff (ruff check . prejde): kroku ruff môžeš pridať run nad celým repom.",
-    "pairs.unless a migrations.paths prispôsob nástroju migrácií (Django app/migrations, Alembic alembic/versions, Flask-Migrate migrations/versions)."
+    "pairs.unless a migrations.paths prispôsob nástroju migrácií (Django app/migrations, Alembic alembic/versions, Flask-Migrate migrations/versions).",
+    "Guardy majú aj .ipynb (riadky buniek v JSON notebooku); lint .ipynb šablóna nemá — ruff hlási riadky v bunke (cell N:riadok), filter zmenených riadkov ich nespáruje."
   ],
   "version": 1,
   "stack": "python",
@@ -48,22 +49,22 @@
     "knownFailures": []
   },
   "guards": [
-    {"id": "debug-py", "ext": [".py"],
+    {"id": "debug-py", "ext": [".py", ".ipynb"],
      "pattern": "\\b(breakpoint|set_trace)\\(|(^|[^a-zA-Z0-9_.])(import|from)[[:space:]]+(pdb|ipdb|pudb)\\b",
      "message": "debug kód (breakpoint, pdb) v kóde"},
-    {"id": "sql-concat", "ext": [".py"],
+    {"id": "sql-concat", "ext": [".py", ".ipynb"],
      "pattern": "\\b(SELECT|INSERT|UPDATE|DELETE)\\b[^\"']*([\"']?[{][a-zA-Z_]|[\"']+([[:space:]]*\\+|[[:space:]]+%[[:space:]]*[(a-zA-Z_]|[[:space:]]*%[[:space:]]+[(a-zA-Z_]|%\\(|[[:space:]]*\\.format\\())",
      "message": "SQL skladané f-stringom, %, + alebo .format() — použi parametre"},
-    {"id": "shell-true", "ext": [".py"],
+    {"id": "shell-true", "ext": [".py", ".ipynb"],
      "pattern": "shell[[:space:]]*=[[:space:]]*True",
      "message": "shell=True — predaj zoznam argumentov (riziko injekcie príkazu)"},
-    {"id": "tls-verify", "ext": [".py"],
+    {"id": "tls-verify", "ext": [".py", ".ipynb"],
      "pattern": "(^|[^a-zA-Z0-9_])verify[[:space:]]*=[[:space:]]*False",
      "message": "verify=False vypína overenie TLS certifikátu"},
-    {"id": "eval", "ext": [".py"],
+    {"id": "eval", "ext": [".py", ".ipynb"],
      "pattern": "(^|[^.a-zA-Z0-9_])(eval|exec)\\(",
      "message": "eval()/exec() — nad vstupom zvonku nikdy; literály cez ast.literal_eval"},
-    {"id": "test-skip", "ext": [".py"],
+    {"id": "test-skip", "ext": [".py", ".ipynb"],
      "pattern": "pytest\\.(skip|xfail)\\(|@pytest\\.mark\\.(skip|skipif|xfail)\\b|@unittest\\.skip|\\.skipTest\\(",
      "message": "vypnutý test (pytest.skip/xfail, @skip, skipTest) — len so súhlasom používateľa, nie ako obídenie zlyhania"}
   ],

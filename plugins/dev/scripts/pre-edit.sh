@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# PreToolUse (Edit|Write|MultiEdit): agenti kitu len do svojej pamäte (deny), zamknutý test počas /dev:fix (deny),
+# PreToolUse (Edit|Write|MultiEdit|NotebookEdit): agenti kitu len do svojej pamäte (deny), zamknutý test počas /dev:fix (deny),
 # commitnutá migrácia (ask).
 . "$(dirname "$0")/lib.sh" || exit 0
 DK_HOOK=pre-edit

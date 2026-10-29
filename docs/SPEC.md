@@ -177,16 +177,17 @@ Semantics:
   "hooks": {
     "SessionStart": [{"matcher": "startup|resume|clear|compact", "hooks": [{"type": "command", "command": "bash \"${CLAUDE_PLUGIN_ROOT}/scripts/session-card.sh\"", "timeout": 10}]}],
     "PreToolUse": [
-      {"matcher": "Edit|Write|MultiEdit", "hooks": [{"type": "command", "command": "bash \"${CLAUDE_PLUGIN_ROOT}/scripts/pre-edit.sh\"", "timeout": 10}]},
+      {"matcher": "Edit|Write|MultiEdit|NotebookEdit", "hooks": [{"type": "command", "command": "bash \"${CLAUDE_PLUGIN_ROOT}/scripts/pre-edit.sh\"", "timeout": 10}]},
       {"matcher": "Bash", "hooks": [{"type": "command", "command": "bash \"${CLAUDE_PLUGIN_ROOT}/scripts/pre-bash.sh\"", "timeout": 30}]}
     ],
-    "PostToolUse": [{"matcher": "Edit|Write|MultiEdit", "hooks": [{"type": "command", "command": "bash \"${CLAUDE_PLUGIN_ROOT}/scripts/on-edit.sh\"", "timeout": 60}]}],
+    "PostToolUse": [{"matcher": "Edit|Write|MultiEdit|NotebookEdit", "hooks": [{"type": "command", "command": "bash \"${CLAUDE_PLUGIN_ROOT}/scripts/on-edit.sh\"", "timeout": 60}]}],
     "Stop": [{"hooks": [{"type": "command", "command": "bash \"${CLAUDE_PLUGIN_ROOT}/scripts/stop-check.sh\"", "timeout": 600}]}]
   }
 }
 ```
 Verify tool names and matcher syntax against `hooks.md` (current tool names for file edits). Hook input
-fields used: `session_id`, `cwd`, `hook_event_name`, `tool_name`, `tool_input.file_path`,
+fields used: `session_id`, `cwd`, `hook_event_name`, `tool_name`, `tool_input.file_path` (NotebookEdit:
+`tool_input.notebook_path`; pre-edit and on-edit treat both the same),
 `tool_input.command`, `stop_hook_active`, `source`, `agent_type` (set when a subagent calls the tool).
 Project dir = `$CLAUDE_PROJECT_DIR`, fallback `.cwd` from input, fallback `pwd`. A cwd inside a linked
 worktree of the same repo wins over `--project`/`CLAUDE_PROJECT_DIR` (scripts called from skills and
@@ -583,7 +584,9 @@ php-nette/rules/db-dibi.md       # paths: db/**, **/*Model.php — Dibi 4+ fetch
 php-nette/rules/db-doctrine.md   # paths: **/Entity/**, **/Repository/**, migrations/**, app/config/*doctrine*.neon — Doctrine ORM + Migrations in Nette; copied instead of db-dibi.md
 php-nette/rules/tests.md         # paths: tests/** — suites, rollback tests, credentials, verification output
 php-symfony/…                    # same shape: CLAUDE.md.tmpl, devkit.json, settings.json, .worktreeinclude, rules/{php-core,symfony,twig-frontend,doctrine,api-platform,tests}.md
-python/…                         # CLAUDE.md.tmpl, devkit.json (pytest, ruff, mypy; host or container; {{bin}} placeholder, _init note key), settings.json, .worktreeinclude, rules/{python-core,tests}.md
+python/…                         # CLAUDE.md.tmpl, devkit.json (pytest, ruff, mypy; host or container; {{bin}} placeholder, _init note key), settings.json, .worktreeinclude, rules/{python-core,tests}.md;
+                                 # guards also cover `.ipynb` (cell source lines in the notebook JSON, NotebookEdit); no `.ipynb` lint —
+                                 # ruff reports notebook findings as `cell N:<line>`, which the changed-lines filter (§4.2) cannot map
 skills/ecc-design-system/  skills/ecc-api-design/  skills/ecc-inherit-legacy-style/  skills/ecc-seo/   # layer B, copied into <project>/.claude/skills/ on request
 ```
 Template content is GENERIC for the stack (no project specifics, no project names, no data).

@@ -163,6 +163,12 @@ j_file() { # <event> <file-abs>
       tool_input: {file_path: $f, old_string: "a", new_string: "b", replace_all: false}}
      + (if $e == "PostToolUse" then {tool_response: {filePath: $f, success: true}} else {} end)'
 }
+j_notebook() { # <event> <notebook-abs> — NotebookEdit má cestu v tool_input.notebook_path
+  jq -nc --arg s "$SID" --arg c "$REPO" --arg e "$1" --arg f "$2" \
+    '{session_id: $s, transcript_path: "/dev/null", cwd: $c, permission_mode: "default",
+      hook_event_name: $e, tool_name: "NotebookEdit", tool_use_id: "toolu_selftest",
+      tool_input: {notebook_path: $f, cell_id: "c1", new_source: "x = 1", edit_mode: "replace"}}'
+}
 j_bash() { # <príkaz> [cwd]
   jq -nc --arg s "$SID" --arg c "${2:-$REPO}" --arg cmd "$1" \
     '{session_id: $s, transcript_path: "/dev/null", cwd: $c, permission_mode: "default",
@@ -2065,6 +2071,29 @@ t_stop_pair_glob_list() {
   want_rc 0 "3. session" && want_json '.hookSpecificOutput.additionalContext | contains("[pair:model-test]")' "3. session (app/model)"
 }
 
+# NotebookEdit: hooks.json ho má v matcheroch pre-edit aj on-edit, skripty berú cestu z notebook_path;
+# guardy šablóny python platia aj pre .ipynb (riadky buniek v JSON).
+t_notebook_edit() {
+  local hj="$KIT/plugins/dev/hooks/hooks.json" nb=notebooks/explore.ipynb
+  jq -e '[.hooks.PreToolUse[], .hooks.PostToolUse[] | select(.hooks[0].command | test("pre-edit|on-edit"))
+    | .matcher | split("|") | index("NotebookEdit")] | length == 2 and all(. != null)' "$hj" >/dev/null 2>&1 ||
+    { fail "hooks.json: NotebookEdit chýba v matcheri pre-edit alebo on-edit"; return 1; }
+  new_case
+  cfg --slurpfile t "$KIT/plugins/dev/templates/python/devkit.json" '.guards = $t[0].guards' || return 1
+  put "$nb" '{"cells": [{"cell_type": "code", "id": "c1", "metadata": {}, "outputs": [],
+  "source": ["x = 1\n"]}], "metadata": {}, "nbformat": 4, "nbformat_minor": 5}'
+  put db/migrations/explore.ipynb '{"cells": []}'
+  g add -A && g commit -qm nb || { fail "fixture: commit notebookov"; return 1; }
+  put "$nb" '{"cells": [{"cell_type": "code", "id": "c1", "metadata": {}, "outputs": [],
+  "source": ["x = 1\n",
+    "breakpoint()\n"]}], "metadata": {}, "nbformat": 4, "nbformat_minor": 5}'
+  hook on-edit "$(j_notebook PostToolUse "$REPO/$nb")"
+  want_rc 2 "on-edit" && want_err "$nb:3 — debug kód" "on-edit" && want_err '[guard:debug-py]' "on-edit" || return 1
+  grep -qxF "$nb" "$PDATA/sessions/$SID.files" 2>/dev/null || { fail "notebook chýba v sessions/$SID.files"; return 1; }
+  hook pre-edit "$(j_notebook PreToolUse "$REPO/db/migrations/explore.ipynb")"
+  want_decision ask "pre-edit" && want_out 'db/migrations/explore.ipynb' "pre-edit"
+}
+
 # ---------------------------------------------------------------- beh
 
 N=0
@@ -2228,6 +2257,7 @@ t "pre-bash: commitGate enabled false / disabledRules → kód bez PASS prejde, 
 t "tools/upstream.sh: klon ECC predvolene <kit>/../ECC, ECC_DIR ho prebije" t_upstream_ecc_default
 t "šablóny php: guardy die, debug-php a dql-concat (->exit(, \$this->dump( nie; die(, exit;, ->where('…' . \$x) áno)" t_templates_php_guards
 t "stop-check: pairs when/unless ako zoznam globov (php-nette model-test)" t_stop_pair_glob_list
+t "NotebookEdit: matcher v hooks.json, notebook_path v on-edit (guard python .ipynb) aj pre-edit" t_notebook_edit
 
 wait
 for f in "$RES"/*; do
