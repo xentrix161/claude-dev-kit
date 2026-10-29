@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
 # PreToolUse (Bash): pri `git commit` tajomstvá v pridaných riadkoch + commit gate (PASS z check.sh pre presne tento obsah).
-# Rozpoznanie cez DK_RE_COMMIT / DK_RE_ADD z lib.sh (SPEC §4.4). Obmedzenie: `sh -c '…git commit…'` ani
-# `bash -c '…'` sa nerozpozná.
+# Rozpoznanie cez DK_RE_COMMIT / DK_RE_ADD z lib.sh (SPEC §4.4). Obmedzenia (`sh -c`, textové `cd`): SPEC §4.4
+# Known limitations.
 . "$(dirname "$0")/lib.sh" || exit 0
 DK_HOOK=pre-bash
 
-DK_RE_CD='(^|[;&|({!]|&&|\|\||(^|[[:space:]])(then|do|else))[[:space:]]*cd[[:space:]]+("[^"]*"|'"'"'[^'"'"']*'"'"'|[^;&|[:space:]]+)'
+DK_RE_CD='(^|[;&|({!]|&&|\|\||(^|[[:space:]])(then|do|else))[[:space:]]*cd[[:space:]]+(-[LP]+[[:space:]]+)*(--[[:space:]]+)?("[^"]*"|'"'"'[^'"'"']*'"'"'|[^;&|[:space:]]+)'
 
 dk_deny() {
     jq -nc --arg r "$1" \
@@ -49,10 +49,11 @@ dk__repl() { # <token> <value> <boundary>
     DK_X="$out$s"
 }
 
-# Cieľ cd / -C / --work-tree / --git-dir → absolútna cesta (~, $HOME, $PWD = base, $CLAUDE_PROJECT_DIR).
-# Návrat 1 = nerozriešiteľné ($(…), iná premenná, `cd -`).
+# Cieľ cd / -C / --work-tree / --git-dir → absolútna cesta (~, $HOME, $PWD a $(pwd) = base, $CLAUDE_PROJECT_DIR).
+# Návrat 1 = nerozriešiteľné ($(…), iná premenná, ~iný, `cd -`, prepínač bez adresára).
 dk_expand_dir() { # <raw> <base>
     local raw="$1" base="$2"
+    case "$raw" in '~'|'~/'*) ;; '~'*) return 1 ;; esac
     case "$raw" in
         \'*\') DK_X=$(dk_strip_quotes "$raw") ;;
         *)
@@ -62,6 +63,8 @@ dk_expand_dir() { # <raw> <base>
             dk__repl '$HOME' "$HOME" 1
             dk__repl '${PWD}' "$base" 0
             dk__repl '$PWD' "$base" 1
+            dk__repl '$(pwd)' "$base" 0
+            dk__repl '`pwd`' "$base" 0
             if [ -n "${CLAUDE_PROJECT_DIR:-}" ]; then
                 dk__repl '${CLAUDE_PROJECT_DIR}' "$CLAUDE_PROJECT_DIR" 0
                 dk__repl '$CLAUDE_PROJECT_DIR' "$CLAUDE_PROJECT_DIR" 1
@@ -69,8 +72,24 @@ dk_expand_dir() { # <raw> <base>
             case "$DK_X" in *'$'*|*'`'*) return 1 ;; esac
             ;;
     esac
-    case "$DK_X" in ''|-) return 1 ;; esac
+    case "$DK_X" in ''|-*) return 1 ;; esac
     dk_abs "$DK_X" "$base"
+}
+
+# Cieľ cd / -C / --work-tree / --git-dir → base (premenné base, fb, unres z dk_main). Nerozriešený = cwd session
+# a úryvok do deny textu; cieľ nezávislý od aktuálneho adresára (absolútny, ~) úryvok zruší.
+dk__target() { # <raw> <úryvok> [git-dir]
+    local v
+    case "$1" in -*) base=$fb unres=$2; return 0 ;; esac
+    if ! v=$(dk_expand_dir "$1" "$base"); then
+        base=$fb unres=$2
+        return 0
+    fi
+    case "$(dk_expand_dir "$1" "$DK_US")" in "$DK_US"*) ;; *) unres="" ;; esac
+    if [ -n "${3:-}" ]; then
+        case "$v" in */.git) v=${v%/.git} ;; esac
+    fi
+    if [ -d "$v" ]; then base=$v; else base=$fb; fi
 }
 
 # Prečo posledná quick/full kontrola nedala PASS (partial.json z check.sh, < 24 h) a ako ďalej; inak nič.
@@ -159,8 +178,8 @@ dk_main() {
     d=$(printf '\001')
 
     # Repo: cwd → každé `cd` pred posledným commitom (kumulatívne) → globálne prepínače gitu toho commitu.
-    # Nerozriešiteľný cieľ = cwd session (fail closed).
-    local line pre scan fb base t v seg tok nx="" wtree="" gdir=""
+    # Nerozriešiteľný cieľ = cwd session (fail closed) a riadok v deny texte.
+    local line pre scan fb base t v seg tok nx="" wtree="" gdir="" unres="" unote=""
     fb=${DK_CWD:-${CLAUDE_PROJECT_DIR:-$PWD}}
     base=$fb
     line=$(printf '%s\n' "$cmd" | sed -n "${lno}p")
@@ -168,14 +187,14 @@ dk_main() {
     scan=$( { [ "$lno" -gt 1 ] && printf '%s\n' "$cmd" | sed -n "1,$((lno - 1))p"; printf '%s\n' "$pre"; } )
     while IFS= read -r t; do
         [ -n "$t" ] || continue
-        if v=$(dk_expand_dir "$t" "$base") && [ -d "$v" ]; then base=$v; else base=$fb; fi
+        dk__target "$t" "cd $t"
     done <<EOF
-$(printf '%s\n' "$scan" | grep -oE -e "$DK_RE_CD" | sed -E 's/^([;&|({!]|&&|\|\||[[:space:]]|then|do|else)*cd[[:space:]]+//')
+$(printf '%s\n' "$scan" | grep -oE -e "$DK_RE_CD" | sed -E 's/^([;&|({!]|&&|\|\||[[:space:]]|then|do|else)*cd[[:space:]]+//; s/^(-[LP]+[[:space:]]+)*(--[[:space:]]+)?//')
 EOF
     seg=$(printf '%s\n' "$line" | grep -oE -e "$DK_RE_COMMIT" | tail -n 1)
     while IFS= read -r tok; do
         case "$nx" in
-            C) if v=$(dk_expand_dir "$tok" "$base") && [ -d "$v" ]; then base=$v; else base=$fb; fi; nx=""; continue ;;
+            C) dk__target "$tok" "-C $tok"; nx=""; continue ;;
             W) wtree=$tok; nx=""; continue ;;
             G) gdir=$tok; nx=""; continue ;;
             S) nx=""; continue ;;
@@ -194,16 +213,15 @@ EOF
 $(dk__tokens "$seg")
 EOF
     if [ -n "$wtree" ]; then
-        if v=$(dk_expand_dir "$wtree" "$base") && [ -d "$v" ]; then base=$v; else base=$fb; fi
+        dk__target "$wtree" "--work-tree $wtree"
     elif [ -n "$gdir" ]; then
-        if v=$(dk_expand_dir "$gdir" "$base"); then
-            case "$v" in */.git) v=${v%/.git} ;; esac
-            if [ -d "$v" ]; then base=$v; else base=$fb; fi
-        else
-            base=$fb
-        fi
+        dk__target "$gdir" "--git-dir $gdir" git
     fi
     [ -d "$base" ] || base=$fb
+    if [ -n "$unres" ]; then
+        [ "${#unres}" -le 60 ] || unres="${unres:0:59}…"
+        unote="[dev-kit] cieľ \`cd\`/\`git -C\` sa nedal určiť ($unres) — použi doslovnú cestu$DK_NL"
+    fi
     dk_set_project "$base" ""
     [ -n "$DK_CFG" ] || return 0
 
@@ -349,7 +367,7 @@ EOF
     qn=$(printf '%s\n' "$tbc" | grep '^"' | head -n 1)
     if [ -n "$qn" ]; then
         if [ "$gate_on" = 1 ]; then dk_log pre-bash commitGate deny "" $(( $(dk_ms) - t0 )); else dk_log pre-bash secrets deny "" $(( $(dk_ms) - t0 )); fi
-        dk_deny "[dev-kit] nepodporovaný názov súboru $qn (úvodzovky, \\ alebo riadiace znaky) — kontrola ho nevie overiť, premenuj ho."
+        dk_deny "$unote[dev-kit] nepodporovaný názov súboru $qn (úvodzovky, \\ alebo riadiace znaky) — kontrola ho nevie overiť, premenuj ho."
         return 0
     fi
 
@@ -541,7 +559,7 @@ EOF
     fi
 
     if [ -n "$deny" ]; then
-        dk_deny "$(printf '%s' "$deny" | grep -v '^$' | head -n 20)"
+        dk_deny "$(printf '%s' "$unote$deny" | grep -v '^$' | head -n 20)"
     fi
     return 0
 }

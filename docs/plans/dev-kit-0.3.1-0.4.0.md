@@ -9,8 +9,8 @@
 - Každý bod má svoj commit (alebo skupinu príbuzných bodov), správa po slovensky `typ: výstih`. Nič nepushuj a netaguj; vydanie (`make release`, `claude plugin tag --push`) robí používateľ.
 - Pri každej zmene skriptu alebo hooku v tom istom commite: prípad v `tests/selftest.sh` a úprava `docs/SPEC.md` (pravidlá 3 a 4 v `CLAUDE.md`). Zmena šablóny → záznam v `CHANGELOG.md` (pravidlo 9).
 - Kit je nainštalovaný in-place: rozbitý skript hneď zasiahne všetky session. Po každom bode `bash tests/selftest.sh`, po skupine `make check`, zmenu hooku over aj v reálnej session cez `/reload-plugins`.
-- Číslovanie bodov nižšie je vlastné (A1–A9 opravy, B1–B14 rozšírenia); v commitoch a odchýlkach sa odkazuj na tieto čísla. Mapa na zoznam z analýzy: opravy 1–6 → A1–A6; 7–10 → B1, B2; 11, 12, 18 → A7 a A5; 13, 17 → A8; 14, 15 → B3; 16 → A5; zlepšenia → B4–B14 a A9. Nič zo zoznamu analýzy nie je vynechané; vedome odložené veci sú len v časti Mimo rozsahu.
-- Rozhodnutia používateľa (nemeniť bez opýtania): R1 commit gate pri PARTIAL ďalej blokuje, ale vysvetlí a ponúkne únik (doplnené 2026-10-29: keď v PARTIAL behu neprešiel žiadny krok, únik je `disabledRules commitGate`; pri aspoň jednom ok kroku ostáva `step:<id>`); R2 `runtime: host` aj frontend lint idú do 0.4.0; R3 dôvera k `devkit.json` = upozorniť pri zmene, nebrániť.
+- Číslovanie bodov nižšie je vlastné (A1–A9 opravy, B1–B15 rozšírenia); v commitoch a odchýlkach sa odkazuj na tieto čísla. Mapa na zoznam z analýzy: opravy 1–6 → A1–A6; 7–10 → B1, B2; 11, 12, 18 → A7 a A5; 13, 17 → A8; 14, 15 → B3; 16 → A5; zlepšenia → B4–B14 a A9; B15 vznikol z R4. Nič zo zoznamu analýzy nie je vynechané; vedome odložené veci sú len v časti Mimo rozsahu.
+- Rozhodnutia používateľa (nemeniť bez opýtania): R1 commit gate pri PARTIAL ďalej blokuje, ale vysvetlí a ponúkne únik (doplnené 2026-10-29: keď v PARTIAL behu neprešiel žiadny krok, únik je `disabledRules commitGate`; pri aspoň jednom ok kroku ostáva `step:<id>`); R2 `runtime: host` aj frontend lint idú do 0.4.0; R3 dôvera k `devkit.json` = upozorniť pri zmene, nebrániť; R4 (2026-10-29) A4 len minimálne (riadok v deny texte, bez rozvíjania premenných a bez prepisu parsera), parser príkazu commitu je samostatný bod B15 v 0.4.0.
 - Rozhodnutia prijaté v pláne (meniť len s dôvodom zapísaným v Odchýlkach): verzie 0.3.1 + 0.4.0; `task-tldr` dostane generický príklad; Symfony ask pravidlá podľa Nette; Stop hook timeout 600 s; PreCompact hook áno; CI pre kit cez GitHub Actions; eval suite ako samostatný `make eval`, nie súčasť `make check`; `agentReadOnly` bez configu ostáva, len sa zdokumentuje.
 
 ## Úloha
@@ -39,9 +39,10 @@
 - Selftest: krok s kontajnerom, ktorý nebeží (docker atrapa vracajúca false) → `check.sh` exit 4, `partial.json` existuje; následný `git commit` → deny obsahuje `PARTIAL` aj `disabledRules commitGate` (0 ok) a neobsahuje imperatív „spusti kontajner“; druhý prípad s jedným ok krokom a jedným blokovaným (atrapa s exit 127) → deny obsahuje `disabledRules step:<id>`; tretí prípad so 7 blokovanými krokmi → únik vymenuje všetkých 7 id.
 
 ### A4 Nerozriešený `cd` / `-C` v deny texte
-- `plugins/dev/scripts/pre-bash.sh:143,150,169`: rozvinúť jednoduché priradenia z toho istého príkazu (`D=/x; cd "$D"`, `D="/x"`), `cd "$(pwd)"` a `cd $PWD` = aktuálna báza; keď cieľ ostane nerozriešený, do deny textu pridať riadok „cieľ `cd`/`git -C` sa nedal určiť (<úryvok>) — použi doslovnú cestu“. Správanie fail closed ostáva.
-- SPEC §4.4 odsek Repo: doplniť.
-- Selftest: `git -C <iné repo bez devkit.json> commit` → allow (dnes chýba prípad); `cd "$D" && git commit` s `D=` v tom istom príkaze → správne repo; `cd "$(nieco)" && git commit` → deny obsahuje „sa nedal určiť“.
+- Rozsah zúžený rozhodnutím R4 (2026-10-29): žiadne rozvíjanie premenných z príkazu a žiadny prepis rozpoznávania `cd` — prvá verzia bodu (prepis parsera) priniesla v troch kolách overenia tri nové fail-open diery a bola zahodená. Existujúca logika `pre-bash.sh` (regexy `DK_RE_CD`, skladanie `cd`, nerozlúštiteľný `cd` = cwd session) ostáva, mení sa len text a dva okraje.
+- `plugins/dev/scripts/pre-bash.sh`: keď cieľ `cd` alebo `git -C`/`--work-tree`/`--git-dir` ostane nerozriešený (premenná, `$(…)`, spätný apostrof, `~iný`), do deny textu pridať riadok „cieľ `cd`/`git -C` sa nedal určiť (<úryvok do 60 znakov>) — použi doslovnú cestu“; `cd "$(pwd)"` a `cd $PWD` = aktuálna báza; `cd` preskočí prepínače `-L`/`-P` a jedno `--` za nimi a berie prvé ďalšie slovo; iné slovo s `-` na mieste cieľa (`-e`, `-@`, prepínač za `--`) je nerozriešené, lebo bash 3.2 a zsh ho odmietnu a shell ostane na mieste. Správanie fail closed ostáva bez zmeny.
+- SPEC §4.4 odsek Repo: doplniť riadok deny textu a prepínače `cd`; do odseku Známe obmedzenia (vedľa `sh -c`) zapísať diery, ktoré overenie našlo už v pôvodnom kóde a rieši ich až B15: `false && cd <x>; git commit` (cd za `&&`/`||` nasledované `;` sa berie ako vykonaný), `HOME=<x>; cd ~`, `X=1 cd <x>`, `\cd`, `pushd`, `case … ) cd <x>;; esac`, `echo "; cd /x"`, `cd /x & git commit`, `X=$(cd /x; pwd)`.
+- Selftest: `git -C <iné repo bez devkit.json> commit` → allow (dnes chýba prípad); `cd "$(nieco)" && git commit` → deny obsahuje „sa nedal určiť“ a úryvok; `cd "$D" && git commit` s `D=` v tom istom príkaze → deny v cwd session s riadkom „sa nedal určiť“ (premenné sa nerozvíjajú); `cd -- <iné repo bez configu> && git commit` a `cd -P …` → allow.
 
 ### A5 Stop timeout a stop mód
 - `plugins/dev/hooks/hooks.json`: Stop `timeout` 600. SPEC §4 JSON.
@@ -151,7 +152,12 @@
 - Súhlas: `composer audit` a `pip-audit` posielajú zoznam balíkov na Packagist alebo PyPI. Init krok zaradí len po súhlase, ktorý je súčasťou schválenia plánu (fáza 1 súhlasov v B3), nie samostatná otázka; `_init` poznámka v šablónach to hovorí. Bez súhlasu krok vynechať.
 - `ecc-production-audit/SKILL.md` a `review/SKILL.md:113`: odkázať na krok namiesto vlastného spúšťania. CHANGELOG, fixture syntetického výstupu `composer audit` a `pip-audit` s jedným nálezom + selftest (FAIL, potom `známe` cez `knownFailures`).
 
-- `CHANGELOG.md`: sekcia `## 0.4.0 — <dátum>` s B1–B14; `README.md` a `CLAUDE.md` kitu podľa pravidla 13.
+### B15 Parser príkazu commitu (R4)
+- Cieľ: jedna funkcia v `pre-bash.sh` (alebo samostatný `scripts/cmd-parse.sh` so spoločným `lib.sh`), ktorá z textu Bash príkazu vráti pre každý `git commit` dvojicu (báza, nerozriešené ciele) podľa pravidiel zapísaných v SPEC: maskovanie úvodzoviek, komentárov, `$(…)`, `<(…)`, spätných apostrofov a escapov; `cd` len na začiatku jednoduchého príkazu; `cd`/priradenie za `&&`/`||` (aj cez nový riadok, `\`+nový riadok, komentár) je nerozriešené; priradenie platí len na začiatku príkazu bez operátora pred ním; subshell, rúra, zoznam na pozadí, telo funkcie a `case` vetva = nerozriešené; commit vnútri `$(…)`/`<(…)` sa vyhodnotí s `cd` z tej istej substitúcie; `pushd`, `\cd`, `X=1 cd`, `HOME=…; cd ~` pokryté alebo výslovne nerozriešené.
+- Návrh (pravidlá + tabuľka vstup → výstup) najprv do SPEC a na schválenie; implementácia až po ňom. Dôkaz: tabuľka ako fixture `tests/fixtures/cmd-parse.tsv` (vstup, očakávaná báza, očakávané riadky), selftest ju celú prejde; druhý fixture s prípadmi, ktoré musia byť fail closed (každý s commitom tajomstva → deny). Mutačný test: s `pre-bash.sh` z 0.3.1 musí padať aspoň polovica riadkov.
+- Známe obmedzenia zo SPEC (zapísané v A4) po dokončení z odseku vymazať; `sh -c '…git commit…'` ostáva mimo.
+
+- `CHANGELOG.md`: sekcia `## 0.4.0 — <dátum>` s B1–B15; `README.md` a `CLAUDE.md` kitu podľa pravidla 13.
 
 ## Súbory
 
@@ -167,7 +173,7 @@
 ## Poradie
 
 1. Fáza 1 v poradí A1, A2, A3, A4, A5, A6, A7, A9, A8; po každom bode `bash tests/selftest.sh`, po A8 `make check` a reálna session (`/reload-plugins`, jeden edit `.sh` súboru, jeden Stop, jeden pokus o commit bez PASS). Potom `/dev:handoff` a počkať na používateľa (vydanie 0.3.1).
-2. Fáza 2: B1, B2, B3 (šablóny a skilly), potom B4, B5, B6 (skripty a schéma), potom B7, B8, B14, B9 (init, audit a CI projektu), potom B10, B11, B12, B13. Po každej skupine `make check` a `/dev:handoff`.
+2. Fáza 2: B1, B2, B3 (šablóny a skilly), potom B4, B5, B6 (skripty a schéma), potom B7, B8, B14, B9 (init, audit a CI projektu), potom B10, B11, B12, B13, nakoniec B15 (najprv návrh v SPEC na schválenie). Po každej skupine `make check` a `/dev:handoff`.
 3. Pred koncom fázy 2 dry-run `/dev:project-init --dry-run` na syntetickom Nette + Doctrine projekte bez compose a na Symfony projekte s `package.json` (subagent, mimo repa kitu), výsledok do handoffu.
 
 ## Riziká
@@ -206,3 +212,4 @@
 - A3: README (veta pod tabuľkou hookov) a `REVIEW.md` (projektová kontrola blokovania) doplnené o výnimku (pravidlo 13).
 - A3: rozhodnutie používateľa po overení bodu: pri `ok` = 0 únik `disabledRules commitGate` namiesto `step:<id>` — vypnutie všetkých blokovaných krokov dá SKIP (exit 4), ten partial.json zmaže a gate by blokoval ďalej bez vysvetlenia; R1 a odrážky A3 doplnené. `ok` v `partial.json` = kroky ok + známe (`NOK + NKNOWN`), lebo aj známe zlyhania dávajú PASS. `CLAUDE.md` pravidlo 6 ostáva, znenie výnimky platí aj pre nový únik.
 - A3: selftest `t_bash_commit_partial_explained` používa existujúcu atrapu `docker` (inspect bez `DK_FAKE_DOCKER_RUNNING` = kontajner nebeží), 0 ok → `commitGate` a ten commit naozaj pustí; `t_bash_commit_partial_one_ok` (nahradil `t_bash_commit_partial_stale_cleared`): `unit` ok + exit 127 → `step:tests`, `partial.json` starší ako 24 h sa nespomenie, po `disabledRules step:tests` PASS zmaže `partial.json` a commit prejde; `t_bash_commit_partial_all_ids`: 1 ok + 7 blokovaných → 5 riadkov, únik so všetkými 7 id.
+- A4: zúžený podľa R4, parser odložený do B15; úryvok v riadku deny textu má tvar `cd|-C|--work-tree|--git-dir <cieľ>`, neskorší absolútny cieľ riadok zruší, `` `pwd` `` = báza ako `$(pwd)` a `~iný` je nerozriešený. Oprava po overení: prvé znenie plánu kázalo preskakovať aj `-e` a `-@`, ktoré bash 3.2 ani zsh nepoznajú (shell ostane na mieste, commit by bežal v cwd session bez kontroly) — preskakujú sa len `-L`, `-P` a jedno `--` za nimi, ostatné prepínače (aj za `--`) sú nerozriešené; shelly, ktoré ďalšie prepínače poznajú (zsh `-q`, bash ≥ 4.3 `-e`), sú zapísané v SPEC ako známe obmedzenie.

@@ -253,12 +253,28 @@ every `sed` using them takes the `\001` delimiter. Recognised before `commit`: l
 `nohup`, after `then`/`do`/`else`, `{`, `(`, `!`), `git` by absolute path or as `\git`, and the git
 global options `-C <dir>` (also quoted with spaces), `-c k=v`, `-p`/`-P`, `--no-pager`, `--git-dir` and
 `--work-tree` (with `=` or a space). Must match `cd x && git commit -m …`; must not match
-`git commit-tree`, `git log --grep commit` or `echo "git commit"`. The only documented limitation:
-`sh -c '…git commit…'` / `bash -c '…'` is not seen.
+`git commit-tree`, `git log --grep commit` or `echo "git commit"`. Limitations: see Known limitations below.
 Repo: start from the session cwd, apply every `cd` before the commit cumulatively (`$HOME`, `$PWD`,
-`$CLAUDE_PROJECT_DIR` and `~` expanded; an unresolvable `cd` ⇒ session cwd, fail closed), then
-`git -C <dir>`. A multi-line command is evaluated over all its commit segments; their to-be-committed
-sets are united.
+`$(pwd)`, `` `pwd` ``, `$CLAUDE_PROJECT_DIR`, `~` and `~/…` expanded; `cd` skips `-L`/`-P` options and one `--` after them,
+then takes the next word; any other word starting with `-` in the target position, e.g. `-e`, `-@` or an option
+after `--`, is unresolvable, because bash 3.2 and zsh reject it and the shell stays where it was), then `git -C <dir>`, `--work-tree` / `GIT_WORK_TREE` or `--git-dir` /
+`GIT_DIR`. Variables assigned in the command itself are not expanded (`D=/x; cd "$D"` stays unresolved).
+An unresolvable target (another variable, `$(…)`, backticks, `~user`, `cd -`, an option without a directory)
+⇒ session cwd, fail closed; when the hook then denies, the reason starts with the line
+``[dev-kit] cieľ `cd`/`git -C` sa nedal určiť (<snippet>) — použi doslovnú cestu``, `<snippet>` =
+`cd|-C|--work-tree|--git-dir <target>`, at most 60 chars (longer: 59 + `…`). A later target that is absolute
+after expansion (`/…`, `~`, `$HOME`, `$CLAUDE_PROJECT_DIR`) drops that line, a relative one keeps it. A
+resolved target that is not a directory ⇒ session cwd without the line. A multi-line command is evaluated
+over all its commit segments; their to-be-committed sets are united.
+Known limitations (recognition is textual — `DK_RE_CD` in `pre-bash.sh` models neither control flow, quoting
+nor subshells): `sh -c '…git commit…'` / `bash -c '…'` is not seen. The repo comes out wrong for
+`false && cd <x>; git commit` (a `cd` after `&&`/`||` followed by `;` counts as executed), `HOME=<x>; cd ~`
+(`~` = the hook's `HOME`), `X=1 cd <x>`, `\cd <x>`, `pushd <x>` and `case … ) cd <x>;; esac` (`cd` not seen),
+`echo "; cd /x"` (`cd` inside quotes counts), `cd /x & git commit` (background `cd` counts) and
+`X=$(cd /x; pwd)` (`cd` inside a substitution counts). A `cd` and a commit inside the same `$(…)` / `<(…)`
+resolve correctly. Shells that accept further `cd` options (zsh `-q`/`-s`, bash ≥ 4.3 `-e`/`-@`) do change
+directory while the hook treats such a target as unresolved (session cwd): when the session cwd has nothing to
+deny, that commit runs unchecked.
 Determine TO-BE-COMMITTED files: staged (`git diff --cached --name-only --diff-filter=ACMRD`) ∪ (when
 `-a`/`--all`/combined short flags containing `a`: tracked modified files) ∪ (explicit pathspecs after
 `--` or existing paths among trailing args: best effort) ∪ (`git add`/`git stage` earlier in the same
@@ -295,7 +311,7 @@ deleted = `-`.
    imperative `spusti kontajner` — the `check` and `commit` skills forbid Claude to start containers.
    What the gate proves: the content of every committed code file passed `check.sh` in the working tree
    (together with the other uncommitted changes present at that time) — not that the resulting commit tree
-   passes. A commit hidden in `sh -c '…'` / `bash -c '…'` is not recognised (§4.4 header).
+   passes. A commit hidden in `sh -c '…'` / `bash -c '…'` is not recognised (§4.4 Known limitations).
 3. Deny ⇒ JSON `permissionDecision":"deny"` with reason, exit 0. Allow ⇒ exit 0 silently. Log;
    `commitGate` entries carry a content key (hash of the to-be-committed code blobs) so `/dev:stats` can
    group attempts on the same content (§4.9).

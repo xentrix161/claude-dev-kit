@@ -1130,6 +1130,74 @@ t_bash_cd_quoted_space() {
   pre_bash "cd \"$CASE/sp ace\" && git add app/Bad.php && git commit -m b" "$CASE"
   want_decision deny && want_out 'app/Bad.php'
 }
+# Dôvod deny obsahuje text (úvodzovky v JSON sú escapované, want_out by ich nenašiel).
+want_reason() {
+  printf '%s' "$OUT" | jq -r '.hookSpecificOutput.permissionDecisionReason // empty' 2>/dev/null \
+    | LC_ALL=C grep -qF -- "$1" || fail "${2:+$2: }dôvod neobsahuje '$1'$(ctx)"
+}
+# other_repo — $CASE/other: repo bez .claude/devkit.json so staged tajomstvom; nastaví O
+other_repo() {
+  O="$CASE/other"
+  mkdir -p "$O/app" && git -C "$O" init -q && printf '<?php\n%s\n' "$SECRET_PHP" > "$O/app/Bad.php" \
+    && git -C "$O" add app/Bad.php || fail "fixture: $O"
+}
+t_bash_cd_other_repo_allow() {
+  new_case
+  bad_php
+  g add app/Bad.php
+  other_repo || return 1
+  local c
+  for c in "git -C \"$O\" commit -m x" "cd -- \"$O\" && git commit -m x" "cd -P \"$O\" && git commit -m x" \
+    "cd -L -P -- $O; git commit -m x"; do
+    pre_bash "$c"
+    want_allow "$c" || return 1
+  done
+  pre_bash 'git commit -m x'
+  want_decision deny "kontrola: commit v cwd session" && want_out 'app/Bad.php' "kontrola" || return 1
+  for c in "cd -e \"$O\"; git commit -m x" "cd -@ \"$O\"; git commit -m x" "cd -L -Pe -- $O; git commit -m x" \
+    "cd -- -P \"$O\"; git commit -m x" "cd -- -- \"$O\"; git commit -m x" "cd -P -- -L $O; git commit -m x"; do
+    pre_bash "$c"
+    want_decision deny "$c" && want_out 'app/Bad.php' "$c" && want_reason 'sa nedal určiť (cd -' "$c" || return 1
+  done
+}
+t_bash_cd_unresolved_note() {
+  new_case
+  bad_php
+  other_repo || return 1
+  local add='git add app/Bad.php && git commit -m b' raw long
+  pre_bash "cd \"\$(nieco)\" && $add"
+  want_decision deny '$(nieco)' && want_out 'app/Bad.php' '$(nieco)' || return 1
+  want_reason 'sa nedal určiť (cd "$(nieco)") — použi doslovnú cestu' || return 1
+  want_json '.hookSpecificOutput.permissionDecisionReason | startswith("[dev-kit] cieľ `cd`/`git -C` sa nedal určiť")' \
+    "riadok je prvý" || return 1
+  pre_bash "D=\"$O\"; cd \"\$D\" && $add"
+  want_decision deny 'D=' && want_out 'app/Bad.php' 'D=' && want_reason 'sa nedal určiť (cd "$D")' 'D=' || return 1
+  pre_bash 'git -C "$X" add app/Bad.php && git -C "$X" commit -m b'
+  want_decision deny '-C $X' && want_reason 'sa nedal určiť (-C "$X")' '-C $X' || return 1
+  pre_bash "cd ~nikto-selftest && $add"
+  want_decision deny '~iný' && want_reason 'sa nedal určiť (cd ~nikto-selftest)' '~iný' || return 1
+  g add app/Bad.php
+  pre_bash "cd \"\$X\"; cd app; git commit -m b"
+  want_decision deny 'relatívny cd za nerozriešeným' && want_reason 'sa nedal určiť (cd "$X")' 'relatívny cd' || return 1
+  raw='"$(git rev-parse --show-toplevel)/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"'
+  long="cd $raw"
+  pre_bash "$long && $add"
+  want_decision deny 'dlhý cieľ' && want_reason "(${long:0:59}…)" 'dlhý cieľ' || return 1
+  pre_bash "cd \"\$X\"; cd \"$REPO\" && $add" "$CASE"
+  want_decision deny 'absolútny cd za nerozriešeným' && want_out 'app/Bad.php' 'absolútny cd' \
+    && want_not 'sa nedal' 'absolútny cd'
+}
+t_bash_cd_pwd_base() {
+  new_case
+  bad_php
+  g add app/Bad.php
+  local c
+  for c in "cd \"$REPO\" && cd \"\$(pwd)\" && git commit -m b" "cd \"$REPO/app\"; cd \$PWD/..; git commit -m b" \
+    "cd \"$REPO/app\" && cd \"\`pwd\`/..\" && git commit -m b" "x=\$(cd \"$REPO\" && git commit -m b)"; do
+    pre_bash "$c" "$CASE"
+    want_decision deny "$c" && want_out 'app/Bad.php' "$c" && want_not 'sa nedal' "$c" || return 1
+  done
+}
 t_bash_multiline_commits() {
   new_case
   add app/Foo.php '$f = 6;'
@@ -1677,6 +1745,9 @@ t "pre-bash: reťaz relatívnych cd sa skladá kumulatívne" t_bash_cd_chain_rel
 t "pre-bash: nerozriešiteľné cd → cwd session (fail closed)" t_bash_cd_unresolvable_fallback
 t "pre-bash: cd za commitom repo nemení" t_bash_cd_after_commit
 t "pre-bash: cd na cestu s medzerou v úvodzovkách" t_bash_cd_quoted_space
+t "pre-bash: git -C / cd --, -P na iné repo bez devkit.json → allow" t_bash_cd_other_repo_allow
+t "pre-bash: nerozriešený cieľ cd / -C → cwd session a riadok „sa nedal určiť“ s úryvkom" t_bash_cd_unresolved_note
+t "pre-bash: cd \"\$(pwd)\", \$PWD, \`pwd\` = aktuálna báza; cd v \$(…) s commitom" t_bash_cd_pwd_base
 t "pre-bash: viacriadkový príkaz s dvoma commitmi → oba segmenty" t_bash_multiline_commits
 t "pre-bash: git add -f / --force ignorovaného zakázaného súboru → deny s maskou" t_bash_add_force_forbidden
 t "pre-bash: git add -A -f → deny" t_bash_add_force_all
