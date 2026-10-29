@@ -13,7 +13,7 @@
 |---|---|---|---|---|
 | `skills/ecc-mysql-patterns/` | `skills/mysql-patterns` | b92f181 | 2026-10-27 | SK, skrátené; MySQL 5.7/8, Dibi + Doctrine parametre, EXPLAIN, indexy, N+1; `paths:` |
 | `skills/ecc-e2e-testing/` | `skills/e2e-testing` | b92f181 | 2026-10-27 | SK, skrátené; Playwright POM, flaky testy; bez Vercel/npm častí |
-| `skills/ecc-change-impact/` | `skills/change-impact` | b92f181 | 2026-10-27 | SK, skrátené; pred rizikovou zmenou jadra (validátory, triggery, verejné API) |
+| `skills/ecc-change-impact/` | `skills/change-impact` | b92f181 | 2026-10-27 | SK, skrátené; pred rizikovou zmenou jadra (validátory, triggery, verejné API); príklady bez domény projektu |
 | `skills/ecc-accessibility/` | `skills/accessibility` | b92f181 | 2026-10-27 | SK, skrátené; WCAG 2.2 pre serverové šablóny (Latte, Twig), bez Reactu; `paths:` |
 | `skills/ecc-production-audit/` | `skills/production-audit` | b92f181 | 2026-10-27 | SK, skrátené; `disable-model-invocation: true`; exit 4 = neúplné overenie (PARTIAL/SKIP) |
 | `skills/ecc-python-patterns/` | `skills/python-patterns` | b92f181 | 2026-10-27 | SK, skrátené; `paths: **/*.py` |
@@ -38,6 +38,6 @@
 
 ## Mimo ECC (len pre prehľad, `make upstream` ich nečíta)
 
-- `skills/task-tldr/` — kópia používateľovho `~/.claude/skills/task-tldr/SKILL.md` bez úprav.
+- `skills/task-tldr/` — z používateľovho `~/.claude/skills/task-tldr/SKILL.md`; príklad prepísaný na generickú doménu (e-shop).
 - `skills/commit/`, `skills/explain/` — z používateľových `~/.claude/commands/commit.md`, `explain.md`.
 - `skills/debug/`, `skills/plan/`, `skills/handoff/`, `skills/stats/`, hooky, `scripts/`, šablóny `php-*`/`python` — vlastné.

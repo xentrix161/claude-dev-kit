@@ -48,6 +48,7 @@ Argumenty: `$ARGUMENTS`
 | pravidlá overovania | `AGENTS.md`, `CLAUDE.md`, `Makefile`/skripty projektu: PHPStan config a level, politika baseline, test runner (PHPUnit vs. iný), povinné kontroly | návrh krokov a `phpstanConfig` podľa nich, nie podľa šablóny |
 | git | `git remote -v`, vetva, `git ls-files .claude CLAUDE.md`, `git status --short` | tímový signál, rozpracované súbory |
 | handoff | `docs/handoff.md` | `handoffDoc` = `docs/handoff.md`, aj keď ešte neexistuje; sledovaný TODO alebo plán nie — `/dev:handoff` doň pripisuje datované sekcie |
+| testovací login | súbor s loginom testovacieho používateľa, ktorý `git check-ignore -q` potvrdí a má commitnutý vzor vedľa (`<súbor>.stub`, `.dist`, `.example`), alebo ho menuje `CLAUDE.md`/`AGENTS.md`; obsah nečítaj | `{{testCredentialsFile}}`; nič → riadok so symbolom zmaž |
 | vendor kód v repe | cesty, ktoré `CLAUDE.md` označuje ako „needitovať“ alebo vendor; commitnuté adresáre tretích strán (`git ls-files`: `*framework*/`, `www/js/**/*.min.js`, `assets/vendor/`, `public/vendor/`) | `deny` v kroku 5, `{{vendorFrontendPaths}}` |
 
 Compose bez tajomstiev (`environment`, `env_file` a `secrets` sa nevypíšu):

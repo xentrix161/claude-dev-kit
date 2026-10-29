@@ -11,7 +11,7 @@ paths:
 
 - `unit` — izolované triedy bez DB a DI kontajnera (testovateľný wrapper s prázdnym konštruktorom).
 - `integration` — modely, presentery, autentifikácia nad reálnou DB; každý test beží v transakcii → `ROLLBACK`.
-- `smoke` — HTTP požiadavky na bežiacu appku (200, nie 500); potrebuje credentials.
+- `smoke` — HTTP požiadavky na bežiacu appku (200, nie 500); prihlásené stránky potrebujú testovací login.
 - `e2e` — Playwright v `tests/e2e/`; auth setup uloží session, ostatné testy ju použijú.
 - Presné príkazy: CLAUDE.md (Príkazy) a `.claude/devkit.json` (`check.steps`).
 
@@ -37,7 +37,7 @@ paths:
 
 ## Credentials
 
-- `.test-credentials` (kópia `.test-credentials.stub`) nie je v gite; hodnoty nikdy nevypisuj ani necommituj.
+- Súbor s testovacím loginom (ak ho projekt má, menuje ho `CLAUDE.md`) nie je v gite; hodnoty nikdy nevypisuj ani necommituj.
 - Uložená Playwright session (`.auth/`) nie je v gite.
 
 ## Overenie

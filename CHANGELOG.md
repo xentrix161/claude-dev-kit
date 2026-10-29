@@ -3,6 +3,12 @@
 - Formát: `## <verzia> — <dátum>`, najnovšie hore; verzia = `version` v `plugins/dev/.claude-plugin/plugin.json`.
 - Posun pinu ECC (P3) zapíš ako odrážku: kusy + nový commit.
 
+## 0.4.0 — 2026-10-30
+
+- Príklady bez domény konkrétneho projektu: `task-tldr` ukazuje zhrnutie z e-shopu (stavy objednávky, export, krok po nasadení), `ecc-change-impact` menuje odberateľa „iný tenant“.
+- `/dev:debug`: zachytávanie mailov (Mailpit), vyhľadávací server a prihlásenie testovacím loginom len vtedy, keď ich projekt má; súbor s loginom menuje `CLAUDE.md` projektu.
+- Šablóna `php-nette`: `CLAUDE.md.tmpl` má namiesto natvrdo `.test-credentials` symbol `{{testCredentialsFile}}` na vlastnom riadku (init ho deteguje ako ignorovaný súbor s commitnutým vzorom, bez neho riadok zmaže); `rules/tests.md` hovorí o súbore s testovacím loginom všeobecne a `--sync` ho prenesie. Existujúci `CLAUDE.md` projektu sa nemení.
+
 ## 0.3.1 — 2026-10-29
 
 - Úvodná karta: pripomienka „údržba kitu“ (`make upstream`) sa ukáže len vtedy, keď plugin beží z pracovnej kópie kitu (vedľa skriptov je `tools/upstream.sh`), a cestu v nej odvodí z umiestnenia skriptov. Inštalácia z marketplace ju už neukazuje.

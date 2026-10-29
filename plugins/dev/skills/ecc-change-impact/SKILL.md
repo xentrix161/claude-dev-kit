@@ -21,7 +21,7 @@ Len čítanie. Dopad dokazuj z reálnych závislostí (kód, schéma, konfigurá
 ## Pred zmenou — odpovedz v poradí
 1. **Kód** — vstupné body (route, presenter/controller, CLI command, cron, API endpoint), priami volajúci, potomkovia a implementácie rozhrania, registrácie v DI
 2. **Dáta** — schéma, migrácie, triggery, historické záznamy, cache, fulltextový index, serializované hodnoty, idempotencia opakovaného behu
-3. **Rozhrania** — API odpovede, XML/XSD, CSV/XLS exporty, e-maily, názvy akcií v URL; kto je odberateľ (externý systém, iná škola/firma, cron) a kto poskytovateľ
+3. **Rozhrania** — API odpovede, XML/XSD, CSV/XLS exporty, e-maily, názvy akcií v URL; kto je odberateľ (externý systém, iný tenant, cron) a kto poskytovateľ
 4. **Frontend** — šablóny, JS kotvy (`data-*`, triedy, DOM traverz `.closest()`/`.next()`), formuláre a ich validácia
 5. **Testy** — ktoré existujúce testy to pokrývajú, čo chýba, ktorý príkaz to dokáže (`/dev:check --full`, konkrétny E2E súbor)
 6. **Dokumentácia** — `CLAUDE.md`, `.claude/rules/*.md`, `docs/plans/*.md`, API dokumentácia

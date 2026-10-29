@@ -16,7 +16,7 @@ Prázdny vstup → opýtaj sa: „Čo presne nefunguje? URL/akcia/test, čo čak
 - **Najprv diagnostika.** Kód neopravuj, kým nie je príčina potvrdená a používateľ to nechce; opravu robí `/dev:fix` (repro test + zámok testu).
 - **Zdieľané prostredie.** Kontajnery nereštartuj, DB neimportuj, dáta nemeň, cache nemaž bez súhlasu — nad projektom môžu bežať iné sessions.
 - **Bez debug kódu v repe.** `dump`, `bdump`, `var_dump`, `print` do zdrojákov nepíš (hook ich zablokuje); použi test, `php -r` / `python -c` v kontajneri alebo log.
-- **Credentials** (`.test-credentials`, `config.local.*`, `.env*`, API kľúče) nikdy nevypisuj.
+- **Credentials** (súbor s testovacím loginom, `config.local.*`, `.env*`, API kľúče) nikdy nevypisuj.
 - **Po 2 neúspešných pokusoch** o opravu zastav, zhrň zistené fakty a navrhni `/clear` s presnejším zadaním.
 
 ## Prostredie
@@ -46,9 +46,9 @@ Tiché zlyhanie (nič sa nestane, žiadna chyba) → agent `dev:ecc-silent-failu
 - `docker logs --since 15m <container> 2>&1 | tail -n 80` (PHP-FPM; nginx kontajner rovnako)
 - DI/config chyba (`ServiceCreationException`, `InvalidConfigurationException`) → neon config a lokálny override; zastaraná `temp/cache` (Latte, DI kontajner) — mazať len so súhlasom
 - Latte: `php vendor/bin/latte-lint <súbor>`
-- **Mail**: Mailpit (služba `mailpit` v docker compose) — `curl -s 'http://localhost:<port>/api/v1/messages?limit=5'`, web UI na tom istom porte
-- **Typesense**: `curl -s http://localhost:<port>/health` → `{"ok":true}`; kolekcie s API kľúčom z lokálneho configu (kľúč nevypisuj)
-- **Overenie v appke**: prihlás sa údajmi z `.test-credentials` (Chrome MCP alebo `curl -c/-b` s cookie jar) a testuj priamo v appke, nestavaj izolované repro stránky; súbor nečítaj ani nevypisuj; v jednom Bash volaní: `set -a; . ./.test-credentials; set +a; curl -c jar … --data-urlencode "password=$APP_TEST_PASS"` — v texte príkazu len mená premenných (mená podľa súboru projektu, napr. z jeho `.stub`)
+- **Mail**: ak compose má službu na zachytávanie mailov (napr. `mailpit`) — pri Mailpite `curl -s 'http://localhost:<port>/api/v1/messages?limit=5'`, web UI na tom istom porte
+- **Vyhľadávanie**: ak compose má vyhľadávací server (napr. Typesense `curl -s http://localhost:<port>/health` → `{"ok":true}`) — kolekcie či indexy s API kľúčom z lokálneho configu (kľúč nevypisuj)
+- **Overenie v appke**: ak projekt má súbor s testovacím loginom mimo gitu (menuje ho `CLAUDE.md` projektu), prihlás sa ním (Chrome MCP alebo `curl -c/-b` s cookie jar) a testuj priamo v appke, nestavaj izolované repro stránky; súbor nečítaj ani nevypisuj; pri formáte `PREMENNÁ=hodnota` v jednom Bash volaní: `set -a; . ./<súbor>; set +a; curl -c jar … --data-urlencode "password=$<PREMENNÁ>"` — v texte príkazu len mená premenných (podľa vzoru projektu, napr. `<súbor>.stub`). Bez neho sa opýtaj, ako sa prihlásiť
 - **DB**: `EXPLAIN <SELECT>` cez MySQL klienta v DB kontajneri — len čítanie (`SELECT`, `EXPLAIN`, `SHOW`)
 - **Frontend**: konzola a sieť cez Chrome MCP; jQuery na prázdnej kolekcii nehádže → over selektor (`$('.trieda').length`)
 

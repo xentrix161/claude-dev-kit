@@ -51,7 +51,8 @@ Agent nemá TTY → `docker exec` **bez `-it`** (make ciele s `-it` padnú: „t
 - Do odpovede vlož súhrnný riadok výstupu. Bez výstupu netvrď, že testy prešli.
 - Padá test → oprav kód, nie test. Test meníš len keď je preukázateľne zlý — povedz prečo.
 - Žiadne `markTestSkipped()`, mazanie asercií ani rozširovanie PHPStan baseline kvôli zelenej.
-- UI zmena → over aj v prehliadači ({{appUrl}}, login z `.test-credentials`), nielen testami.
+- UI zmena → over aj v prehliadači ({{appUrl}}), nielen testami.
+- Testovací login: `{{testCredentialsFile}}` (mimo gitu) — obsah nečítaj, nevypisuj ani necommituj; v príkazoch len mená jeho premenných.
 - Po 2 neúspešných pokusoch o tú istú opravu zastav, zhrň zistenia a navrhni iný prístup.
 
 ## Architektúra
@@ -83,7 +84,7 @@ libs/  {{migrationsDir}}  tests/  www/
 7. Vendor kód (`vendor/`, {{vendorFrontendPaths}}) sa needituje — override patrí do vlastného súboru.
 8. Nová funkcionalita → test; oprava bugu → test, ktorý by bug odhalil.
 9. Komentáre krátke alebo žiadne: len čo z kódu nevidno; bez histórie, meraní a produkčných dát.
-10. `app/config/config.local.neon` a `.test-credentials` nikdy necommituj ani nevypisuj.
+10. `app/config/config.local.neon` nikdy necommituj ani nevypisuj.
 11. Commit: {{commitStyle}}; `git push` len na výslovný pokyn.
 12. Zmena zastará tento súbor alebo `.claude/rules/` → uprav ich v tom istom commite.
 13. Detaily v `.claude/rules/` (php-core, nette, latte-frontend, db-dibi, tests) — načítajú sa podľa cesty. <!-- db:dibi -->

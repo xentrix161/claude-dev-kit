@@ -489,7 +489,7 @@ Command skills — all `disable-model-invocation: true` (0 always-on tokens):
 | `commit` | the user's original command `commit` (keep ALL its rules: `[#XX] type: výstih`, one confirmation, explicit `git add <files>`, never push, never `--no-verify`, never amend unless asked, NO Co-Authored-By / AI attribution) | step 0: `check.sh --auto` must PASS (the hook gate enforces it anyway); show grouping+message+check result in ONE message; secrets reminder |
 | `review` | the user's original commands `review` (format with 🔴🟡🔵, numbering, verification, `.review-notes.md` only on request) and `security` (as `--security` pass) + ECC `agents/code-reviewer.md`, `skills/security-review` | scopes: none = uncommitted, `branch [base]`; passes Bugs · Security · Súlad s `docs/plans/*.md` (V1) · stale CLAUDE.md/rules (V9); read project `REVIEW.md` if present (V2: Important vs Nit, max 5 nits, do-not-report list); confidence > 80 %, merge similar, security first; Nette/Symfony/Python checklists; optional delegation to agents `dev:ecc-silent-failure-hunter`, `dev:ecc-performance-optimizer` for large diffs |
 | `test` | the user's original command `test` + ECC `skills/tdd-workflow` | RED→GREEN→REFACTOR with evidence, AAA, naming, mirror structure, run via `check.sh`-configured command or `dk`-style docker exec from devkit.json; PHPUnit + pytest branches |
-| `debug` | plan §5 Debugging row | Nette: Tracy `log/exception*.html`, `log/*.log`, docker logs, Mailpit, Typesense health, login via `.test-credentials`, `EXPLAIN`; Symfony: `var/log`, profiler, `bin/console debug:*`; Python: traceback/pytest -x; hypothesis → minimal repro → fix suggestion; never guess |
+| `debug` | plan §5 Debugging row | Nette: Tracy `log/exception*.html`, `log/*.log`, docker logs, mail catcher (e.g. Mailpit) and search server (e.g. Typesense) health when compose has them, login via the project's gitignored test login file when it has one (named in its `CLAUDE.md`), `EXPLAIN`; Symfony: `var/log`, profiler, `bin/console debug:*`; Python: traceback/pytest -x; hypothesis → minimal repro → fix suggestion; never guess |
 | `fix` | ECC `commands/orch-fix-defect.md` | facts first (where, who calls, data); write failing repro test; run, confirm it fails for the expected reason; `test-lock.sh lock <test>`; fix code without touching the test; `check.sh --auto`; on PASS `test-lock.sh unlock`; offer `/dev:review` and `/dev:commit`. `--unlock` argument ⇒ only unlock and report |
 | `plan` | plan §18 V1 | write `docs/plans/<task>-<slug>.md` (no `#`) (Úloha+zdroj, Súbory, Poradie, Riziká, Dôkaz, Mimo rozsahu) from the agreed plan; task number from branch; small tasks (≤ 3 files, no risky paths) ⇒ tell the user it is not needed; local mode (`docs/plans/` ignored) ⇒ the plan stays on disk, never committed; team mode ⇒ committed with the first change, deviations in the same commit |
 | `learn` | ECC `commands/learn.md` + `learn-eval.md`, plan §13 | scan session for user corrections, resolved errors, discovered conventions ⇒ propose each as: native memory entry (feedback/project), project `.claude/rules/*.md` line, or new `guards`/`pairs` entry in devkit.json; user approves one by one; write only approved |
@@ -509,7 +509,7 @@ tokens, measured by `tools/details.sh` by the docs rule: `disable-model-invocati
 | `ecc-production-audit` | `skills/production-audit` | — | `disable-model-invocation: true` (user runs before deploy) |
 | `ecc-python-patterns` | `skills/python-patterns` | `**/*.py` | F7 |
 | `ecc-python-testing` | `skills/python-testing` | `tests/**/*.py`, `**/test_*.py`, `**/*_test.py` | F7, pytest |
-| `task-tldr` | byte-identical copy of the user's original skill `task-tldr` | — | user's own skill; its 399-char description is accepted; the installer moves the original to a backup |
+| `task-tldr` | the user's original skill `task-tldr`, example rewritten to a generic domain (e-shop) | — | user's own skill; its 399-char description is accepted; the installer moves the original to a backup |
 Adaptation rules for every `ecc-*` piece: dir AND frontmatter `name` = `ecc-<original>`; keep the
 original description meaning; translate body to Slovak and trim (output stručne, ale úplne (§0), no "80 % coverage" mandates, no
 conventional-commit rules, no npm/Node assumptions, `docker exec` instead), keep the best checklists; add
@@ -523,7 +523,8 @@ Arguments: none | `--sync` | `--dry-run`.
    ask) and Doctrine console command names; `AGENTS.md` and whether `CLAUDE.md` imports it (`@AGENTS.md`);
    the project's verification rules (PHPStan config, baseline policy, test runner); container (docker
    compose files: container_name + mounts → appRoot), tools present in `vendor/bin` / venv, phpstan
-   config path, phpunit suites, phpcs ruleset, existing CLAUDE.md size, `.claude/` contents, git remote.
+   config path, phpunit suites, phpcs ruleset, existing CLAUDE.md size, `.claude/` contents, git remote,
+   the gitignored test login file (`{{testCredentialsFile}}`; content never read, none ⇒ its template line is deleted).
 2. Dry-run plan shown to the user BEFORE writing anything: files to create/modify, devkit.json draft,
    which template rules, local-only vs team (commit) choice, layer-B skills offered
    (`templates/skills/*`). Never overwrite an existing file without explicit consent; show diffs.
