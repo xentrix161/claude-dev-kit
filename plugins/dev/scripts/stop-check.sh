@@ -48,7 +48,11 @@ EOF
             done < "$sf"
             [ "$hit" = 1 ] || continue
             if [ -n "$unless" ]; then
-                if [ "$chg_loaded" = 0 ]; then changed=$(dk_changed_files); chg_loaded=1; fi
+                # Zmenené teraz ∪ súbory session ∪ commitnuté počas session (commit v tom istom ťahu).
+                if [ "$chg_loaded" = 0 ]; then
+                    changed=$({ dk_changed_files; cat "$sf"; dk_session_committed; } 2>/dev/null | sort -u)
+                    chg_loaded=1
+                fi
                 hit=0
                 re=$(dk_glob_re "$unless")
                 while IFS= read -r f; do

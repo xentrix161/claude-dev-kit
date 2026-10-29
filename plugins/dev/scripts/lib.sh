@@ -471,12 +471,31 @@ dk_changed_files() {
 dk_session_file() { printf '%s/sessions/%s.files' "$DK_PDATA" "$DK_SESSION"; }
 dk_stop_file() { printf '%s/sessions/%s.stop.json' "$DK_PDATA" "$DK_SESSION"; }
 
+# Prvý zápis session uloží aj HEAD (.head): Stop podľa neho vidí súbory commitnuté počas session.
 dk_session_add() {
     local sf
     sf=$(dk_session_file)
     mkdir -p "$DK_PDATA/sessions" 2>/dev/null
-    [ -f "$sf" ] && grep -Fxq -- "$1" "$sf" 2>/dev/null && return 0
+    if [ -f "$sf" ]; then
+        grep -Fxq -- "$1" "$sf" 2>/dev/null && return 0
+    else
+        dk_git rev-parse -q --verify HEAD 2>/dev/null > "${sf%.files}.head"
+    fi
     printf '%s\n' "$1" 2>/dev/null >> "$sf"
+}
+
+# Súbory zmenené commitmi od začiatku session (.head → HEAD); bez .head alebo bez posunu HEAD nič.
+dk_session_committed() {
+    local hf h cur
+    hf="$(dk_session_file)"
+    hf="${hf%.files}.head"
+    [ -s "$hf" ] || return 0
+    IFS= read -r h < "$hf"
+    case "$h" in ''|*[!0-9a-f]*) return 0 ;; esac
+    cur=$(dk_git rev-parse -q --verify HEAD 2>/dev/null)
+    [ -n "$cur" ] && [ "$cur" != "$h" ] || return 0
+    dk_git diff --name-only --no-renames "$h" "$cur" -- 2>/dev/null
+    return 0
 }
 
 # Existujúce súbory session s príponou kódu.

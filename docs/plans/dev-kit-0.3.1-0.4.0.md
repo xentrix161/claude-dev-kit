@@ -199,3 +199,5 @@
 - A1: koreň kitu sa určuje fyzicky (`cd -P "$DK_SCRIPTS/../../.." && pwd`) a test je `[ -f "<koreň>/tools/upstream.sh" ]` — rovnaká podmienka ako v texte, ale cesta v hláške sedí aj pri symlinkovanom adresári pluginu.
 - A1: `t_card_stack_maintenance` dostal len prípravu `kit_scripts upstream` (asserty bez zmeny); bez nej by pri `DK_SELFTEST_SCRIPTS=<nainštalovaný plugin>` padal, hoci skript je správny.
 - A1: `README.md` sekcia Údržba — veta o pripomienke karty doplnená o „len keď plugin beží z pracovnej kópie kitu“ (pravidlo 13).
+- A2: diff commitov ide cez `git diff --name-only --no-renames <.head> HEAD` (ako `dk_changed_files`), aby premenovaný test dal do množiny `unless` starú aj novú cestu; logika je v novej funkcii `dk_session_committed` v `lib.sh`.
+- A2: selftest `t_stop_pair_after_commit` má tri session: test editovaný cez Edit a commitnutý, test zmenený len cez Bash a commitnutý (overí `.head`), kontrolná bez testu.

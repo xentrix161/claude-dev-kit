@@ -752,6 +752,34 @@ t_stop_pair_unless() {
   stop_check
   want_allow
 }
+t_stop_pair_after_commit() {
+  new_case
+  cfg '.pairs = [{"id": "app-test", "when": "app/**", "unless": "tests/**", "say": "PAIRSAY app"}]'
+  add app/Foo.php '$a = 1;'
+  on_edit app/Foo.php
+  want_allow "session a: on-edit" || return 1
+  [ "$(cat "$PDATA/sessions/$SID.head" 2>/dev/null)" = "$(git -C "$REPO" rev-parse HEAD)" ] ||
+    fail ".head nie je HEAD zo začiatku session ($(cat "$PDATA/sessions/$SID.head" 2>/dev/null))" || return 1
+  add tests/FooTest.php '$a = 1;'
+  on_edit tests/FooTest.php
+  g commit -qam a
+  stop_check
+  want_rc 0 "session a" && want_no_block "session a" && want_not "[pair:" "session a" || return 1
+  SID="$SID-b"
+  add app/Foo.php '$b = 2;'
+  on_edit app/Foo.php
+  add tests/FooTest.php '$b = 2;'
+  g commit -qam b
+  stop_check
+  want_rc 0 "session b (test len cez Bash)" && want_no_block "session b" && want_not "[pair:" "session b" || return 1
+  SID="$SID-c"
+  add app/Foo.php '$c = 3;'
+  on_edit app/Foo.php
+  g commit -qam c
+  stop_check
+  want_rc 0 "session c (bez testu)" && want_json '(.decision // "") != "block"
+    and (.hookSpecificOutput.additionalContext | contains("[pair:app-test] PAIRSAY app"))' "session c (bez testu)"
+}
 t_stop_guard() {
   new_case
   add app/Foo.php 'dump($foo);'
@@ -1610,6 +1638,7 @@ t "stop-check: PARTIAL → pripomienka s krokom, nezmenený hash bez kontroly" t
 t "stop-check: zlyhanie inej session nevynuluje počítadlo blokov" t_stop_sessions_separate
 t "stop-check: pripomienka pair raz za session" t_stop_pair_once
 t "stop-check: pair so zmeneným testom (unless) → ticho" t_stop_pair_unless
+t "stop-check: pair po commite v tom istom ťahu (.head) → ticho, bez testu pripomienka" t_stop_pair_after_commit
 t "stop-check: bez súborov session → exit 0, ticho" t_stop_no_session
 t "kontajner nebeží: on-edit bez lintu, Stop bez bloku, karta NEBEŽÍ" t_container_down
 t "session-card: bez devkit.json → jeden riadok, v ten istý deň ticho" t_card_hint_once

@@ -66,6 +66,7 @@ $DK_DATA/maintenance.json                         # {"lastUpstreamCheck": <epoch
 $DK_DATA/projects/<phash>/pass.json               # commit-gate PASS marker
 $DK_DATA/projects/<phash>/test-lock.json          # V3
 $DK_DATA/projects/<phash>/sessions/<session_id>.files   # files edited in that session (repo-relative, one per line)
+$DK_DATA/projects/<phash>/sessions/<session_id>.head    # HEAD at the session's first .files write (empty without HEAD)
 $DK_DATA/projects/<phash>/sessions/<session_id>.stop.json   # last stop-check state of that session
 $DK_DATA/projects/<phash>/pairs-<session_id>.done # Stop reminders already given (pairs, testRemoved)
 $DK_DATA/projects/<phash>/logs/check-<mode>-<epoch>.log  # full check output (keep last 20)
@@ -204,7 +205,8 @@ per added line that matches; used by on-edit), `dk_data_dir` (creates `$DK_DATA`
 
 ### 4.2 `on-edit.sh` — PostToolUse (edit/write)
 1. No config / no jq / file outside project ⇒ exit 0.
-2. Append rel path to `sessions/<session_id>.files` (dedupe).
+2. Append rel path to `sessions/<session_id>.files` (dedupe); the first write also stores
+   `git rev-parse HEAD` in `sessions/<session_id>.head` (empty file when the repo has no HEAD).
 3. Lint (`lint` map by extension, rule `lint:<ext>`): only when `dk_container_ok`. Run each command
    with `{file}`. Treat exit≠0 as failure; exit 126/127, `command not found` or docker errors ⇒ SKIP,
    never block. When `lintChangedLinesOnly` is true, keep only output lines whose line number is in
@@ -333,8 +335,10 @@ flags in any order; `--files` consumes paths until the next `--` flag.
 1. No config / `stopCheck` false / rule `stopCheck` disabled ⇒ exit 0.
 2. Reminders first, once per session (`pairs-<session_id>.done`), over the session file list incl.
    non-code files:
-   - Pairs (N, rule `pair:<id>`): a session file matches `when` and none of the CHANGED files matches
-     `unless` ⇒ add its `say`.
+   - Pairs (N, rule `pair:<id>`): a session file matches `when` and no file of the `unless` set matches
+     `unless` ⇒ add its `say`. The `unless` set = changed files (`dk_changed_files`) ∪ session files ∪
+     `git diff --name-only <.head> HEAD` (only when `.head` holds a commit different from HEAD), so a
+     test committed in the same turn still counts.
    - Removed tests (rule `testRemoved`): a test method/function removed in a session file (diff vs HEAD,
      e.g. `function test…` in PHP, `def test_…` in Python) ⇒ reminder naming file and test.
 3. Session code files = session files with extension in any `lint` key or any step `ext`. Shortcuts that
