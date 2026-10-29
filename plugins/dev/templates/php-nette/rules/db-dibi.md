@@ -9,7 +9,7 @@ paths:
   - "phinx.php"
 ---
 
-# Databáza — Dibi 5 a Phinx
+# Databáza — Dibi 4+ a Phinx
 
 ## Dotazy
 

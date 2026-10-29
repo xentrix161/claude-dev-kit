@@ -1,4 +1,5 @@
-# Súbory ignorované gitom, ktoré Claude Code skopíruje do každého nového worktree (claude --worktree).
+# Súbory ignorované gitom, ktoré Claude Code skopíruje do každého nového worktree (claude --worktree, syntax .gitignore).
+# Kopíruje sa len to, čo je zároveň v .gitignore — verzované súbory nikdy.
 vendor/
 assets/vendor/
 .env.local

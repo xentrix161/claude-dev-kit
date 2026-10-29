@@ -40,7 +40,7 @@ Daj im presný rozsah (príkaz diffu, zoznam súborov, stack, kontajner z `devki
 Pri diffe hodnoť zmenený kód; nezmenený len pri CRITICAL bezpečnostnom probléme. Pri ceste celý obsah.
 
 ### 1. Bugy & logika
-- off-by-one, zlé podmienky, edge cases, null (Dibi 5 `fetch()` vracia `null`, nie `false`), copy-paste chyby
+- off-by-one, zlé podmienky, edge cases, null (Dibi 4+ `fetch()` vracia `null`, nie `false`), copy-paste chyby
 - typy: `instanceof \DateTime` pri `DateTimeImmutable` z DB vrstvy → `\DateTimeInterface`; chýbajúce typy parametrov a návratov; `strict_types` tam, kde ho projekt používa
 - error handling: prázdny `catch`, `@` operátor, tichý fallback; `begin()/commit()` v modeli (MySQL `BEGIN` commitne otvorenú transakciu)
 - performance: N+1, dotazy v cykle, veľký výsledok bez LIMIT/stránkovania, nový filter bez indexu — opravu navrhni, nevnucuj

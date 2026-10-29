@@ -11,6 +11,11 @@
 - Šablóna `php-nette` `devkit.json`: guardy `debug-php` a `die` majú vzor zo `php-symfony` — volanie metódy (`->exit(`, `$this->dump(`, `Debugger::dump(`) ani premenná `$exit` už nie sú nález, `bdump` ostáva; nový guard `doctrine-dql-concat` (podmienka QueryBuildera skladaná reťazcom, len pri Doctrine); pair `model-test` pokrýva `app/models/`, `app/model/` aj `app/Model/` ako `fullWhen`.
 - `pairs`: `when` a `unless` môžu byť aj zoznam globov (stačí zhoda s jedným); jeden glob funguje ako doteraz.
 - `/dev:project-init --sync` navrhne novú hodnotu guardu, kroku či pairu s existujúcim `id`, keď ju projekt od skopírovania nezmenil (porovnanie so šablónou pôvodnej verzie); zmenenú položku len vypíše s rozdielom.
+- Šablóna `php-nette` `CLAUDE.md.tmpl`: príkazy cez `{{run}}` ako `php-symfony` (pri `container: ""` prázdne, bez `docker exec`); značky `<!-- db:… -->` v tabuľke stoja pred posledným `|`, init ich zmaže aj s medzerou; pravidlo o vendor kóde pri prázdnom `{{vendorFrontendPaths}}` bez zátvorky; „Dibi 4+“ a politika baseline „nový nález oprav v kóde; baseline sa regeneruje len na pokyn používateľa“. Platí pre nový init, existujúci `CLAUDE.md` projektu sa nemení.
+- Šablóna `php-symfony`: `settings.json` má rovnaké `ask` pravidlá ako `php-nette` (Doctrine príkazy, ktoré menia DB, históriu migrácií alebo súbory, aj `migrations:migrate --dry-run`, `migrations:diff`, `schema:update`, `dbal:run-sql`) — `--sync` ich navrhne ako nové položky; `CLAUDE.md.tmpl` nemá `doctrine:migrations:migrate` medzi bežnými príkazmi (overenie cez `migrations:up-to-date`, migrácia len na pokyn) a `rules/doctrine.md` to hovorí rovnako; `.worktreeinclude` má vysvetľujúci riadok ako ostatné stacky.
+- Šablóny `php-nette` a `php-symfony` `rules/php-core.md`: rovnaké znenie politiky PHPStan baseline; `php-nette/rules/db-dibi.md` platí pre Dibi 4+.
+- Šablóna `python` `rules/tests.md` a skill `ecc-python-testing`: rýchle testy sú tie z kroku `unit` v `devkit.json`, nie natvrdo zapísaný príkaz.
+- Skill `ecc-mysql-patterns` sa načíta aj pri `**/Entity/**` a `**/Repository/**`; `/dev:review` a agent `ecc-silent-failure-hunter` hovoria „Dibi 4+“.
 
 ## 0.3.1 — 2026-10-29
 

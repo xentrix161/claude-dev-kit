@@ -9,7 +9,7 @@ paths:
 # Testy (pytest)
 
 - Konfigurácia v `pyproject.toml` `[tool.pytest.ini_options]` (alebo `pytest.ini`); markery registrované, `--strict-markers`.
-- Rýchle testy (`/dev:check`, Stop) = `pytest -q -m "not slow and not integration"` → pomalé a integračné testy označ markerom `slow` / `integration`.
+- Rýchle testy (`/dev:check`, Stop) = podľa kroku `unit` v `.claude/devkit.json` (v šablóne `-m "not slow and not integration"`) → pomalé a integračné testy označ markerom `slow` / `integration`.
 - Všetky testy: `/dev:check --full`.
 - Štruktúra zrkadlí kód: `src/<balík>/billing/invoice.py` → `tests/unit/billing/test_invoice.py`.
 - Názov `test_<čo>_<keď>_<výsledok>`; jeden test = jedno správanie; Arrange · Act · Assert oddelené prázdnym riadkom.

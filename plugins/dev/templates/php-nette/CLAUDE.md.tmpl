@@ -3,8 +3,14 @@
 Riadok, ktorý sa nedá vyplniť, zmaž — prázdny placeholder nenechávaj. Strom v Architektúre uprav podľa repa.
 Limit 120 riadkov; tematické detaily patria do .claude/rules/*.md (paths:).
 Nepíš sem počty testov, časy behu ani dáta — zastarajú.
-Riadky končiace HTML komentárom db:dibi / db:doctrine závisia od DB vrstvy (project-init krok 1):
-ponechaj len riadky zistenej vrstvy, značku z nich odstráň, ostatné zmaž.
+{{run}} = prefix príkazov vrátane medzery na konci: `docker exec {{container}} ` (bez -it; pri inom workdir
+`docker exec -w {{appRoot}} {{container}} `), alebo prázdne, keď sa príkazy púšťajú na hostiteľovi
+(container ""; vtedy zmaž aj riadok Docker v Stacku a riadok o TTY v Príkazoch).
+{{vendorFrontendPaths}} = čiarka, medzera a cesty commitnutých frontend knižníc v spätných apostrofoch
+(napr. „, `www/js/vendor/`“), alebo prázdne — pravidlo 7 ostane bez zátvorky aj bez visiacej čiarky.
+Riadky s HTML komentárom db:dibi / db:doctrine závisia od DB vrstvy (project-init krok 1): ponechaj len
+riadky zistenej vrstvy a značku z nich odstráň aj s medzerou pred ňou (v tabuľke stojí pred posledným |);
+riadky inej vrstvy zmaž.
 -->
 # CLAUDE.md — {{projectName}}
 
@@ -20,7 +26,7 @@ ponechaj len riadky zistenej vrstvy, značku z nich odstráň, ostatné zmaž.
 - Dibi {{dibiVersion}} · {{database}} · migrácie Phinx (`db/migrations/`) <!-- db:dibi -->
 - Doctrine ORM {{ormVersion}} (entity `{{entityDir}}`, repozitáre `{{repositoryDir}}`) · {{database}} · Doctrine Migrations (`{{migrationsDir}}`) <!-- db:doctrine -->
 - Docker: aplikácia `{{container}}` (repo mountnuté na `{{appRoot}}`), databáza `{{dbContainer}}`
-- Kvalita: PHPStan level {{phpstanLevel}} (`{{phpstanConfig}}` + baseline), PHPUnit, PHPCS PSR-12, latte-lint
+- Kvalita: PHPStan level {{phpstanLevel}} (`{{phpstanConfig}}`), PHPUnit, PHPCS PSR-12, latte-lint
 - Frontend: {{frontendStack}}
 
 ## Príkazy
@@ -30,16 +36,16 @@ Agent nemá TTY → `docker exec` **bez `-it`** (make ciele s `-it` padnú: „t
 | Úloha | Príkaz | Zdravý výstup |
 |---|---|---|
 | kontrola zmien | `/dev:check` · `--auto` · `--full` | `[dev-kit] check quick: PASS · N ok · 0 fail · 0 skip · S s` |
-| unit testy | `docker exec {{container}} php vendor/bin/phpunit --testsuite unit` | `OK (N tests, M assertions)` |
-| integračné testy | `docker exec {{container}} php vendor/bin/phpunit --testsuite integration` | `OK (N tests, M assertions)` |
-| PHPStan | `docker exec {{container}} php vendor/bin/phpstan analyse -c {{phpstanConfig}} --memory-limit=1G` | `[OK] No errors` |
-| code style | `docker exec {{container}} php vendor/bin/phpcs -q -n --standard=PSR12 <súbory>` | žiadny výstup, exit 0 |
-| Latte | `docker exec {{container}} php vendor/bin/latte-lint <cesta>` | `Done (checked N files, found errors in 0)` |
-| migrácie | `docker exec {{container}} php vendor/bin/phinx migrate` | `All Done. Took 0.NNNNs` | <!-- db:dibi -->
-| mapovanie a schéma | `docker exec {{container}} php bin/console {{schemaValidateCmd}}` | `[OK] The mapping files are correct.` + `[OK] The database schema is in sync with the mapping files.` | <!-- db:doctrine -->
-| čakajúce migrácie | `docker exec {{container}} php bin/console {{migrationsCmd}}:up-to-date` | `[OK] Up-to-date! No migrations to execute.` | <!-- db:doctrine -->
+| unit testy | `{{run}}php vendor/bin/phpunit --testsuite unit` | `OK (N tests, M assertions)` |
+| integračné testy | `{{run}}php vendor/bin/phpunit --testsuite integration` | `OK (N tests, M assertions)` |
+| PHPStan | `{{run}}php vendor/bin/phpstan analyse -c {{phpstanConfig}} --memory-limit=1G` | `[OK] No errors` |
+| code style | `{{run}}php vendor/bin/phpcs -q -n --standard=PSR12 <súbory>` | žiadny výstup, exit 0 |
+| Latte | `{{run}}php vendor/bin/latte-lint <cesta>` | `Done (checked N files, found errors in 0)` |
+| migrácie | `{{run}}php vendor/bin/phinx migrate` | `All Done. Took 0.NNNNs` <!-- db:dibi --> |
+| mapovanie a schéma | `{{run}}php bin/console {{schemaValidateCmd}}` | `[OK] The mapping files are correct.` + `[OK] The database schema is in sync with the mapping files.` <!-- db:doctrine --> |
+| čakajúce migrácie | `{{run}}php bin/console {{migrationsCmd}}:up-to-date` | `[OK] Up-to-date! No migrations to execute.` <!-- db:doctrine --> |
 | prostredie | `{{startCommand}}` | {{startHealthyOutput}} |
-| cache | `docker exec {{container}} sh -c 'rm -rf temp/cache/*'` | žiadny výstup |
+| cache | `{{run}}sh -c 'rm -rf temp/cache/*'` | žiadny výstup |
 
 - Iný výstup (`FAILURES!`, `[ERROR] Found N errors`, `found errors in 1`) = nie je hotovo.
 - `SKIP` ani `PARTIAL` v `/dev:check` (kontajner nebeží, chýba nástroj) nie je PASS — povedz to výslovne.
@@ -50,7 +56,8 @@ Agent nemá TTY → `docker exec` **bez `-it`** (make ciele s `-it` padnú: „t
 - Pred „hotovo" spusti `/dev:check --auto` — pri zmene modelov, `libs/`, `db/` či presenterov pustí aj integračné testy.
 - Do odpovede vlož súhrnný riadok výstupu. Bez výstupu netvrď, že testy prešli.
 - Padá test → oprav kód, nie test. Test meníš len keď je preukázateľne zlý — povedz prečo.
-- Žiadne `markTestSkipped()`, mazanie asercií ani rozširovanie PHPStan baseline kvôli zelenej.
+- Žiadne `markTestSkipped()` ani mazanie asercií kvôli zelenej.
+- PHPStan: nový nález oprav v kóde; baseline sa regeneruje len na pokyn používateľa.
 - UI zmena → over aj v prehliadači ({{appUrl}}), nielen testami.
 - Testovací login: `{{testCredentialsFile}}` (mimo gitu) — obsah nečítaj, nevypisuj ani necommituj; v príkazoch len mená jeho premenných.
 - Po 2 neúspešných pokusoch o tú istú opravu zastav, zhrň zistenia a navrhni iný prístup.
@@ -81,7 +88,7 @@ libs/  {{migrationsDir}}  tests/  www/
 5. Zmena schémy = nová Phinx migrácia; aplikovanú migráciu neupravuj. <!-- db:dibi -->
 5. Zmena entity = nová Doctrine migrácia (`{{migrationsCmd}}:diff` len so súhlasom, `up()`/`down()` skontroluj); vydanú migráciu neupravuj; `{{migrationsCmd}}:migrate` (aj `--dry-run`) len na pokyn. <!-- db:doctrine -->
 6. Zmena modelu alebo tabuľky bez migrácie → opýtaj sa, či ju chcem.
-7. Vendor kód (`vendor/`, {{vendorFrontendPaths}}) sa needituje — override patrí do vlastného súboru.
+7. Vendor kód `vendor/`{{vendorFrontendPaths}} sa needituje — override patrí do vlastného súboru.
 8. Nová funkcionalita → test; oprava bugu → test, ktorý by bug odhalil.
 9. Komentáre krátke alebo žiadne: len čo z kódu nevidno; bez histórie, meraní a produkčných dát.
 10. `app/config/config.local.neon` nikdy necommituj ani nevypisuj.
@@ -93,7 +100,7 @@ libs/  {{migrationsDir}}  tests/  www/
 ## Pasce
 
 - `temp/cache` drží skompilovaný DI kontajner a Latte — po prepnutí vetvy či zmene `.neon` ho vyčisti.
-- Dibi 5: `fetch()` vracia `null` (nie `false`); dátumy sú `DateTimeImmutable` → `instanceof \DateTime` ticho zlyhá. <!-- db:dibi -->
+- Dibi 4+: `fetch()` vracia `null` (nie `false`); dátumy sú `DateTimeImmutable` → `instanceof \DateTime` ticho zlyhá. <!-- db:dibi -->
 - Metadáta mapovania Doctrine sú v cache appky — po zmene entity alebo neon configu ju vyčisti, inak beží staré mapovanie. <!-- db:doctrine -->
 - MySQL `BEGIN` implicitne commitne otvorenú transakciu → `begin()` v modeli rozbije rollback v testoch.
 - Latte 3: `{!$var}` vypíše negáciu výrazu, nie HTML; bez escapovania len `{$var|noescape}` s dôvodom.

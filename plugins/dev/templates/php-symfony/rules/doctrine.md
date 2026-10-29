@@ -23,7 +23,8 @@ paths:
 ## Overenie
 
 - `bin/console doctrine:schema:validate` → `[OK] The mapping files are correct.` + `[OK] The database schema is in sync with the mapping files.`
-- Lokálna DB zaostáva → `doctrine:migrations:migrate` alebo dočasne `--skip-sync`; `doctrine:migrations:status` ukáže, čo chýba.
+- Lokálna DB zaostáva → `doctrine:migrations:status` ukáže, čo chýba; dočasne `--skip-sync`.
+- `doctrine:migrations:migrate` len na výslovný pokyn — aj s `--dry-run`, môže založiť tabuľku histórie migrácií.
 
 ## Pasce
 

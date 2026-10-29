@@ -6,7 +6,8 @@ paths:
   - "migrations/**"
   - "**/*Model.php"
   - "**/*.sql"
-  - "src/Repository/**"
+  - "**/Entity/**"
+  - "**/Repository/**"
 ---
 <!-- prevzaté z ECC skills/mysql-patterns/SKILL.md @ b92f181, upravené -->
 

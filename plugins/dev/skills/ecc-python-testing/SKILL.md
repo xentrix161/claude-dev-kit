@@ -91,7 +91,7 @@ markers = ["integration: potrebuje DB alebo službu", "slow: beží dlhšie ako 
 ```
 
 - `--strict-markers` → preklep v markeri je chyba, nie tichý výber.
-- Rýchla kontrola kitu (`/dev:check`, Stop) spúšťa `-m "not slow and not integration"` — pomalé a integračné testy označ, inak brzdia každý ťah.
+- Rýchla kontrola kitu (`/dev:check`, Stop) spúšťa testy podľa kroku `unit` v devkit.json (v šablóne `-m "not slow and not integration"`) — pomalé a integračné testy označ, inak brzdia každý ťah.
 - `skipif(podmienka, reason="…")`; `xfail(strict=True)`, aby oprava neprešla nepovšimnutá.
 
 ## Mocky

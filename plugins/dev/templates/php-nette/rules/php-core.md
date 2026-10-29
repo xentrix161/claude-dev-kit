@@ -13,7 +13,7 @@ paths:
 - Chyby hádž konkrétnou výnimkou; `catch` len to, čo vieš ošetriť, a nikdy prázdny.
 - Logovanie cez Tracy (`Tracy\Debugger::log()`, `Tracy\ILogger`), nie `error_log()` ani `echo`.
 - Závislosti cez konštruktor (constructor promotion, ak ju projekt používa).
-- PHPStan: nové chyby oprav; baseline sa regeneruje len na pokyn, `@phpstan-ignore` len s dôvodom.
+- PHPStan: nový nález oprav v kóde; baseline sa regeneruje len na pokyn používateľa; `@phpstan-ignore` len s dôvodom.
 
 ## Zakázané
 

@@ -10,10 +10,19 @@
       "Bash(docker restart *)",
       "Bash(docker rm *)",
       "Bash(docker compose *down*)",
-      "Bash(*doctrine:database:drop*)",
-      "Bash(*doctrine:schema:drop*)",
-      "Bash(*doctrine:schema:update*--force*)",
-      "Bash(*doctrine:fixtures:load*)"
+      "Bash(*migrations:migrate*)",
+      "Bash(*migrations:execute*)",
+      "Bash(*migrations:version*)",
+      "Bash(*migrations:rollup*)",
+      "Bash(*migrations:diff*)",
+      "Bash(*migrations:generate*)",
+      "Bash(*schema:update*)",
+      "Bash(*schema:create*)",
+      "Bash(*schema:drop*)",
+      "Bash(*schema-tool:*)",
+      "Bash(*database:drop*)",
+      "Bash(*dbal:run-sql*)",
+      "Bash(*fixtures:load*)"
     ],
     "deny": [
       "Edit(/vendor/**)",

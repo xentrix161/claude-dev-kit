@@ -15,7 +15,7 @@ paths:
 - V commitnutom kóde nie: `dump()`, `dd()`, `var_dump()`, `print_r()`, `die()`/`exit()`, operátor `@` (hook ich hlási v pridaných riadkoch).
 - Dátumy ako `\DateTimeImmutable`; typové kontroly cez `\DateTimeInterface`.
 - Komentáre krátke alebo žiadne: len čo z kódu nevidno a bráni regresii; bez histórie, meraní a odkazov na reálne dáta; sémantiku drží test.
-- PHPStan: nový nález oprav v kóde; baseline sa nedopĺňa; `@phpstan-ignore` len s identifikátorom a dôvodom.
+- PHPStan: nový nález oprav v kóde; baseline sa regeneruje len na pokyn používateľa; `@phpstan-ignore` len s identifikátorom a dôvodom.
 
 ## Overenie
 

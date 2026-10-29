@@ -11,14 +11,14 @@
 
 | kit path | ECC source path | ECC commit | date adopted | changes |
 |---|---|---|---|---|
-| `skills/ecc-mysql-patterns/` | `skills/mysql-patterns` | b92f181 | 2026-10-27 | SK, skrátené; MySQL 5.7/8, Dibi + Doctrine parametre, EXPLAIN, indexy, N+1; `paths:` |
+| `skills/ecc-mysql-patterns/` | `skills/mysql-patterns` | b92f181 | 2026-10-27 | SK, skrátené; MySQL 5.7/8, Dibi + Doctrine parametre, EXPLAIN, indexy, N+1; `paths:` vrátane `**/Entity/**`, `**/Repository/**` |
 | `skills/ecc-e2e-testing/` | `skills/e2e-testing` | b92f181 | 2026-10-27 | SK, skrátené; Playwright POM, flaky testy; bez Vercel/npm častí |
 | `skills/ecc-change-impact/` | `skills/change-impact` | b92f181 | 2026-10-27 | SK, skrátené; pred rizikovou zmenou jadra (validátory, triggery, verejné API); príklady bez domény projektu |
 | `skills/ecc-accessibility/` | `skills/accessibility` | b92f181 | 2026-10-27 | SK, skrátené; WCAG 2.2 pre serverové šablóny (Latte, Twig), bez Reactu; `paths:` |
 | `skills/ecc-production-audit/` | `skills/production-audit` | b92f181 | 2026-10-27 | SK, skrátené; `disable-model-invocation: true`; exit 4 = neúplné overenie (PARTIAL/SKIP) |
 | `skills/ecc-python-patterns/` | `skills/python-patterns` | b92f181 | 2026-10-27 | SK, skrátené; `paths: **/*.py` |
-| `skills/ecc-python-testing/` | `skills/python-testing` | 25278e7d | 2026-10-28 | SK, skrátené; pytest; bez povinného pokrytia |
-| `agents/ecc-silent-failure-hunter.md` | `agents/silent-failure-hunter.md` | b92f181 | 2026-10-27 | SK, read-only, `model: inherit`, `maxTurns: 30`, bez pamäte, voliteľný riadok „Na zapamätanie:“ pre /dev:learn, výstup max 15 nálezov |
+| `skills/ecc-python-testing/` | `skills/python-testing` | 25278e7d | 2026-10-28 | SK, skrátené; pytest; bez povinného pokrytia; rýchle testy podľa kroku `unit` v devkit.json |
+| `agents/ecc-silent-failure-hunter.md` | `agents/silent-failure-hunter.md` | b92f181 | 2026-10-27 | SK, read-only, `model: inherit`, `maxTurns: 30`, bez pamäte, voliteľný riadok „Na zapamätanie:“ pre /dev:learn, výstup max 15 nálezov; vzory pre Dibi 4+ |
 | `agents/ecc-pr-test-analyzer.md` | `agents/pr-test-analyzer.md` | b92f181 | 2026-10-27 | SK, read-only, `model: sonnet`, `maxTurns: 30`, bez pamäte, voliteľný riadok „Na zapamätanie:“ pre /dev:learn |
 | `agents/ecc-a11y-architect.md` | `agents/a11y-architect.md` | b92f181 | 2026-10-27 | SK, read-only, `model: sonnet`, `maxTurns: 30`; serverové šablóny |
 | `agents/ecc-performance-optimizer.md` | `agents/performance-optimizer.md` | b92f181 | 2026-10-27 | SK, read-only, `model: inherit`, `maxTurns: 30`; PHP/MySQL namiesto Node |

@@ -503,7 +503,7 @@ Reference skills — model-invocable, short descriptions (always-on budget for t
 tokens, measured by `tools/details.sh` by the docs rule: `disable-model-invocation` skills count 0):
 | name | from ECC | `paths` | notes |
 |---|---|---|---|
-| `ecc-mysql-patterns` | `skills/mysql-patterns` | `db/**`, `migrations/**`, `**/*Model.php`, `**/*.sql`, `src/Repository/**` | MySQL 5.7/8, Dibi + Doctrine parametrization, EXPLAIN, indexes, N+1 |
+| `ecc-mysql-patterns` | `skills/mysql-patterns` | `db/**`, `migrations/**`, `**/*Model.php`, `**/*.sql`, `**/Entity/**`, `**/Repository/**` | MySQL 5.7/8, Dibi + Doctrine parametrization, EXPLAIN, indexes, N+1 |
 | `ecc-e2e-testing` | `skills/e2e-testing` | `tests/e2e/**`, `**/*.spec.js`, `**/*.spec.ts`, `playwright.config.*` | Playwright POM, flaky handling; drop Vercel/npm-specific bits |
 | `ecc-change-impact` | `skills/change-impact` | — | before risky changes in core (validators, triggers, public API) |
 | `ecc-accessibility` | `skills/accessibility` | `**/*.latte`, `**/*.twig`, `www/css/**`, `assets/**/*.css`, `templates/**` | WCAG 2.2, server-rendered templates (no React) |
@@ -567,7 +567,9 @@ Arguments: none | `--sync` | `--dry-run`.
 common/REVIEW.md                 # V2: passes Bugs · Security · Súlad s plan.md; Important vs Nit; max 5 nits; do-not-report placeholders
 common/plan.md                   # V1 template
 php-nette/CLAUDE.md.tmpl         # skeleton with {{placeholders}}, ≤ 120 lines incl. verification block (V9) and `## Compact instructions`;
-                                 # DB-dependent lines end with `<!-- db:dibi -->` / `<!-- db:doctrine -->` (init keeps one variant, strips the marker)
+                                 # commands use `{{run}}` like php-symfony (`docker exec <c> ` or empty for `container: ""`);
+                                 # DB-dependent lines end with `<!-- db:dibi -->` / `<!-- db:doctrine -->`, table rows carry it before the
+                                 # last `|` (init keeps one variant, strips the marker with the space before it)
 php-nette/devkit.json            # like §3 example with {{container}}, {{appRoot}}, {{phpstanConfig}} placeholders; `_init` notes;
                                  # items with id `doctrine-*` (step doctrine-schema, guard doctrine-dql-concat, pair doctrine-entity-migration) only for Doctrine;
                                  # guards debug-php (+ bdump) and die use the php-symfony patterns: `->exit(`, `::dump(`, `$exit` are not findings;
@@ -577,7 +579,7 @@ php-nette/.worktreeinclude       # V6: vendor/, app/config/config.local.neon, .t
 php-nette/rules/php-core.md      # paths: **/*.php — PHP 8.x, PSR-12, strict types where project uses them, no die(), no @
 php-nette/rules/nette.md         # paths: app/**, libs/** — presenters, DI, forms CSRF, ACL isAllowed
 php-nette/rules/latte-frontend.md# paths: **/*.latte, www/css/**, www/js/** — escaping, {!$} policy, data-bs-*, JS anchors
-php-nette/rules/db-dibi.md       # paths: db/**, **/*Model.php — Dibi 5 fetch null, params, no begin/commit in models, Phinx
+php-nette/rules/db-dibi.md       # paths: db/**, **/*Model.php — Dibi 4+ fetch null, params, no begin/commit in models, Phinx
 php-nette/rules/db-doctrine.md   # paths: **/Entity/**, **/Repository/**, migrations/**, app/config/*doctrine*.neon — Doctrine ORM + Migrations in Nette; copied instead of db-dibi.md
 php-nette/rules/tests.md         # paths: tests/** — suites, rollback tests, credentials, verification output
 php-symfony/…                    # same shape: CLAUDE.md.tmpl, devkit.json, settings.json, .worktreeinclude, rules/{php-core,symfony,twig-frontend,doctrine,api-platform,tests}.md
@@ -591,8 +593,10 @@ and the same compaction heading `## Compact instructions`. Deny rules in `settin
 (php-nette, php-symfony) and mypy (python). Stop mode runs only fast steps: tests without the slow ones
 (php-nette `--testsuite unit`, php-symfony `--exclude-group integration` or the fast `<testsuite>` that
 init picks from `phpunit.xml`, python `-m 'not slow and not integration'`); slow tests are a separate
-step with `modes: ["full"]` (`integration`; python the whole `pytest`). The symfony template's 12 ask
-rules and broader deny are intended.
+step with `modes: ["full"]` (`integration`; python the whole `pytest`). php-symfony `settings.json` has the
+same `ask` rules as php-nette (`migrations:migrate` is not in the template's command list, it runs only on
+request); its broader deny is intended. The PHPStan baseline wording is the same in both PHP templates:
+„nový nález oprav v kóde; baseline sa regeneruje len na pokyn používateľa“.
 Source material: `CLAUDE.md` of real Nette and Symfony projects — read-only — plus the
 user's global `CLAUDE.md` rules. Each rule file ≤ 60 lines, with a `## Pasce` section.
 

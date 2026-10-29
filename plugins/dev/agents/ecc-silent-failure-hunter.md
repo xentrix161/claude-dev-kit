@@ -45,12 +45,12 @@ Nulová tolerancia k chybe, ktorá zmizne bez stopy: kód pokračuje, používat
 ### Tiché fallbacky
 - `?? 0`, `?: []`, `(int)` cast, `default =>` v `match`, ktoré zakryjú chýbajúce dáta namiesto chyby
 - validácia, ktorá pri neznámej hodnote vráti `true` alebo pravidlo preskočí
-- `instanceof \DateTime`, keď knižnica vracia `DateTimeImmutable` (Dibi 5, Doctrine `*_immutable`) — vetva sa ticho preskočí; správne `\DateTimeInterface`
+- `instanceof \DateTime`, keď knižnica vracia `DateTimeImmutable` (Dibi 4+, Doctrine `*_immutable`) — vetva sa ticho preskočí; správne `\DateTimeInterface`
 - formulár hlási „uložené" aj po zachytenej výnimke; chýba `$form->addError()` alebo flash s chybou
 
 ### Databáza
-- Dibi 5 / Nette Database: `fetch()`/`fetchSingle()` vracia `null`; prístup k stĺpcu bez kontroly, `null` brané ako 0
-- kontrola `=== false` na výsledku Dibi 5 `fetch()` — nikdy neplatí (Dibi 3 vracal `false`)
+- Dibi 4+ / Nette Database: `fetch()`/`fetchSingle()` vracia `null`; prístup k stĺpcu bez kontroly, `null` brané ako 0
+- kontrola `=== false` na výsledku Dibi 4+ `fetch()` — nikdy neplatí (Dibi 3 vracal `false`)
 - `UPDATE`/`DELETE`, ktorý musí zasiahnuť riadok, bez kontroly `getAffectedRows()`
 - Doctrine: `find()`/`findOneBy()`/`getOneOrNullResult()` bez kontroly `null`; `flush()` v prehltnutom `catch`
 - transakcia u volajúceho bez `rollback()` v `catch`; chýbajúce `finally` pre zámok či dočasný súbor

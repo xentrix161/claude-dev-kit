@@ -134,7 +134,7 @@ Zhrnutie detekcie: každé zistenie jedným riadkom s dôkazom.
   - `AGENTS.md` nerozsekávaj do `.claude/rules/` (ostatné nástroje by o pravidlá prišli); lokálny režim → `AGENTS.md` ani sledovaný `CLAUDE.md` neupravuj, `@AGENTS.md` a časti pre Claude daj do `CLAUDE.local.md`.
 - **Bez `AGENTS.md`:** ako doteraz, nižšie.
 
-- Kostra `${CLAUDE_PLUGIN_ROOT}/templates/<stack>/CLAUDE.md.tmpl`: Projekt · Stack · Príkazy · Architektúra · Pravidlá · Pasce · 3 riadky pre kompakciu. Úvodný komentár šablóny `<!-- … -->` sú pokyny pre teba — do `CLAUDE.md` ho neprenášaj. Riadky so značkou `<!-- db:dibi -->` / `<!-- db:doctrine -->`: ponechaj len vrstvu z kroku 1, značku odstráň. Zoznam rules v Pravidlách uprav na skutočne skopírované.
+- Kostra `${CLAUDE_PLUGIN_ROOT}/templates/<stack>/CLAUDE.md.tmpl`: Projekt · Stack · Príkazy · Architektúra · Pravidlá · Pasce · 3 riadky pre kompakciu. Úvodný komentár šablóny `<!-- … -->` sú pokyny pre teba — do `CLAUDE.md` ho neprenášaj. Riadky so značkou `<!-- db:dibi -->` / `<!-- db:doctrine -->`: ponechaj len vrstvu z kroku 1, značku odstráň aj s medzerou pred ňou (v tabuľke stojí pred posledným `|`). Zoznam rules v Pravidlách uprav na skutočne skopírované.
 - **Overovací blok (V9):** ku každému príkazu tvar zdravého výstupu (`OK (… tests, … assertions)`, `[OK] No errors`) z reálneho behu v kroku 3 — bez presných počtov testov a časov, tie zastarávajú.
 - **3 riadky pre kompakciu** zo šablóny ponechaj (zmenené súbory + stav `/dev:check` · otvorené rozhodnutia + ďalší krok · príkazy na overenie).
 - `CLAUDE.md` neexistuje → vyplň kostru z detekcie.
