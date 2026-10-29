@@ -46,11 +46,11 @@ dk_ms() {
     perl -MTime::HiRes=time -e 'printf "%d\n", time()*1000' 2>/dev/null || printf '%s000\n' "$(date +%s)"
 }
 
-# Dátový adresár len pre používateľa (700). Globálny umask sa nemení — dk_exec spúšťa príkazy na hoste.
+# Dátový adresár len pre používateľa (700). umask len v subshelle — dk_exec spúšťa príkazy na hoste.
 dk_data_dir() {
     local d="${DK_DATA:-${DEVKIT_DATA:-$HOME/.claude/dev-kit}}"
     if [ ! -d "$d" ]; then
-        mkdir -p "$d" 2>/dev/null && chmod 700 "$d" 2>/dev/null
+        (umask 077; mkdir -p "$d") 2>/dev/null
     elif [ -z "${DK_DATA_OK:-}" ] && [ -O "$d" ]; then
         chmod 700 "$d" 2>/dev/null
     fi
@@ -58,10 +58,15 @@ dk_data_dir() {
     return 0
 }
 
+# Nad 1 MB ostane posledných 500 riadkov.
 dk_err() {
+    local f
     dk_data_dir
-    printf '%s %s %s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "${DK_HOOK:-?}" "$*" \
-        2>/dev/null >> "${DK_DATA:-${DEVKIT_DATA:-$HOME/.claude/dev-kit}}/errors.log"
+    f="${DK_DATA:-${DEVKIT_DATA:-$HOME/.claude/dev-kit}}/errors.log"
+    printf '%s %s %s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "${DK_HOOK:-?}" "$*" 2>/dev/null >> "$f"
+    if [ -f "$f" ] && [ "$(wc -c < "$f" 2>/dev/null | tr -d ' ')" -gt 1048576 ] 2>/dev/null; then
+        { tail -n 500 "$f" > "$f.tmp.$$" && mv "$f.tmp.$$" "$f"; } 2>/dev/null || rm -f "$f.tmp.$$" 2>/dev/null
+    fi
     return 0
 }
 
@@ -324,12 +329,31 @@ dk_workdir() {
     return 1
 }
 
+# Stav kontajnera z container.state ("<epoch> <running|down> <kontajner>", 30 s); DK_NO_CONTAINER_CACHE
+# (check.sh) ho nečíta, len zapíše čerstvý.
 dk_container_ok() {
     dk_base
     [ -n "${DK_CONTAINER:-}" ] || return 0
     if [ -z "${DK_CONTAINER_STATE:-}" ]; then
-        DK_CONTAINER_STATE=$(docker inspect -f '{{.State.Running}}' "$DK_CONTAINER" 2>/dev/null)
-        [ -n "$DK_CONTAINER_STATE" ] || DK_CONTAINER_STATE=none
+        local cf="$DK_PDATA/container.state" now t="" s="" c=""
+        now=$(dk_now)
+        if [ -z "${DK_NO_CONTAINER_CACHE:-}" ] && [ -f "$cf" ]; then
+            { read -r t s c < "$cf"; } 2>/dev/null
+            case "$t" in ''|*[!0-9]*) t=0 ;; esac
+            if [ "$c" = "$DK_CONTAINER" ] && [ "$t" -le "$now" ] && [ $((now - t)) -lt 30 ]; then
+                case "$s" in running) DK_CONTAINER_STATE=true ;; down) DK_CONTAINER_STATE=none ;; esac
+            fi
+        fi
+        if [ -z "$DK_CONTAINER_STATE" ]; then
+            DK_CONTAINER_STATE=$(docker inspect -f '{{.State.Running}}' "$DK_CONTAINER" 2>/dev/null)
+            [ -n "$DK_CONTAINER_STATE" ] || DK_CONTAINER_STATE=none
+            s=down
+            [ "$DK_CONTAINER_STATE" = true ] && s=running
+            if [ -d "$DK_PDATA" ]; then
+                { printf '%s %s %s\n' "$now" "$s" "$DK_CONTAINER" > "$cf.tmp.$$" && mv "$cf.tmp.$$" "$cf"; } 2>/dev/null \
+                    || rm -f "$cf.tmp.$$" 2>/dev/null
+            fi
+        fi
     fi
     [ "$DK_CONTAINER_STATE" = "true" ]
 }
@@ -432,17 +456,31 @@ dk_added_lines() {
     return 0
 }
 
-# "rel<TAB>blob" zoradené podľa cesty; chýbajúci súbor = "-".
+# "rel<TAB>blob" zoradené podľa cesty; chýbajúci alebo nečitateľný súbor = "-". Symlink s príponou kódu
+# vypadne: git z neho commitne cieľ odkazu, nie obsah, ktorý by sa tu hashoval.
 dk_blobs() {
     local f ex="" mi="" bl="" b
     for f in "$@"; do
         [ -n "$f" ] || continue
+        if [ -L "$DK_PROJECT/$f" ] && dk_is_code "$f"; then continue; fi
         if [ -f "$DK_PROJECT/$f" ]; then ex="$ex$f$DK_NL"; else mi="$mi$f$DK_NL"; fi
     done
-    [ -n "$ex" ] && bl=$(printf '%s' "$ex" | git -C "$DK_PROJECT" hash-object --stdin-paths 2>/dev/null)
+    # Jeden nečitateľný súbor zhodí celú dávku → po jednom.
+    if [ -n "$ex" ] && ! bl=$(printf '%s' "$ex" | git -C "$DK_PROJECT" hash-object --stdin-paths 2>/dev/null); then
+        bl=""
+        while IFS= read -r f; do
+            [ -n "$f" ] || continue
+            b=$(git -C "$DK_PROJECT" hash-object -- "$f" 2>/dev/null)
+            [ -n "$b" ] || { dk_err "nečitateľný súbor $f (git hash-object)"; b=-; }
+            bl="$bl$b$DK_NL"
+        done <<EOF
+$ex
+EOF
+    fi
     {
         if [ -n "$bl" ]; then
             while IFS= read -r f <&3 && IFS= read -r b <&4; do
+                [ -n "$f" ] || continue
                 printf '%s\t%s\n' "$f" "$b"
             done 3<<EOF3 4<<EOF4
 $ex
@@ -550,7 +588,7 @@ dk_filter_changed() { # <outfile> <mapfile>
 dk_strip_paths() {
     local a=""
     case "${DK_WD:-}" in ''|/) ;; *) a="${DK_WD%/}/" ;; esac
-    awk -v a="$a" -v b="$DK_PROJECT/" '{
+    DK_AWK_A="$a" DK_AWK_B="$DK_PROJECT/" awk 'BEGIN { a = ENVIRON["DK_AWK_A"]; b = ENVIRON["DK_AWK_B"] } {
         if (a != "") while ((i = index($0, a)) > 0) $0 = substr($0, 1, i - 1) substr($0, i + length(a))
         while ((i = index($0, b)) > 0) $0 = substr($0, 1, i - 1) substr($0, i + length(b))
         if (length($0) > 220) $0 = substr($0, 1, 217) "..."

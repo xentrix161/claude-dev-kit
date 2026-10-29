@@ -386,8 +386,15 @@ EOF
     if [ -n "$so" ]; then
         printf '%s' "$so" > "$DK_TMP/so.list"
         tr '\n' '\0' < "$DK_TMP/so.list" | xargs -0 git -C "$DK_PROJECT" -c core.quotepath=off ls-files -s -- 2>/dev/null \
-            | awk -F'\t' '{ split($1, m, " "); print $2 "\t" m[2] }' > "$DK_TMP/so.idx"
-        map="$map$DK_NL$(awk -F'\t' 'FILENAME == ARGV[1] { b[$1] = $2; next } NF { print $0 "\t" (($0 in b) ? b[$0] : "-") }' "$DK_TMP/so.idx" "$DK_TMP/so.list")"
+            | awk -F'\t' '{ split($1, m, " "); print $2 "\t" m[2] "\t" m[1] }' > "$DK_TMP/so.idx"
+        # Symlink (120000) s príponou kódu vypadne ako v dk_blobs: blob v indexe je cieľ odkazu.
+        map="$map$DK_NL$(DK_AWK_EXT=",$gext,$DK_CODE_EXTS," awk -F'\t' '
+            function ext(p,   x) { x = p; sub(/.*\//, "", x); if (index(x, ".") == 0) return ""; sub(/.*\./, ".", x); return x }
+            FILENAME == ARGV[1] { b[$1] = $2; if ($3 == "120000") l[$1] = 1; next }
+            NF {
+                if (($0 in l) && (e = ext($0)) != "" && index(ENVIRON["DK_AWK_EXT"], "," e ",")) next
+                print $0 "\t" (($0 in b) ? b[$0] : "-")
+            }' "$DK_TMP/so.idx" "$DK_TMP/so.list")"
     fi
     map=$(printf '%s\n' "$map" | grep -v '^$' | sort -u)
 

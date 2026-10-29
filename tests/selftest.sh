@@ -1721,6 +1721,148 @@ EOF
   [ -z "$bad" ] || fail "$bad"
 }
 
+# ---------------------------------------------------------------- okrajové stavy skriptov (A7)
+
+# check.sh mimo kontraktu 0/1/4 (config, argumenty, pád skriptu) → Stop neblokuje, ale nehlási pass
+t_stop_check_not_run() {
+  new_case
+  kit_scripts || return 1
+  add app/Foo.php '$x = 1;'
+  session_files app/Foo.php
+  local c
+  for c in 3 2; do
+    printf '#!/usr/bin/env bash\necho "[dev-kit] atrapa check.sh"\nexit %s\n' "$c" > "$S/check.sh"
+    stop_check
+    want_rc 0 "exit $c" && want_no_block "exit $c" \
+      && want_json ".hookSpecificOutput.additionalContext | contains(\"kontrola sa nedala spustiť (exit $c)\") and contains(\"errors.log\")" "exit $c" \
+      || return 1
+    grep -q "check.sh --stop exit $c" "$DATA/errors.log" 2>/dev/null || { fail "errors.log bez exit $c"; return 1; }
+  done
+  want_logged stop-check stopCheck skip || return 1
+  ! jq -se 'any(.[]; .hook == "stop-check" and .rule == "stopCheck" and .decision == "pass")' "$DATA/decisions.jsonl" >/dev/null 2>&1 ||
+    fail "decisions.jsonl má stopCheck pass, hoci kontrola nebežala"
+}
+# dk_blobs: nečitateľný súbor = "-" + errors.log (dávka nezhodí ostatné), symlink s príponou kódu vypadne
+t_blobs_unreadable_symlink() {
+  new_case
+  put app/Bad.php '<?php $bad = 1;'
+  ln -s Foo.php "$REPO/app/Link.php" && ln -s ../README.md "$REPO/app/link.md" || { fail "fixture: ln -s"; return 1; }
+  chmod 000 "$REPO/app/Bad.php"
+  local got root="" foo md bad
+  [ -r "$REPO/app/Bad.php" ] && root=1
+  got=$(cd "$REPO" && bash -c '. "$1" && dk_init && dk_blobs app/Foo.php app/Bad.php app/Link.php app/link.md app/Missing.php' \
+    _ "$S/lib.sh" 2>/dev/null < /dev/null)
+  chmod 644 "$REPO/app/Bad.php"
+  foo=$(git -C "$REPO" hash-object app/Foo.php)
+  md=$(git -C "$REPO" hash-object README.md)
+  bad=-
+  [ -z "$root" ] || bad=$(git -C "$REPO" hash-object app/Bad.php)
+  printf '%s\n' "$got" | grep -qxF "app/Foo.php$(printf '\t')$foo" &&
+    printf '%s\n' "$got" | grep -qxF "app/Bad.php$(printf '\t')$bad" &&
+    printf '%s\n' "$got" | grep -qxF "app/link.md$(printf '\t')$md" &&
+    printf '%s\n' "$got" | grep -qxF "app/Missing.php$(printf '\t')-" ||
+    { fail "dk_blobs: $(flat "$got")"; return 1; }
+  ! printf '%s\n' "$got" | grep -q '^app/Link\.php' || { fail "symlink .php v dk_blobs: $(flat "$got")"; return 1; }
+  [ -n "$root" ] || grep -q 'nečitateľný súbor app/Bad.php' "$DATA/errors.log" 2>/dev/null ||
+    fail "errors.log bez nečitateľného súboru"
+}
+# commit gate: symlink s príponou kódu (stage aj git add v príkaze) nežiada PASS, ktorý by nikdy nesedel
+t_bash_commit_symlink_code() {
+  new_case
+  ln -s Foo.php "$REPO/app/Link.php" || { fail "fixture: ln -s"; return 1; }
+  g add app/Link.php
+  check --quick --project "$REPO"
+  want_rc 0 "check" || return 1
+  want_jfile "$PDATA/pass.json" '.blobs | has("app/Link.php") | not' || return 1
+  pre_bash 'git commit -m "x"'
+  want_allow "symlink v stage" || return 1
+  pre_bash 'git add app/Link.php && git commit -m "x"'
+  want_allow "git add symlinku"
+}
+t_err_log_rotation() {
+  new_case
+  awk 'BEGIN { for (i = 1; i <= 2100; i++) printf "%06d %0600d\n", i, 0 }' > "$DATA/errors.log"
+  (cd "$REPO" && DK_HOOK=selftest bash -c '. "$1" && dk_err "ROTATE-MARK"' _ "$S/lib.sh" < /dev/null)
+  local n
+  n=$(wc -l < "$DATA/errors.log" | tr -d ' ')
+  [ "$n" = 500 ] && tail -n 1 "$DATA/errors.log" | grep -q 'selftest ROTATE-MARK' && head -n 1 "$DATA/errors.log" | grep -q '^001602 ' ||
+    { fail "errors.log nad 1 MB: $n riadkov, posledný $(tail -n 1 "$DATA/errors.log" | cut -c1-40)"; return 1; }
+  (cd "$REPO" && DK_HOOK=selftest bash -c '. "$1" && dk_err "SMALL"' _ "$S/lib.sh" < /dev/null)
+  n=$(wc -l < "$DATA/errors.log" | tr -d ' ')
+  [ "$n" = 501 ] || fail "malý errors.log sa nemá skracovať: $n riadkov"
+}
+# stav kontajnera: on-edit a karta čítajú container.state (30 s, rovnaký kontajner), check.sh vždy docker inspect
+t_container_state_cache() {
+  new_case
+  DOCKER_OK=1
+  cfg '.container = "app-php"'
+  add app/Foo.php '$c = 1;'
+  local cf="$PDATA/container.state"
+  on_edit app/Foo.php
+  want_allow "1. on-edit" || return 1
+  [ "$(docker_calls | grep -c '^inspect ')" = 1 ] && grep -q '^[0-9][0-9]* down app-php$' "$cf" 2>/dev/null ||
+    { fail "1. on-edit: inspect $(docker_calls | grep -c '^inspect ')×, container.state: $(flat "$(cat "$cf" 2>&1)")"; return 1; }
+  export DK_FAKE_DOCKER_RUNNING=1
+  on_edit app/Foo.php
+  want_allow "2. on-edit" && no_docker_exec "2. on-edit (stav z cache)" || return 1
+  [ "$(docker_calls | grep -c '^inspect ')" = 1 ] || { fail "2. on-edit volal docker inspect napriek čerstvej cache"; return 1; }
+  check --quick --project "$REPO"
+  want_rc 0 "check.sh ignoruje cache" || return 1
+  [ "$(docker_calls | grep -c '^inspect ')" = 2 ] && grep -q ' running app-php$' "$cf" ||
+    { fail "check.sh: inspect $(docker_calls | grep -c '^inspect ')×, container.state: $(flat "$(cat "$cf")")"; return 1; }
+  unset DK_FAKE_DOCKER_RUNNING
+  printf '%s running app-php\n' $(( $(now) - 31 )) > "$cf"
+  on_edit app/Foo.php
+  [ "$(docker_calls | grep -c '^inspect ')" = 3 ] && grep -q ' down app-php$' "$cf" ||
+    { fail "stará cache (31 s): inspect $(docker_calls | grep -c '^inspect ')×"; return 1; }
+  printf '%s running iny-kontajner\n' "$(now)" > "$cf"
+  on_edit app/Foo.php
+  [ "$(docker_calls | grep -c '^inspect ')" = 4 ] || fail "cache iného kontajnera použitá"
+}
+t_check_runfiles_code_only() {
+  new_case
+  cfg --arg r 'mkdir -p .marks && printf "%s\n" {files} > .marks/files' '.check.steps = [{"id": "files", "runFiles": $r, "modes": ["quick"]}]'
+  add app/Foo.php '$r = 1;'
+  add README.md 'zmena'
+  put docs/x.txt 'nový'
+  check --quick --project "$REPO"
+  want_rc 0 && want_out '✓ files' || return 1
+  [ "$(cat "$REPO/.marks/files" 2>/dev/null)" = app/Foo.php ] || { fail "{files} = $(flat "$(cat "$REPO/.marks/files" 2>&1)")"; return 1; }
+  g checkout -- app/Foo.php
+  check --quick --project "$REPO"
+  want_rc 4 "len nekódové zmeny" && want_out '– files: žiadne zmenené súbory' "len nekódové zmeny"
+}
+t_check_auto_full_same_steps() {
+  new_case
+  cfg '.check.steps |= map(select(.id != "fullonly"))'
+  add app/models/UserModel.php '$s = 1;'
+  check --auto --project "$REPO"
+  want_rc 0 "--auto bez krokov len pre full" && want_out 'check full: PASS · 2 ok · 0 fail · 0 skip' "--auto bez krokov len pre full" \
+    && want_out '– full: rovnaké kroky ako quick' "--auto bez krokov len pre full" || return 1
+  check --full --project "$REPO"
+  want_rc 0 "--full" && want_not '– full:' "--full" || return 1
+  cfg .
+  check --auto --project "$REPO"
+  want_rc 0 "--auto s krokom fullonly" && want_out 'check full: PASS' "--auto s krokom fullonly" && want_not '– full:' "--auto s krokom fullonly"
+}
+# cesty do awk cez ENVIRON: awk -v by zo spätnej lomky v ceste urobil escape (\t → TAB)
+t_awk_backslash_paths() {
+  new_case
+  local f='app/x\ty.php' got
+  put "$f" '<?php'
+  g add -A && g commit -qm bs || { fail "fixture: commit $f"; return 1; }
+  add "$f" '$a = 1; // LINTERR'
+  on_edit "$f"
+  want_rc 2 "on-edit" && want_err 'app/x\ty.php:2' "on-edit" || return 1
+  cfg '.check.steps[0].changedLinesOnly = true'
+  check --quick --project "$REPO" --files "$f"
+  want_rc 1 "check --files" && want_out '✗ lint' "check --files" || return 1
+  got=$(bash -c '. "$1"; DK_PROJECT="$2"; DK_WD="$3"; printf "%s/app/A.php:1: x\n%s/app/B.php:2: y\n" "$2" "$3" | dk_strip_paths' \
+    _ "$S/lib.sh" '/p/a\tb' '/w\nx' < /dev/null)
+  [ "$got" = "app/A.php:1: x
+app/B.php:2: y" ] || fail "dk_strip_paths: $(flat "$got")"
+}
+
 # ---------------------------------------------------------------- beh
 
 N=0
@@ -1868,6 +2010,14 @@ t "session-card: container bez docker binárky → chýba docker" t_card_no_dock
 t "session-card: python worktree bez .venv/ → upozornenie (D20)" t_card_worktree_venv
 t "session-card: stará verzia Claude Code, kontrola raz za deň" t_card_cc_version
 t "šablóny: ukotvené deny, bez \\s/\\w v [...], vzorky tajomstiev, rules (paths, Pasce, ≤ 60), značky db:" t_templates_lint
+t "stop-check: check.sh exit 3 / 2 → pripomienka „nedala spustiť“, skip namiesto pass, bez bloku" t_stop_check_not_run
+t "lib.sh dk_blobs: nečitateľný súbor = - a errors.log, symlink .php vypadne" t_blobs_unreadable_symlink
+t "pre-bash: symlink .php v stage aj cez git add → commit gate ho nežiada" t_bash_commit_symlink_code
+t "lib.sh dk_err: errors.log nad 1 MB → posledných 500 riadkov" t_err_log_rotation
+t "kontajner: on-edit číta container.state 30 s, check.sh vždy docker inspect" t_container_state_cache
+t "check.sh: runFiles bez ext dostane do {files} len kódové súbory" t_check_runfiles_code_only
+t "check.sh --auto: fullWhen bez krokov len pre full → riadok „– full: rovnaké kroky ako quick“" t_check_auto_full_same_steps
+t "cesty so spätnou lomkou: on-edit, check.sh changedLinesOnly, dk_strip_paths (awk ENVIRON)" t_awk_backslash_paths
 
 wait
 for f in "$RES"/*; do

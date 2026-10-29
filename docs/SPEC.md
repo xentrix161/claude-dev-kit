@@ -24,7 +24,8 @@ Source of truth for every builder agent; this file wins on contracts.
   `mapfile`/`readarray`, `${x,,}`/`${x^^}`, `|&`, `&>>`, `coproc`, `grep -P`, `sed -i` (use temp file +
   mv), `date -d`, `stat -c/-f`, `readlink -f`, `realpath`, `timeout` (not on macOS). Hashing: use
   `git hash-object --stdin` (portable), not sha1sum/shasum/md5. Use `set -u` carefully (bash 3.2 empty
-  arrays + `set -u` = error → avoid arrays or guard them). Always `#!/usr/bin/env bash`.
+  arrays + `set -u` = error → avoid arrays or guard them). Always `#!/usr/bin/env bash`. Paths and other
+  data go to `awk` via `ENVIRON`, never `-v` (it expands backslash escapes: `\t` in a path becomes a TAB).
 - Dependencies at runtime: bash, git, jq (required for hooks; if missing → hooks exit 0 silently except
   session-card which says so in static JSON, §4.7), docker (only when `container` is set).
 - Hook discipline: consume stdin fully; stdout silent unless emitting the documented JSON; exit 0 when
@@ -58,14 +59,16 @@ Version lives only in `plugin.json` (never in the marketplace entry). No LICENSE
 
 `DK_DATA="${DEVKIT_DATA:-$HOME/.claude/dev-kit}"` — one fixed location for hooks AND for scripts called
 from skills via the Bash tool (the Bash tool does not get CLAUDE_PLUGIN_DATA). Tests set `DEVKIT_DATA`.
-`$DK_DATA` is created with mode 700 (`mkdir -m 700`, no global `umask` change).
+`$DK_DATA` is created with mode 700 (`(umask 077; mkdir -p …)` in a subshell, no global `umask` change); an
+existing one owned by the user is set to 700 once per process.
 ```
 $DK_DATA/decisions.jsonl                          # V8 log, all projects
-$DK_DATA/errors.log
+$DK_DATA/errors.log                               # dk_err; over 1 MB trimmed to the last 500 lines
 $DK_DATA/maintenance.json                         # {"lastUpstreamCheck": <epoch>} written by tools/upstream.sh
 $DK_DATA/projects/<phash>/pass.json               # commit-gate PASS marker
 $DK_DATA/projects/<phash>/partial.json            # last quick/full check ended PARTIAL (§4.5), explained by the commit gate (§4.4)
 $DK_DATA/projects/<phash>/test-lock.json          # V3
+$DK_DATA/projects/<phash>/container.state         # "<epoch> <running|down> <container>", dk_container_ok cache (30 s)
 $DK_DATA/projects/<phash>/sessions/<session_id>.files   # files edited in that session (repo-relative, one per line)
 $DK_DATA/projects/<phash>/sessions/<session_id>.head    # HEAD at the session's first .files write (empty without HEAD)
 $DK_DATA/projects/<phash>/sessions/<session_id>.stop.json   # last stop-check state of that session
@@ -193,13 +196,19 @@ Functions (names fixed, other scripts depend on them):
 DK_INPUT), `dk_cfg <jq-filter> [default]`, `dk_rule_on <rule-id>` (false when listed in disabledRules),
 `dk_main_root`, `dk_rel <abs-path>` (relative to DK_PROJECT; empty if outside), `dk_workdir`
 (container workdir, empty+message if outside mount), `dk_exec <cmd>` (runs in container or host, returns
-exit code, merges stderr into stdout), `dk_container_ok` (0 when container unset or running),
+exit code, merges stderr into stdout), `dk_container_ok` (0 when container unset or running; reuses
+`container.state` (§2) younger than 30 s for the same container, otherwise asks `docker inspect` and writes
+it; `check.sh` sets `DK_NO_CONTAINER_CACHE`, so it always asks and only writes the fresh state),
 `dk_glob_match <path> <glob>`, `dk_added_lines <rel>` (newline list of added line numbers vs HEAD from
-`git diff -U0 HEAD --`; untracked file ⇒ all lines; file new in index ⇒ all lines), `dk_hash_files
-<rel>…` (combined content hash via git hash-object), `dk_log <hook> <rule> <decision> [file] [ms]`
-(append one JSON line: ts, project, session, hook, rule, decision ∈ block|deny|ask|warn|pass|skip, file,
-ms), `dk_err <msg>` (append to errors.log), `dk_now` (epoch seconds), `dk_ms` (best-effort ms: `perl
--MTime::HiRes` if available else seconds*1000), `dk_mask <match>` (always `****`, no character of the value;
+`git diff -U0 HEAD --`; untracked file ⇒ all lines; file new in index ⇒ all lines), `dk_blobs <rel>…`
+(`rel<TAB>blob` sorted by path; missing or unreadable file = `-`; when the batch `git hash-object
+--stdin-paths` fails, files are hashed one by one and each unreadable one is logged via `dk_err`; a symlink
+with a code extension (`dk_is_code`) is left out — git commits its link target, not the content hashed
+here), `dk_hash_files <rel>…` (combined content hash over `dk_blobs`), `dk_log <hook> <rule> <decision>
+[file] [ms]` (append one JSON line: ts, project, session, hook, rule, decision ∈
+block|deny|ask|warn|pass|skip, file, ms), `dk_err <msg>` (append to errors.log; over 1 MB the log keeps its
+last 500 lines), `dk_now` (epoch seconds), `dk_ms` (best-effort ms: `perl -MTime::HiRes` if available else
+seconds*1000), `dk_mask <match>` (always `****`, no character of the value;
 returns 1 for a placeholder value; shared by on-edit and pre-bash), `dk_secret_scan <rel> <added-spec> <patterns>` (one `line<US>masked value`
 per added line that matches; used by on-edit), `dk_data_dir` (creates `$DK_DATA` with mode 700, §2). Shared values: `DK_RE_GITPFX`, `DK_RE_COMMIT`, `DK_RE_ADD` (§4.4), `DK_RE_INFRA`
 (infrastructure errors, §4.5), `DK_MIN_CC` (minimum Claude Code version, §4.7).
@@ -208,7 +217,8 @@ per added line that matches; used by on-edit), `dk_data_dir` (creates `$DK_DATA`
 1. No config / no jq / file outside project ⇒ exit 0.
 2. Append rel path to `sessions/<session_id>.files` (dedupe); the first write also stores
    `git rev-parse HEAD` in `sessions/<session_id>.head` (empty file when the repo has no HEAD).
-3. Lint (`lint` map by extension, rule `lint:<ext>`): only when `dk_container_ok`. Run each command
+3. Lint (`lint` map by extension, rule `lint:<ext>`): only when `dk_container_ok` (state cached 30 s,
+   §4.1). Run each command
    with `{file}`. Treat exit≠0 as failure; exit 126/127, `command not found` or docker errors ⇒ SKIP,
    never block. When `lintChangedLinesOnly` is true, keep only output lines whose line number is in
    `dk_added_lines` (the same filter serves `changedLinesOnly` in check.sh). Understood formats:
@@ -282,7 +292,9 @@ command: `-A`/`.`/`-u` widen like `-a`, paths count as pathspecs, `-f` includes 
 with a hint: `git add -p/-i/-e` in the same command (partial staging cannot be checked before it runs —
 stage in a separate command, then commit), `git add -A -f`, and file names git prints only C-quoted.
 Content of each file: staged blob (`git ls-files -s`) or, for -a/paths/add, `git hash-object <file>`;
-deleted = `-`.
+deleted = `-`. A symlink with a code extension is left out of the set (working tree: `dk_blobs`, §4.1;
+staged only: mode `120000` with an extension in `commitGate.ext` or the code extensions): git stores its link
+target, which never equals the content `check.sh` hashed, so the gate would deny it forever.
 1. Secrets (V5, rule `secrets`): any to-be-committed file matching `forbidFiles` ⇒ deny. Added lines of
    the to-be-committed diff matched against the lib defaults ∪ `secrets.patterns` (defaults: generic
    password/token assignment, `-----BEGIN [A-Z ]*PRIVATE KEY-----`, `AKIA[0-9A-Z]{16}`,
@@ -324,7 +336,9 @@ flags in any order; `--files` consumes paths until the next `--` flag.
 - Without hook stdin (called from Bash tool or CI). Reads config of `--project` (default `pwd`'s git
   toplevel; worktree rule in §4). No config ⇒ print `[dev-kit] chýba .claude/devkit.json — spusti
   /dev:project-init` exit 3.
-- Mode: default `--quick`; `--auto` = full when any CHANGED file matches `fullWhen`, else quick.
+- Mode: default `--quick`; `--auto` = full when any CHANGED file matches `fullWhen`, else quick. When
+  `--auto` switches to full and no enabled step runs in only one of quick/full, the step lines start with
+  `– full: rovnaké kroky ako quick` (not counted as skip).
 - CHANGED files (quick/full/auto) = `git diff --name-only HEAD` ∪ untracked (`git ls-files --others
   --exclude-standard`) ∪ staged, deduped, existing files only (deleted tracked → recorded "-" in marker).
   Stop mode files = session files list (existing only).
@@ -333,7 +347,8 @@ flags in any order; `--files` consumes paths until the next `--` flag.
 - Steps = config steps whose `modes` contain the mode (stop/quick/full; auto resolves first), and whose
   rule `step:<id>` is enabled. For each: `requires`/container checks (SKIP with reason); if `run` exists
   and mode ≠ stop ⇒ run whole; else if `runFiles` exists ⇒ files filtered by `ext` (none ⇒ SKIP
-  `žiadne zmenené súbory`), substitute `{files}`; in stop mode prefer `runFiles` when files exist, else
+  `žiadne zmenené súbory`; a step without `ext` gets only code files, `dk_is_code`), substitute
+  `{files}`; in stop mode prefer `runFiles` when files exist, else
   `run` (for steps without ext, e.g. unit tests, always `run`). `changedLinesOnly` (`true` | `"stop"`,
   §3) filters like on-edit.
 - Two kinds of skipped step. **Not applicable** (line `– <id>: <reason>`, verdict unaffected): missing
@@ -402,6 +417,9 @@ flags in any order; `--files` consumes paths until the next `--` flag.
      "ctx":"<sha>"}`. A replay puts reminders that are new in this Stop in front of the stored `reason`.
    - `stop_hook_active` true is allowed (we cap ourselves).
 6. Container down / blocked step / nothing ran ⇒ never block on infrastructure; reminders still go out as in step 5.
+   `check.sh` exit outside 0/1/4 (3 = config or arguments, 2 or ≥ 5 = the script itself failed) ⇒ no block,
+   `errors.log` entry, decision `skip` (never `pass`) and reminder `[check] kontrola sa nedala spustiť (exit N)
+   — pozri <DK_DATA>/errors.log`.
 
 ### 4.7 `session-card.sh` — SessionStart (one JSON object on stdout, card ≤ 10 lines, < 1 s)
 - stdout = one JSON object: `hookSpecificOutput.additionalContext` (`hookEventName` `SessionStart`) =

@@ -5,6 +5,7 @@
 . "$(dirname "$0")/lib.sh" || { echo "[dev-kit] chýba scripts/lib.sh"; exit 3; }
 DK_HOOK=check
 DK_NO_STDIN=1
+DK_NO_CONTAINER_CACHE=1
 
 dk_usage() {
     echo "použitie: check.sh [--quick|--full|--auto|--stop] [--session <id>] [--project <dir>] [--files <rel>…]"
@@ -85,13 +86,14 @@ done <<EOF
 $ALL
 EOF
 
+AUTO_FULL=0
 if [ "$mode" = auto ]; then
     mode=quick
     FRE=$(dk_globs_re "$FULLW")
     if [ -n "$FRE" ]; then
         while IFS= read -r f; do
             [ -n "$f" ] || continue
-            if dk_re_match "$f" "$FRE"; then mode=full; break; fi
+            if dk_re_match "$f" "$FRE"; then mode=full; AUTO_FULL=1; break; fi
         done <<EOF
 $ALL
 EOF
@@ -130,13 +132,15 @@ dk_env_check() { # kontajner + workdir raz pre všetky kroky
     return 0
 }
 
-dk_files_for() { # <ext-csv> → existujúce súbory s danou príponou (prázdne csv = všetky)
+dk_files_for() { # <ext-csv> → existujúce súbory s danou príponou (prázdne csv = kódové, dk_is_code)
     local f e
     while IFS= read -r f; do
         [ -n "$f" ] || continue
         if [ -n "$1" ]; then
             e=$(dk_ext "$f")
             case ",$1," in *",$e,"*) ;; *) continue ;; esac
+        else
+            dk_is_code "$f" || continue
         fi
         printf '%s\n' "$f"
     done <<EOF
@@ -252,7 +256,7 @@ EOF
             if [ "$sp" = "*" ]; then
                 printf '%s\t*\n' "$f" >> "$DK_TMP/step.map"
             elif [ -n "$sp" ]; then
-                printf '%s\n' "$sp" | awk -v r="$f" 'NF { print r "\t" $0 }' >> "$DK_TMP/step.map"
+                printf '%s\n' "$sp" | DK_AWK_R="$f" awk 'NF { print ENVIRON["DK_AWK_R"] "\t" $0 }' >> "$DK_TMP/step.map"
             fi
         done <<EOF
 $targets
@@ -285,6 +289,20 @@ elif [ $((NOK + NKNOWN)) -gt 0 ]; then VERDICT=PASS RC=0
 else VERDICT=SKIP RC=4
 fi
 [ -n "$STEPLINES" ] || { STEPLINES="– žiadne kroky pre režim $mode$DK_NL"; }
+# fullWhen prepol na full, ale config nemá krok len pre jeden z režimov quick/full.
+if [ "$AUTO_FULL" = 1 ]; then
+    same=1
+    while IFS=$DK_US read -r tag id req run runf exts modes cl; do
+        [ "$tag" = S ] && [ -n "$id" ] || continue
+        dk_rule_on "step:$id" || continue
+        case ",$modes," in *,full,*) a=1 ;; *) a=0 ;; esac
+        case ",$modes," in *,quick,*) b=1 ;; *) b=0 ;; esac
+        [ "$a" = "$b" ] || { same=0; break; }
+    done <<EOF
+$DK_CFG_OUT
+EOF
+    [ "$same" = 0 ] || STEPLINES="– full: rovnaké kroky ako quick$DK_NL$STEPLINES"
+fi
 
 # Markery a log pred výpisom: zatvorený stdout (SIGPIPE) ich nesmie zahodiť.
 # PARTIAL nikdy nezapíše pass.json: v quick/full ide do partial.json (vysvetlenie v commit gate),

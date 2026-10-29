@@ -147,7 +147,7 @@ EOF
         fi
     fi
 
-    local cout="" crc=0 logp="" gfind="" ng=0 r
+    local cout="" crc=0 logp="" gfind="" ng=0 r broken=0
     if [ "$replay" = 1 ]; then
         logp=$plog
     else
@@ -155,9 +155,15 @@ EOF
         cout=$(cd "$DK_PROJECT" && bash "$DK_SCRIPTS/check.sh" --stop --session "$DK_SESSION" --project "$DK_PROJECT" </dev/null 2>&1)
         crc=$?
         logp=$(printf '%s\n' "$cout" | sed -n 's/^log: //p' | tail -n 1)
-        if [ "$crc" = 3 ] || [ "$crc" -gt 4 ]; then
-            dk_err "check.sh --stop exit $crc: $(printf '%s' "$cout" | head -n 1)"
-        fi
+        # Mimo kontraktu 0/1/4 (config, argumenty, pád skriptu): neblokovať, ale ani nehlásiť pass.
+        case "$crc" in
+            0|1|4) ;;
+            *)
+                broken=1
+                dk_err "check.sh --stop exit $crc: $(printf '%s' "$cout" | head -n 1)"
+                rem="$rem- [check] kontrola sa nedala spustiť (exit $crc) — pozri $DK_DATA/errors.log$DK_NL"
+                ;;
+        esac
         if [ "$crc" = 4 ] && printf '%s\n' "$cout" | head -n 1 | grep -q ': PARTIAL'; then
             rem="$rem- [partial] tieto kroky sa nedali spustiť — netvrď, že sú overené:$DK_NL$(printf '%s\n' "$cout" | grep '^! ' | head -n 5 | sed 's/^/  /')$DK_NL"
         fi
@@ -228,7 +234,11 @@ EOF
         return 0
     fi
 
-    dk_log stop-check stopCheck pass "" "$ms"
+    if [ "$broken" = 1 ]; then
+        dk_log stop-check stopCheck skip "" "$ms"
+    else
+        dk_log stop-check stopCheck pass "" "$ms"
+    fi
     dk_remind "$rem"
     return 0
 }

@@ -64,7 +64,7 @@ EOF
                 if [ "$added" = "*" ]; then
                     printf '%s\t*\n' "$rel" > "$map"
                 else
-                    printf '%s\n' "$added" | awk -v r="$rel" 'NF { print r "\t" $0 }' > "$map"
+                    printf '%s\n' "$added" | DK_AWK_R="$rel" awk 'NF { print ENVIRON["DK_AWK_R"] "\t" $0 }' > "$map"
                 fi
                 kept=$(dk_filter_changed "$DK_TMP/lint.out" "$map")
             else
