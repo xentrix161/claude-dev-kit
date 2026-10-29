@@ -64,6 +64,7 @@ $DK_DATA/decisions.jsonl                          # V8 log, all projects
 $DK_DATA/errors.log
 $DK_DATA/maintenance.json                         # {"lastUpstreamCheck": <epoch>} written by tools/upstream.sh
 $DK_DATA/projects/<phash>/pass.json               # commit-gate PASS marker
+$DK_DATA/projects/<phash>/partial.json            # last quick/full check ended PARTIAL (§4.5), explained by the commit gate (§4.4)
 $DK_DATA/projects/<phash>/test-lock.json          # V3
 $DK_DATA/projects/<phash>/sessions/<session_id>.files   # files edited in that session (repo-relative, one per line)
 $DK_DATA/projects/<phash>/sessions/<session_id>.head    # HEAD at the session's first .files write (empty without HEAD)
@@ -281,6 +282,17 @@ deleted = `-`.
    /dev:check --full`. Deny reason lists up to 8 files and ends with `Spusti kontrolu: bash "<scripts>/check.sh"
    --auto|--full --project "<P>" (to isté robí /dev:check), pri PASS commit zopakuj.` — command skills
    have `disable-model-invocation`, so Claude must get a command it can run itself.
+   PARTIAL still blocks; the deny must say why and how to proceed: when it asks for a check (files without
+   PASS or `--full`) and `partial.json` (§4.5) has `time` less than 24 h old, the reason adds before that
+   final line `Posledná kontrola skončila PARTIAL:`, its `!` lines (≤ 5) and one escape line chosen by
+   `ok`. `ok` ≥ 1: `Únik: navrhni používateľovi <príčina> a kontrolu zopakuj, alebo krok|kroky dočasne
+   vypni: disabledRules step:<id>[, step:<id>…] v .claude/devkit.json (zapíš to používateľovi).` with
+   every id from `steps`. `ok` = 0 (always when the container is down — disabling the blocked steps would
+   give SKIP, never PASS): `Únik: vypnutie krokov by dalo SKIP, nie PASS — navrhni používateľovi <príčina>
+   a kontrolu zopakuj, alebo gate dočasne vypni: disabledRules commitGate v .claude/devkit.json (kontrola
+   tajomstiev aj Stop bežia ďalej; zapíš to používateľovi).` `<príčina>` = `spustiť kontajner <c>` when a
+   line reads `kontajner <c> nebeží` for the configured container, else `odstrániť príčinu`. Never the
+   imperative `spusti kontajner` — the `check` and `commit` skills forbid Claude to start containers.
    What the gate proves: the content of every committed code file passed `check.sh` in the working tree
    (together with the other uncommitted changes present at that time) — not that the resulting commit tree
    passes. A commit hidden in `sh -c '…'` / `bash -c '…'` is not recognised (§4.4 header).
@@ -325,10 +337,13 @@ flags in any order; `--files` consumes paths until the next `--` flag.
   ⇒ PASS, 0; else (nothing ran) ⇒ SKIP, 4. 3 = config error. Exit 4 = incomplete verification — never
   report it as PASS.
 - On exit 0 in quick/full: write `pass.json` = `{"time":…,"mode":"quick|full","head":"<sha>","blobs":{"<rel>":"<blob sha or ->"}}`
-  for the checked file set (CHANGED files, or exactly the `--files` set); PARTIAL never writes it. Stop
-  mode on PASS or PARTIAL writes `sessions/<session_id>.stop.json` (`{"hash": <dk_hash_files of session
-  files>, "time":…, "fails":0, "result":"PASS|PARTIAL"}`). Markers are written via a per-process temp
-  file and `mv`.
+  for the checked file set (CHANGED files, or exactly the `--files` set); PARTIAL never writes it.
+  On PARTIAL in quick/full write `partial.json` = `{"time":…,"mode":"quick|full","ok":<n>,"steps":["<id>",…],"lines":["! <id>: <reason>",…]}`
+  for the commit gate (§4.4): `ok` = steps `ok` + `známe` (what would still PASS with the blocked steps
+  disabled), `steps` = ids of all blocked steps, `lines` = the first ≤ 5 `!` lines for display; any other
+  quick/full verdict removes it, stop mode leaves it alone. Stop mode on PASS or PARTIAL writes `sessions/<session_id>.stop.json` (`{"hash":
+  <dk_hash_files of session files>, "time":…, "fails":0, "result":"PASS|PARTIAL"}`). Markers are written
+  via a per-process temp file and `mv`.
 - Prune logs to the newest 20 per project.
 
 ### 4.6 `stop-check.sh` — Stop

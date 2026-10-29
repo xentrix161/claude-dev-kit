@@ -73,6 +73,34 @@ dk_expand_dir() { # <raw> <base>
     dk_abs "$DK_X" "$base"
 }
 
+# Prečo posledná quick/full kontrola nedala PASS (partial.json z check.sh, < 24 h) a ako ďalej; inak nič.
+# Bez ok kroku by vypnutie blokovaných krokov dalo SKIP (check.sh exit 4) → únik je celý commitGate.
+dk_partial_note() {
+    local f="$DK_PDATA/partial.json" out t ok ids lines why what=krok
+    [ -f "$f" ] || return 0
+    out=$(jq -r '"\(.time // 0)", "\(.ok // 0)", ((.steps // []) | map("step:" + (tostring | gsub("[\n\r]"; " "))) | join(", ")),
+        ((.lines // [])[:5][] | tostring | gsub("[\n\r]"; " "))' "$f" 2>/dev/null) || return 0
+    t=$(printf '%s\n' "$out" | sed -n 1p)
+    ok=$(printf '%s\n' "$out" | sed -n 2p)
+    ids=$(printf '%s\n' "$out" | sed -n 3p)
+    case "$t" in ''|*[!0-9]*) return 0 ;; esac
+    case "$ok" in ''|*[!0-9]*) ok=0 ;; esac
+    [ $(( $(dk_now) - t )) -lt 86400 ] || return 0
+    lines=$(printf '%s\n' "$out" | sed 1,3d | grep -v '^[[:space:]]*$')
+    [ -n "$lines" ] || return 0
+    why="odstrániť príčinu"
+    if [ -n "${DK_CONTAINER:-}" ]; then
+        case "$lines" in *": kontajner $DK_CONTAINER nebeží"*) why="spustiť kontajner $DK_CONTAINER" ;; esac
+    fi
+    printf 'Posledná kontrola skončila PARTIAL:\n%s\n' "$lines"
+    if [ "$ok" -gt 0 ] && [ -n "$ids" ]; then
+        case "$ids" in *", "*) what=kroky ;; esac
+        printf 'Únik: navrhni používateľovi %s a kontrolu zopakuj, alebo %s dočasne vypni: disabledRules %s v .claude/devkit.json (zapíš to používateľovi).\n' "$why" "$what" "$ids"
+    else
+        printf 'Únik: vypnutie krokov by dalo SKIP, nie PASS — navrhni používateľovi %s a kontrolu zopakuj, alebo gate dočasne vypni: disabledRules commitGate v .claude/devkit.json (kontrola tajomstiev aj Stop bežia ďalej; zapíš to používateľovi).\n' "$why"
+    fi
+}
+
 # Slová príkazu s ohľadom na úvodzovky (úvodzovky ostanú v slove), jedno na riadok.
 dk__tokens() {
     local s="$1" i=0 n=${#1} c q="" tok="" has=0
@@ -500,6 +528,8 @@ EOF
         fi
         if [ -n "$gmsg" ]; then
             if [ "$rerun" = 1 ]; then
+                note=$(dk_partial_note)
+                [ -z "$note" ] || gmsg="$gmsg$note$DK_NL"
                 cmode=--auto; [ -n "$fullg" ] && cmode=--full
                 gmsg="${gmsg}Spusti kontrolu: bash \"$DK_SCRIPTS/check.sh\" $cmode --project \"$DK_PROJECT\" (to isté robí /dev:check), pri PASS commit zopakuj."
             fi

@@ -32,7 +32,7 @@ Po novej verzii kitu obnovíš skopírované šablóny príkazom `/dev:project-i
 | pred editom | Pred zmenou už commitnutej migrácie sa Claude spýta. Počas `/dev:fix` je test zamknutý, takže Claude opraví kód, nie test. |
 | pri štarte session | Karta so stackom, stavom kontajnera, gitom a posledným handoffom. |
 
-Nebežiaci kontajner ani chýbajúci nástroj nič nezablokujú, kontrola sa len preskočí. Commit kódu bez PASS však commit gate odmietne.
+Nebežiaci kontajner ani chýbajúci nástroj nič nezablokujú, kontrola sa len preskočí. Commit kódu bez PASS však commit gate odmietne. Po kontrole s výsledkom PARTIAL vypíše kroky, ktoré neprebehli, a ponúkne únik: odstrániť príčinu (napríklad spustiť kontajner), alebo dočasne vypnúť cez `disabledRules` kroky, ktoré sa nedali spustiť — a keď neprebehol žiadny krok, celý `commitGate` (kontrola tajomstiev beží ďalej).
 
 ## Príkazy
 

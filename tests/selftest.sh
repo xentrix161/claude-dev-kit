@@ -605,6 +605,67 @@ t_bash_commit_after_partial() {
   pre_bash 'git commit -m "x"'
   want_decision deny && want_out 'commit gate'
 }
+t_bash_commit_partial_explained() {
+  new_case
+  DOCKER_OK=1
+  cfg '.container = "app-php"'
+  add app/Foo.php '$b = 27;'
+  g add app/Foo.php
+  check --quick --project "$REPO"
+  want_rc 4 "check.sh --quick" && want_out '! unit: kontajner app-php nebeží' "check.sh --quick" || return 1
+  want_jfile "$PDATA/partial.json" '.mode == "quick" and (.time | type == "number") and .ok == 0
+    and .steps == ["lint", "unit"]
+    and .lines == ["! lint: kontajner app-php nebeží", "! unit: kontajner app-php nebeží"]' || return 1
+  pre_bash 'git commit -m "x"'
+  want_decision deny && want_json '.hookSpecificOutput.permissionDecisionReason
+    | contains("commit gate") and contains("Posledná kontrola skončila PARTIAL:\n! lint: kontajner app-php nebeží\n! unit:")
+      and contains("vypnutie krokov by dalo SKIP, nie PASS")
+      and contains("navrhni používateľovi spustiť kontajner app-php a kontrolu zopakuj")
+      and contains("disabledRules commitGate v .claude/devkit.json (kontrola tajomstiev aj Stop bežia ďalej; zapíš to používateľovi)")
+      and (contains("spusti kontajner") or contains("disabledRules step:") | not)
+      and (split("\n") | last | startswith("Spusti kontrolu: bash"))' || return 1
+  cfg '.container = "app-php" | .disabledRules = ["commitGate"]'
+  pre_bash 'git commit -m "x"'
+  want_allow "únik disabledRules commitGate" || return 1
+  no_docker_exec
+}
+t_bash_commit_partial_one_ok() {
+  new_case
+  local c='.check.steps |= map(select(.id == "unit")) | .check.steps += [{"id": "tests", "run": "vendor/bin/phpunit", "modes": ["quick", "full"]}]'
+  cfg "$c"
+  add app/Foo.php '$b = 28;'
+  g add app/Foo.php
+  check --quick --project "$REPO"
+  want_rc 4 "check PARTIAL" || return 1
+  want_jfile "$PDATA/partial.json" '.ok == 1 and .steps == ["tests"]' || return 1
+  pre_bash 'git commit -m "x"'
+  want_decision deny "1 ok" && want_json '.hookSpecificOutput.permissionDecisionReason
+    | contains("! tests: príkaz sa nedá spustiť (exit 127)")
+      and contains("Únik: navrhni používateľovi odstrániť príčinu a kontrolu zopakuj, alebo krok dočasne vypni: disabledRules step:tests v .claude/devkit.json (zapíš to používateľovi).")
+      and (contains("kontajner") or contains("commitGate") | not)' "1 ok" || return 1
+  jq '.time -= 90000' "$PDATA/partial.json" > "$CASE/partial.json" && mv "$CASE/partial.json" "$PDATA/partial.json"
+  pre_bash 'git commit -m "x"'
+  want_decision deny "partial.json starší ako 24 h" && want_not 'PARTIAL' "partial.json starší ako 24 h" || return 1
+  cfg "$c"' | .disabledRules = ["step:tests"]'
+  check --quick --project "$REPO"
+  want_rc 0 "únik disabledRules step:tests → PASS" || return 1
+  [ ! -f "$PDATA/partial.json" ] || { fail "partial.json ostal po PASS"; return 1; }
+  pre_bash 'git commit -m "x"'
+  want_allow "commit po PASS"
+}
+t_bash_commit_partial_all_ids() {
+  new_case
+  cfg '.check.steps |= map(select(.id == "unit")) | .check.steps += [range(1; 8) as $i | {"id": "b\($i)", "run": "vendor/bin/b\($i)", "modes": ["quick"]}]'
+  add app/Foo.php '$b = 29;'
+  g add app/Foo.php
+  check --quick --project "$REPO"
+  want_rc 4 "check PARTIAL" || return 1
+  want_jfile "$PDATA/partial.json" '.ok == 1 and .steps == ["b1", "b2", "b3", "b4", "b5", "b6", "b7"] and (.lines | length) == 5' || return 1
+  pre_bash 'git commit -m "x"'
+  want_decision deny && want_json '.hookSpecificOutput.permissionDecisionReason
+    | contains("! b5: ") and (contains("! b6: ") | not)
+      and contains("kroky dočasne vypni: disabledRules step:b1, step:b2, step:b3, step:b4, step:b5, step:b6, step:b7 v .claude/devkit.json")'
+}
 t_stop_partial_once() {
   new_case
   cfg '.check.steps += [{"id": "tests", "run": "vendor/bin/phpunit", "modes": ["stop"]}]'
@@ -1597,6 +1658,9 @@ t "pre-bash: príkaz bez commitu (ls) → ticho" t_bash_not_commit
 t "pre-bash: commit .php bez pass.json → deny (aj --amend --no-edit)" t_bash_commit_no_pass
 t "pre-bash: commit po check --quick PASS (aj zmazaný súbor) → allow" t_bash_commit_after_pass
 t "pre-bash: commit po check PARTIAL → deny" t_bash_commit_after_partial
+t "pre-bash: PARTIAL, nebežiaci kontajner (0 ok) → deny s únikom commitGate, ten commit pustí" t_bash_commit_partial_explained
+t "pre-bash: PARTIAL s 1 ok krokom → únik step:<id>, ten dá PASS; partial.json > 24 h mlčí" t_bash_commit_partial_one_ok
+t "pre-bash: PARTIAL so 7 blokovanými krokmi → 5 riadkov, únik so všetkými 7 id" t_bash_commit_partial_all_ids
 t "pre-bash: git commit -am bez PASS → deny, po PASS → allow" t_bash_commit_all_flag
 t "pre-bash: zmena a git add po PASS → deny" t_bash_commit_restaged
 t "pre-bash: commit len .md → allow" t_bash_commit_docs_only

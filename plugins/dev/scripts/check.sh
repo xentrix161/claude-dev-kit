@@ -118,7 +118,7 @@ LOG="$DK_PDATA/logs/check-$mode-$DK_T0.log"
     echo "# súbory: $(printf '%s' "$EXIST" | tr '\n' ' ')"
 } 2>/dev/null > "$LOG"
 
-NOK=0 NKNOWN=0 NFAIL=0 NSKIP=0 NBLOCK=0 STEPLINES="" FAILSTEPS="" ENV_READY=0 ENV_SKIP=""
+NOK=0 NKNOWN=0 NFAIL=0 NSKIP=0 NBLOCK=0 STEPLINES="" FAILSTEPS="" BLOCKIDS="" ENV_READY=0 ENV_SKIP=""
 
 dk_env_check() { # kontajner + workdir raz pre všetky kroky
     [ "$ENV_READY" = 1 ] && return 0
@@ -146,7 +146,7 @@ EOF
 
 # skip = krok sa zmien netýka · block = krok sa nedal spustiť (verdikt najviac PARTIAL)
 dk_skip() { STEPLINES="${STEPLINES}– $1: $2$DK_NL"; NSKIP=$((NSKIP + 1)); }
-dk_block() { STEPLINES="${STEPLINES}! $1: $2$DK_NL"; NSKIP=$((NSKIP + 1)); NBLOCK=$((NBLOCK + 1)); }
+dk_block() { STEPLINES="${STEPLINES}! $1: $2$DK_NL"; BLOCKIDS="$BLOCKIDS$1$DK_NL"; NSKIP=$((NSKIP + 1)); NBLOCK=$((NBLOCK + 1)); }
 
 dk_known_ok() { # <step-id> <outfile> → 0 keď všetky zlyhania sú známe; počet v KNOWN_N
     local id="$1" ids pats x p gi hit
@@ -287,7 +287,20 @@ fi
 [ -n "$STEPLINES" ] || { STEPLINES="– žiadne kroky pre režim $mode$DK_NL"; }
 
 # Markery a log pred výpisom: zatvorený stdout (SIGPIPE) ich nesmie zahodiť.
-# PARTIAL ide len do stavu Stop (neopakovať kontrolu nad tým istým obsahom), commit gate ho nedostane.
+# PARTIAL nikdy nezapíše pass.json: v quick/full ide do partial.json (vysvetlenie v commit gate),
+# v Stop do stavu session (neopakovať kontrolu nad tým istým obsahom).
+if [ "$mode" != stop ]; then
+    if [ "$VERDICT" = PARTIAL ]; then
+        # ok = kroky, ktoré by po vypnutí blokovaných dali PASS; steps úplné, lines len na zobrazenie.
+        printf '%s' "$STEPLINES" | grep '^! ' | head -n 5 \
+            | jq -Rn --argjson t "$(dk_now)" --arg m "$mode" --argjson ok "$((NOK + NKNOWN))" \
+                --arg s "$(printf '%s' "$BLOCKIDS" | awk 'NF && !s[$0]++')" \
+                '{time: $t, mode: $m, ok: $ok, steps: ($s | split("\n") | map(select(length > 0))), lines: [inputs]}' \
+            2>/dev/null > "$DK_PDATA/partial.json.tmp.$$" && mv "$DK_PDATA/partial.json.tmp.$$" "$DK_PDATA/partial.json"
+    else
+        rm -f "$DK_PDATA/partial.json"
+    fi
+fi
 if [ "$mode" = stop ] && { [ "$RC" = 0 ] || [ "$VERDICT" = PARTIAL ]; }; then
     SF=$(dk_stop_file)
     jq -n --arg h "$SNAP_HASH" --argjson t "$(dk_now)" --arg r "$VERDICT" '{hash: $h, time: $t, fails: 0, result: $r}' \
