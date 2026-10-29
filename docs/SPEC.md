@@ -417,7 +417,7 @@ flags in any order; `--files` consumes paths until the next `--` flag.
    - Check PARTIAL (exit 4, verdict PARTIAL) ⇒ never block; add reminder `[partial] tieto kroky sa nedali
      spustiť — netvrď, že sú overené:` followed by up to 5 `!` lines.
    - Track consecutive failures for the same failure hash in the session's `stop.json` (`fails`), so the same
-     failure blocks at most 2× (`blok 1/2`, `blok 2/2`); when it reaches 3 (the 3× cap) ⇒ do not block, instead `{"systemMessage":"[dev-kit] kontrola stále padá (3×) — blokovanie vypnuté pre tento stav, pozri <log>"}`
+     failure blocks at most 2× (`blok 1/2`, `blok 2/2`); when it reaches 3 (the 3× cap) ⇒ do not block, instead `{"systemMessage":"[dev-kit] kontrola stále padá (3×) — blokovanie vypnuté pre tento stav, pozri <log>; vypnutie: disabledRules stopCheck"}`
      plus `hookSpecificOutput.additionalContext` when there are reminders.
    - Every failure (blocked, replayed or capped) writes `stop.json` = `{"hash":<session hash>,"time":…,
      "fails":<n>,"failHash":<session hash>,"result":"FAIL","reason":"<≤ 18 lines: failing check lines,
