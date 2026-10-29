@@ -764,6 +764,7 @@ t_stop_fixed_then_fast() {
   stop_check
   want_json '.decision == "block"' "zlyhanie" || return 1
   rm -f "$REPO/.marks/fail-unit"
+  add app/Foo.php '$fix = 16;'
   stop_check true
   want_rc 0 "po oprave" && want_no_stdout "po oprave" || return 1
   local calls
@@ -785,6 +786,54 @@ t_stop_cap3() {
   want_rc 0 "3. Stop" && want_json '(.decision // "") != "block"
     and (.systemMessage | contains("[dev-kit]")) and (.systemMessage | contains("3"))
     and (.systemMessage | contains("disabledRules stopCheck"))' "3. Stop"
+}
+t_stop_replay_same_fail() {
+  new_case
+  cfg '.pairs += [{"id": "doc", "when": "docs/**", "say": "DOCSAY"}]'
+  add app/Foo.php '$p = 16;'
+  session_files app/Foo.php
+  fail_unit 'Tests\X::testY'
+  stop_check
+  want_json '.decision == "block" and (.reason | contains("blok 1/2"))' "1. Stop" || return 1
+  [ "$(unit_calls)" = 1 ] || { fail "1. Stop: unit $(unit_calls)×, čakal som 1"; return 1; }
+  want_jfile "$PDATA/sessions/$SID.stop.json" '.result == "FAIL" and .fails == 1 and (.ctx | length > 0)
+    and (.reason | contains("testY")) and (.reason | split("\n") | length <= 20)' || return 1
+  session_files app/Foo.php docs/handoff.md
+  stop_check true
+  want_rc 0 "2. Stop" && want_json '.decision == "block" and (.reason | contains("blok 2/2"))
+    and (.reason | contains("súbory session sa nezmenili")) and (.reason | contains("testY"))
+    and (.reason | contains("[pair:doc] DOCSAY")) and (.reason | contains("log: "))
+    and (.reason | split("\n") | length <= 20)' "2. Stop" || return 1
+  [ "$(unit_calls)" = 1 ] || { fail "2. Stop s rovnakým obsahom spustil krok znova (unit $(unit_calls)×)"; return 1; }
+  stop_check true
+  want_rc 0 "3. Stop" && want_json '(.decision // "") != "block" and (.systemMessage | contains("(3×)"))' "3. Stop" || return 1
+  [ "$(unit_calls)" = 1 ] || fail "3. Stop spustil krok (unit $(unit_calls)×)"
+}
+t_stop_replay_needs_same_state() {
+  new_case
+  add app/Foo.php '$p = 16;'
+  session_files app/Foo.php
+  fail_unit 'Tests\X::testY'
+  stop_check
+  want_json '.decision == "block"' "1. Stop" || return 1
+  local stf="$PDATA/sessions/$SID.stop.json"
+  jq 'del(.reason, .ctx, .log)' "$stf" > "$stf.old" && mv "$stf.old" "$stf"
+  stop_check true
+  want_json '.decision == "block" and (.reason | contains("blok 2/2"))
+    and (.reason | contains("nezmenili") | not)' "stop.json bez reason" || return 1
+  [ "$(unit_calls)" = 2 ] || { fail "stop.json bez reason: kontrola sa nezopakovala (unit $(unit_calls)×)"; return 1; }
+  add app/Foo.php '$p2 = 17;'
+  stop_check true
+  want_json '.decision == "block" and (.reason | contains("blok 1/2"))' "zmenený súbor session" || return 1
+  add README.md 'mimo session'
+  stop_check true
+  want_json '.decision == "block" and (.reason | contains("blok 2/2"))
+    and (.reason | contains("nezmenili") | not)' "zmenený súbor mimo session" || return 1
+  [ "$(unit_calls)" = 4 ] || { fail "zmena mimo session: kontrola sa nezopakovala (unit $(unit_calls)×)"; return 1; }
+  cfg --arg p 'Tests\\X::testY' '.check.knownFailures = [{"step": "unit", "pattern": $p}]'
+  stop_check true
+  want_rc 0 "zmenený devkit.json" && want_no_block "zmenený devkit.json" || return 1
+  [ "$(unit_calls)" = 5 ] || fail "zmenený devkit.json: kontrola sa nezopakovala (unit $(unit_calls)×)"
 }
 t_stop_pair_once() {
   local rel=libs/Validator/Validator.php
@@ -1769,6 +1818,8 @@ t "stop-check: zlyhaný unit → decision block s dôvodom" t_stop_block
 t "stop-check: guard v pridanom riadku (zmena cez Bash) → block" t_stop_guard
 t "stop-check: po oprave bez bloku, nezmenený hash → bez kontroly" t_stop_fixed_then_fast
 t "stop-check: 3× rovnaké zlyhanie → systemMessage namiesto bloku" t_stop_cap3
+t "stop-check: opakovaný Stop s rovnakým obsahom blokuje z uloženého dôvodu bez behu kroku" t_stop_replay_same_fail
+t "stop-check: stop.json bez reason, zmena mimo session alebo devkit.json → kontrola beží znova" t_stop_replay_needs_same_state
 t "stop-check: PARTIAL → pripomienka s krokom, nezmenený hash bez kontroly" t_stop_partial_once
 t "stop-check: zlyhanie inej session nevynuluje počítadlo blokov" t_stop_sessions_separate
 t "stop-check: pripomienka pair raz za session" t_stop_pair_once

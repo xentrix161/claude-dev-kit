@@ -3,7 +3,8 @@
     "Pokyny pre /dev:project-init — tento kľúč do projektu nezapisuj.",
     "DB vrstva (krok 1): položky s id doctrine-* len pri Doctrine; Dibi projekt ich nedostane.",
     "Doctrine: {{schemaValidateCmd}} = doctrine:schema:validate alebo pri nettrine orm:validate-schema; {{entityGlob}} = adresár entít (napr. app/Entity/**); {{migrationsGlob}} a migrations.paths = adresár verziovaných migrácií z migrations_paths v konfigurácii migrácií (nie config); ďalšie chránené vstupy migrácií len podľa pravidiel projektu.",
-    "Doctrine: fullWhen = entity, repozitáre, adresár migrácií a neon s Doctrine; doctrine-schema porovnáva s lokálnou DB — pri trvalom drifte ho vypusti alebo sa opýtaj."
+    "Doctrine: fullWhen = entity, repozitáre, adresár migrácií a neon s Doctrine; doctrine-schema porovnáva s lokálnou DB — pri trvalom drifte ho vypusti alebo sa opýtaj.",
+    "unit a integration: init vyberie podľa phpunit.xml(.dist) — mená <testsuite> presne; bez rýchlej sady testy so skupinou integration → --exclude-group integration / --group integration; bez pomalých testov krok integration vypusti. V stop nechaj len rýchle kroky."
   ],
   "version": 1,
   "stack": "php-nette",

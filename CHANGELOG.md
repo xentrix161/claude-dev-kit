@@ -3,6 +3,12 @@
 - Formát: `## <verzia> — <dátum>`, najnovšie hore; verzia = `version` v `plugins/dev/.claude-plugin/plugin.json`.
 - Posun pinu ECC (P3) zapíš ako odrážku: kusy + nový commit.
 
+## 0.3.1 — nevydané
+
+- Stop hook má timeout 600 s (predtým 300 s).
+- Stop: keď sa po zlyhaní nič nezmenilo (súbory session, `devkit.json`, HEAD ani pracovný strom), ďalší Stop nespúšťa `check.sh` znova a zablokuje z uloženého dôvodu (`stop.json` má pole `reason`); počítadlo blokov a strop 3× ostávajú.
+- Šablóna `php-symfony`: krok `phpunit` púšťa len rýchle testy (`--exclude-group integration`), pomalé idú do nového kroku `integration` len s `full`. `_init` a `rules/tests.md` hovoria, že init vyberie sady podľa `phpunit.xml`; šablóna `php-nette` má v `_init` rovnakú poznámku.
+
 ## 0.3.0 — 2026-10-28
 
 - `/dev:project-init` pri Nette rozlíši DB vrstvu len zo sekcie `require` (Dibi v `require-dev` sa nepočíta). Pri Doctrine skopíruje nové `rules/db-doctrine.md` namiesto `db-dibi.md`, `migrations.paths` vezme z konfigurácie Doctrine Migrations a príkazy konzoly (`doctrine:*` alebo nettrine `orm:*`/`migrations:*`) overí v projekte.

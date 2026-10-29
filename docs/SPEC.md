@@ -175,7 +175,7 @@ Semantics:
       {"matcher": "Bash", "hooks": [{"type": "command", "command": "bash \"${CLAUDE_PLUGIN_ROOT}/scripts/pre-bash.sh\"", "timeout": 30}]}
     ],
     "PostToolUse": [{"matcher": "Edit|Write|MultiEdit", "hooks": [{"type": "command", "command": "bash \"${CLAUDE_PLUGIN_ROOT}/scripts/on-edit.sh\"", "timeout": 60}]}],
-    "Stop": [{"hooks": [{"type": "command", "command": "bash \"${CLAUDE_PLUGIN_ROOT}/scripts/stop-check.sh\"", "timeout": 300}]}]
+    "Stop": [{"hooks": [{"type": "command", "command": "bash \"${CLAUDE_PLUGIN_ROOT}/scripts/stop-check.sh\"", "timeout": 600}]}]
   }
 }
 ```
@@ -358,7 +358,8 @@ flags in any order; `--files` consumes paths until the next `--` flag.
   for the commit gate (§4.4): `ok` = steps `ok` + `známe` (what would still PASS with the blocked steps
   disabled), `steps` = ids of all blocked steps, `lines` = the first ≤ 5 `!` lines for display; any other
   quick/full verdict removes it, stop mode leaves it alone. Stop mode on PASS or PARTIAL writes `sessions/<session_id>.stop.json` (`{"hash":
-  <dk_hash_files of session files>, "time":…, "fails":0, "result":"PASS|PARTIAL"}`). Markers are written
+  <dk_hash_files of session files>, "time":…, "fails":0, "result":"PASS|PARTIAL"}`); the FAIL shape is
+  written by `stop-check.sh` (§4.6 step 5). Markers are written
   via a per-process temp file and `mv`.
 - Prune logs to the newest 20 per project.
 
@@ -376,6 +377,12 @@ flags in any order; `--files` consumes paths until the next `--` flag.
    skip the check (reminders from step 2 are still emitted): no code files; hash (`dk_hash_files`) equal
    to `hash` in the session's `stop.json` with last result PASS or PARTIAL; the same failing hash already
    reached the 3× cap. State is per session, so another session's result never resets this one's counter.
+   Replay: the same failing hash with `fails` 1–2, a non-empty stored `reason` and an unchanged `ctx`
+   (git blob hash over `devkit.json`, HEAD and the blobs of `dk_changed_files`, so a fix outside the
+   session files or a new `knownFailures`/`disabledRules` entry runs the check again) ⇒ step 4 (check
+   and guards) is skipped and step 5 blocks again from the stored `reason`; the header says
+   `výsledok predošlej kontroly — súbory session sa nezmenili`. A `stop.json` without `reason` or `ctx`
+   (older version) runs the check.
 4. Run `check.sh --stop --session <id> --project <P>` (+ guards over those files' added lines,
    because files may have been changed via Bash).
 5. Output on stdout, exit 0:
@@ -389,6 +396,10 @@ flags in any order; `--files` consumes paths until the next `--` flag.
    - Track consecutive blocks for the same failure hash in the session's `stop.json` (`fails`); when it reaches 3 ⇒ do not
      block, instead `{"systemMessage":"[dev-kit] kontrola stále padá (3×) — blokovanie vypnuté pre tento stav, pozri <log>"}`
      plus `hookSpecificOutput.additionalContext` when there are reminders.
+   - Every failure (blocked, replayed or capped) writes `stop.json` = `{"hash":<session hash>,"time":…,
+     "fails":<n>,"failHash":<session hash>,"result":"FAIL","reason":"<≤ 18 lines: failing check lines,
+     guard findings, reminders — the block reason without its header and log line>","log":"<path>",
+     "ctx":"<sha>"}`. A replay puts reminders that are new in this Stop in front of the stored `reason`.
    - `stop_hook_active` true is allowed (we cap ourselves).
 6. Container down / blocked step / nothing ran ⇒ never block on infrastructure; reminders still go out as in step 5.
 
@@ -539,8 +550,11 @@ Template content is GENERIC for the stack (no project specifics, no project name
 All templates use the same placeholder name for the same thing (`{{projectDescription}}`, `{{run}}`, …)
 and the same compaction heading `## Compact instructions`. Deny rules in `settings.json` start with `/`
 (relative to the settings source = project root, permissions.md). `changedLinesOnly: "stop"` on phpstan
-(php-nette, php-symfony) and mypy (python). The symfony template's 12 ask rules and broader deny are
-intended.
+(php-nette, php-symfony) and mypy (python). Stop mode runs only fast steps: tests without the slow ones
+(php-nette `--testsuite unit`, php-symfony `--exclude-group integration` or the fast `<testsuite>` that
+init picks from `phpunit.xml`, python `-m 'not slow and not integration'`); slow tests are a separate
+step with `modes: ["full"]` (`integration`; python the whole `pytest`). The symfony template's 12 ask
+rules and broader deny are intended.
 Source material: `CLAUDE.md` of real Nette and Symfony projects — read-only — plus the
 user's global `~/.claude/CLAUDE.md` rules. Each rule file ≤ 60 lines, with a `## Pasce` section.
 

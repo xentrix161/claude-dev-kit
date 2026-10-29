@@ -11,6 +11,15 @@ dk_remind() {
         '{hookSpecificOutput: {hookEventName: "Stop", additionalContext: $c}}'
 }
 
+# Stav mimo súborov session, ktorý mení výsledok kontroly: devkit.json, HEAD a bloby zmenených súborov.
+dk_stop_ctx() {
+    {
+        printf 'cfg %s\n' "$(git hash-object --no-filters -- "$DK_CFG" 2>/dev/null)"
+        printf 'head %s\n' "$(dk_git rev-parse -q --verify HEAD 2>/dev/null)"
+        (set -f; IFS=$DK_NL; dk_blobs $(dk_changed_files))
+    } | git hash-object --stdin 2>/dev/null
+}
+
 dk_main() {
     dk_init
     [ "$DK_HAS_JQ" = 1 ] || return 0
@@ -109,12 +118,12 @@ EOF2
     if [ -z "$files" ]; then dk_remind "$rem"; return 0; fi
     hash=$(set -f; IFS=$DK_NL; dk_hash_files $files)
 
-    local phash="" pres="" pfails=0 pfh="" stf
+    local phash="" pres="" pfails=0 pfh="" pctx="" plog="" preason="" stf ctx="" replay=0
     stf=$(dk_stop_file)
     if [ -f "$stf" ]; then
         local out
-        out=$(jq -r '[.hash // "", .result // "", (.fails // 0 | tostring), .failHash // ""] | join("\u001f")' "$stf" 2>/dev/null)
-        IFS=$DK_US read -r phash pres pfails pfh <<EOF
+        out=$(jq -r '[.hash // "", .result // "", (.fails // 0 | tostring), .failHash // "", .ctx // "", .log // ""] | join("\u001f")' "$stf" 2>/dev/null)
+        IFS=$DK_US read -r phash pres pfails pfh pctx plog <<EOF
 $out
 EOF
         case "$pfails" in ''|*[!0-9]*) pfails=0 ;; esac
@@ -128,36 +137,49 @@ EOF
         dk_remind "$rem"
         return 0
     fi
-
-    # 2. check.sh --stop
-    local cout crc logp=""
-    cout=$(cd "$DK_PROJECT" && bash "$DK_SCRIPTS/check.sh" --stop --session "$DK_SESSION" --project "$DK_PROJECT" </dev/null 2>&1)
-    crc=$?
-    logp=$(printf '%s\n' "$cout" | sed -n 's/^log: //p' | tail -n 1)
-    if [ "$crc" = 3 ] || [ "$crc" -gt 4 ]; then
-        dk_err "check.sh --stop exit $crc: $(printf '%s' "$cout" | head -n 1)"
-    fi
-    if [ "$crc" = 4 ] && printf '%s\n' "$cout" | head -n 1 | grep -q ': PARTIAL'; then
-        rem="$rem- [partial] tieto kroky sa nedali spustiť — netvrď, že sú overené:$DK_NL$(printf '%s\n' "$cout" | grep '^! ' | head -n 5 | sed 's/^/  /')$DK_NL"
+    # Nič sa nezmenilo od posledného FAIL (súbory session, devkit.json, HEAD ani pracovný strom):
+    # check.sh sa neopakuje, blokuje uložený dôvod.
+    if [ "$hash" = "$pfh" ] && [ "$pres" = FAIL ] && [ -n "$pctx" ]; then
+        ctx=$(dk_stop_ctx)
+        if [ "$ctx" = "$pctx" ]; then
+            preason=$(jq -r '.reason // ""' "$stf" 2>/dev/null)
+            [ -n "$preason" ] && replay=1
+        fi
     fi
 
-    # 3. Guardy (súbory mohli byť zmenené aj cez Bash).
-    local gfind="" ng=0 r
-    while IFS= read -r f; do
-        [ -n "$f" ] || continue
-        while IFS=$DK_US read -r r a; do
-            [ -n "$r" ] || continue
-            if [ "$r" = more ]; then ng=$((ng + a)); continue; fi
-            gfind="$gfind$a$DK_NL"; ng=$((ng + 1))
-            dk_log stop-check "$r" block "$f"
-        done <<EOF2
+    local cout="" crc=0 logp="" gfind="" ng=0 r
+    if [ "$replay" = 1 ]; then
+        logp=$plog
+    else
+        # 2. check.sh --stop
+        cout=$(cd "$DK_PROJECT" && bash "$DK_SCRIPTS/check.sh" --stop --session "$DK_SESSION" --project "$DK_PROJECT" </dev/null 2>&1)
+        crc=$?
+        logp=$(printf '%s\n' "$cout" | sed -n 's/^log: //p' | tail -n 1)
+        if [ "$crc" = 3 ] || [ "$crc" -gt 4 ]; then
+            dk_err "check.sh --stop exit $crc: $(printf '%s' "$cout" | head -n 1)"
+        fi
+        if [ "$crc" = 4 ] && printf '%s\n' "$cout" | head -n 1 | grep -q ': PARTIAL'; then
+            rem="$rem- [partial] tieto kroky sa nedali spustiť — netvrď, že sú overené:$DK_NL$(printf '%s\n' "$cout" | grep '^! ' | head -n 5 | sed 's/^/  /')$DK_NL"
+        fi
+
+        # 3. Guardy (súbory mohli byť zmenené aj cez Bash).
+        while IFS= read -r f; do
+            [ -n "$f" ] || continue
+            while IFS=$DK_US read -r r a; do
+                [ -n "$r" ] || continue
+                if [ "$r" = more ]; then ng=$((ng + a)); continue; fi
+                gfind="$gfind$a$DK_NL"; ng=$((ng + 1))
+                dk_log stop-check "$r" block "$f"
+            done <<EOF2
 $(dk_guard_scan "$f" "$(dk__added_spec "$f")" "$guards")
 EOF2
-    done <<EOF
+        done <<EOF
 $files
 EOF
+    fi
 
-    local fail=0 ms fails reason extra="" room
+    local fail=0 ms fails reason body="" extra="" room note=""
+    [ "$replay" = 1 ] && fail=1
     [ "$crc" = 1 ] && fail=1
     [ "$ng" -gt 0 ] && fail=1
     ms=$(( $(dk_ms) - t0 ))
@@ -165,8 +187,27 @@ EOF
     if [ "$fail" = 1 ]; then
         fails=1
         if [ "$hash" = "$pfh" ] && [ "$pres" = FAIL ]; then fails=$((pfails + 1)); fi
-        jq -n --arg h "$hash" --argjson t "$(dk_now)" --argjson n "$fails" \
-            '{hash: $h, time: $t, fails: $n, failHash: $h, result: "FAIL"}' \
+        if [ "$replay" = 1 ]; then
+            note=", výsledok predošlej kontroly — súbory session sa nezmenili"
+            body=$preason
+            [ -n "$rem" ] && body="pripomienky:$DK_NL$rem$body"
+        else
+            if [ "$ng" -gt 0 ]; then
+                extra="${extra}guardy v pridaných riadkoch:$DK_NL$(printf '%s' "$gfind" | head -n 6)$DK_NL"
+            fi
+            [ -n "$rem" ] && extra="${extra}pripomienky:$DK_NL$rem"
+            # Pripomienky sa už nezopakujú (sú v pairs-*.done) — výpis kontroly sa skráti skôr než ony.
+            room=$((18 - $(printf '%s' "$extra" | grep -c .)))
+            [ "$room" -lt 3 ] && room=3
+            if [ "$crc" = 1 ]; then
+                body="$(printf '%s\n' "$cout" | grep -v '^log: ' | grep -v '^$' | head -n "$room")$DK_NL"
+            fi
+            body="$body$extra"
+        fi
+        body=$(printf '%s\n' "$body" | grep -v '^$' | head -n 18)
+        [ "$replay" = 1 ] || ctx=$(dk_stop_ctx)
+        jq -n --arg h "$hash" --argjson t "$(dk_now)" --argjson n "$fails" --arg r "$body" --arg l "$logp" --arg c "$ctx" \
+            '{hash: $h, time: $t, fails: $n, failHash: $h, result: "FAIL", reason: $r, log: $l, ctx: $c}' \
             2>/dev/null > "$stf.tmp.$$" && mv "$stf.tmp.$$" "$stf"
         if [ "$fails" -ge 3 ]; then
             dk_log stop-check stopCheck warn "" "$ms"
@@ -179,18 +220,8 @@ EOF
             fi
             return 0
         fi
-        reason="[dev-kit] Stop kontrola zlyhala (blok $fails/2) — oprav, čo spôsobili zmeny tejto session; zlyhanie mimo nich neopravuj, nahlás ho používateľovi (knownFailures alebo disabledRules step:<id>); ak čakáš na súhlas používateľa s opravou, ukonči ťah jednou vetou so stavom.$DK_NL"
-        if [ "$ng" -gt 0 ]; then
-            extra="${extra}guardy v pridaných riadkoch:$DK_NL$(printf '%s' "$gfind" | head -n 6)$DK_NL"
-        fi
-        [ -n "$rem" ] && extra="${extra}pripomienky:$DK_NL$rem"
-        # Pripomienky sa už nezopakujú (sú v pairs-*.done) — výpis kontroly sa skráti skôr než ony.
-        room=$((18 - $(printf '%s' "$extra" | grep -c .)))
-        [ "$room" -lt 3 ] && room=3
-        if [ "$crc" = 1 ]; then
-            reason="$reason$(printf '%s\n' "$cout" | grep -v '^log: ' | grep -v '^$' | head -n "$room")$DK_NL"
-        fi
-        reason=$(printf '%s\n%s' "$reason" "$extra" | grep -v '^$' | head -n 19)
+        reason="[dev-kit] Stop kontrola zlyhala (blok $fails/2$note) — oprav, čo spôsobili zmeny tejto session; zlyhanie mimo nich neopravuj, nahlás ho používateľovi (knownFailures alebo disabledRules step:<id>); ak čakáš na súhlas používateľa s opravou, ukonči ťah jednou vetou so stavom."
+        [ -n "$body" ] && reason="$reason$DK_NL$body"
         [ -n "$logp" ] && reason="$reason${DK_NL}log: $logp"
         dk_log stop-check stopCheck block "" "$ms"
         jq -nc --arg r "$reason" '{decision: "block", reason: $r}'

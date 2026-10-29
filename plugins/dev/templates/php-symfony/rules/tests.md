@@ -22,7 +22,7 @@ paths:
 ## Overenie
 
 - `php vendor/bin/phpunit` → `OK (… tests, … assertions)`; jeden test `--filter testNazov`, jeden súbor cestou.
-- Stop kontrola púšťa celú sadu → pomalé testy (DB, HTTP) daj do samostatnej `<testsuite>` a v `devkit.json` do kroku len s režimom `full`.
+- Stop a rýchla kontrola (`/dev:check --quick`) púšťajú len rýchle testy (krok `phpunit` bez skupiny `integration` alebo rýchla `<testsuite>`) → pomalé testy (DB, HTTP) označ `#[Group('integration')]` alebo daj do samostatnej `<testsuite>`; bežia v kroku `integration` len pri `--full`.
 
 ## Pasce
 

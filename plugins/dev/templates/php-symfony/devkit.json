@@ -2,7 +2,7 @@
   "_init": [
     "Pokyny pre /dev:project-init — tento kľúč do projektu nezapisuj.",
     "lint a kroky vypusti pre chýbajúce balíky: .twig + lint-twig (symfony/twig-bundle), .yaml/.yml + lint-yaml (symfony/yaml), doctrine-schema (doctrine/doctrine-bundle), php-cs-fixer.",
-    "phpunit: viac <testsuite> v phpunit.xml(.dist) → rýchla sada v stop/quick/full, pomalé (DB, HTTP) ako samostatný krok len s full.",
+    "phpunit a integration: init vyberie podľa phpunit.xml(.dist) — rýchla a pomalá <testsuite> (napr. unit, integration) → --testsuite <rýchla> v phpunit a --testsuite <pomalá> v integration; inak testy so skupinou integration → --exclude-group integration / --group integration; bez pomalých testov krok integration vypusti. V stop nechaj len rýchle kroky.",
     "doctrine-schema: lokálna DB trvalo mimo sync (drift indexov) → pridaj --skip-sync, inak commit gate pri zmene entít neprejde.",
     "fullWhen: config/doctrine/** ponechaj len pri XML/YAML mapovaní."
   ],
@@ -23,13 +23,14 @@
        "run": "php vendor/bin/phpstan analyse -c {{phpstanConfig}} --no-progress --error-format=raw --memory-limit=1G",
        "runFiles": "php vendor/bin/phpstan analyse -c {{phpstanConfig}} --no-progress --error-format=raw --memory-limit=1G {files}",
        "ext": [".php"], "modes": ["stop", "quick", "full"], "changedLinesOnly": "stop"},
-      {"id": "phpunit", "requires": "vendor/bin/phpunit", "run": "php vendor/bin/phpunit", "modes": ["stop", "quick", "full"]},
+      {"id": "phpunit", "requires": "vendor/bin/phpunit", "run": "php vendor/bin/phpunit --exclude-group integration", "modes": ["stop", "quick", "full"]},
       {"id": "php-cs-fixer", "requires": "vendor/bin/php-cs-fixer",
        "runFiles": "php vendor/bin/php-cs-fixer fix --dry-run --diff --show-progress=none --path-mode=intersection {files}",
        "ext": [".php"], "modes": ["quick", "full"]},
       {"id": "lint-container", "requires": "bin/console", "run": "php bin/console lint:container", "modes": ["quick", "full"]},
       {"id": "lint-yaml", "requires": "vendor/symfony/yaml/composer.json", "run": "php bin/console lint:yaml config --parse-tags", "modes": ["quick", "full"]},
       {"id": "lint-twig", "requires": "vendor/symfony/twig-bundle/composer.json", "run": "php bin/console lint:twig templates", "modes": ["quick", "full"]},
+      {"id": "integration", "requires": "vendor/bin/phpunit", "run": "php vendor/bin/phpunit --group integration", "modes": ["full"]},
       {"id": "doctrine-schema", "requires": "vendor/doctrine/doctrine-bundle/composer.json", "run": "php bin/console doctrine:schema:validate", "modes": ["full"]}
     ],
     "fullWhen": ["src/Entity/**", "migrations/**", "config/doctrine/**", "config/packages/doctrine*.yaml", "config/packages/*/doctrine*.yaml"],
