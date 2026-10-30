@@ -66,6 +66,52 @@ Referenčné skilly (MySQL, E2E, prístupnosť, Python, dopad zmeny, TLDR do tas
 
 Logy sú v `~/.claude/dev-kit/`, iné miesto nastavíš cez `DEVKIT_DATA`.
 
+## CI
+
+`check.sh` beží aj v CI projektu bez Claude Code a bez inštalácie pluginu (`claude plugin marketplace add` netreba): stačí `bash`, `git`, `jq`, klon kitu a nástroje projektu (PHP s `composer install`, Python s balíkmi…), lebo kroky z `devkit.json` sa spúšťajú tak, ako sú zapísané.
+
+```bash
+bash <kit>/plugins/dev/scripts/check.sh --full --project .
+```
+
+- Exit 0 = PASS, 1 = FAIL, 3 = chyba configu alebo argumentov, 4 = PARTIAL alebo SKIP (niečo sa neoverilo). Job zlyhá pri každom inom kóde než 0.
+- Runner bez kontajnera projektu dostane kópiu configu s `"container": ""` cez `--config <súbor>` alebo premennú `DEVKIT_CONFIG` a kroky pustí u seba. V kópii vypneš aj kroky, ktoré v CI nemajú prostredie (`"disabledRules": ["step:integration"]`). Projekt s lokálnym nastavením (`.git/info/exclude`) commitne pre CI vlastný súbor a odovzdá ho rovnako.
+- Beh s iným configom nezapíše `pass.json`, lokálne teda commit neodomkne; povie to riadok `config:` vo výstupe.
+- Čerstvý checkout nemá zmenené súbory: kroky s `run` bežia nad celým projektom, kroky len s `runFiles` (`phpcs`, `ruff`, `eslint`…) sa preskočia. Na PR im daj zmenené súbory: `--files $(git diff --name-only --diff-filter=d <báza>...HEAD)`, kde `<báza>` je `origin/$GITHUB_BASE_REF` (GitHub, checkout s `fetch-depth: 0`) alebo `$CI_MERGE_REQUEST_DIFF_BASE_SHA` (GitLab).
+- URL klonu kitu a tag vydania (`dev--v<verzia>`) drž v premenných CI `DEVKIT_REPO` a `DEVKIT_REF`. Plný log je v `DEVKIT_DATA` runnera, cestu vypíše riadok `log:`.
+
+GitHub Actions (`.github/workflows/dev-kit.yml`, premenné v Settings → Secrets and variables → Actions → Variables):
+
+```yaml
+name: dev-kit
+on: [push, pull_request]
+jobs:
+  check:
+    runs-on: ubuntu-latest   # git aj jq sú v obraze
+    steps:
+      - uses: actions/checkout@v7
+      # príprava nástrojov projektu (setup-php + composer install, setup-python + pip install…)
+      - name: dev-kit check
+        env:
+          DEVKIT_REPO: ${{ vars.DEVKIT_REPO }}
+          DEVKIT_REF: ${{ vars.DEVKIT_REF }}
+        run: |
+          git clone -q --depth 1 --branch "$DEVKIT_REF" "$DEVKIT_REPO" "$RUNNER_TEMP/dev-kit"
+          jq '.container = ""' .claude/devkit.json > "$RUNNER_TEMP/devkit.json"
+          DEVKIT_CONFIG="$RUNNER_TEMP/devkit.json" bash "$RUNNER_TEMP/dev-kit/plugins/dev/scripts/check.sh" --full --project .
+```
+
+GitLab CI (`.gitlab-ci.yml`, premenné v Settings → CI/CD → Variables):
+
+```yaml
+dev-kit:
+  image: <obraz s nástrojmi projektu, bash, git a jq>
+  script:
+    - git clone -q --depth 1 --branch "$DEVKIT_REF" "$DEVKIT_REPO" /tmp/dev-kit
+    - jq '.container = ""' .claude/devkit.json > /tmp/devkit.json
+    - DEVKIT_CONFIG=/tmp/devkit.json bash /tmp/dev-kit/plugins/dev/scripts/check.sh --full --project .
+```
+
 ## Vývoj kitu
 
 ```bash

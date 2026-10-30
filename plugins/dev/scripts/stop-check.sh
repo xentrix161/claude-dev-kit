@@ -151,8 +151,8 @@ EOF
     if [ "$replay" = 1 ]; then
         logp=$plog
     else
-        # 2. check.sh --stop
-        cout=$(cd "$DK_PROJECT" && bash "$DK_SCRIPTS/check.sh" --stop --session "$DK_SESSION" --project "$DK_PROJECT" </dev/null 2>&1)
+        # 2. check.sh --stop nad configom projektu, DEVKIT_CONFIG z prostredia neplatí
+        cout=$(cd "$DK_PROJECT" && DEVKIT_CONFIG= bash "$DK_SCRIPTS/check.sh" --stop --session "$DK_SESSION" --project "$DK_PROJECT" </dev/null 2>&1)
         crc=$?
         logp=$(printf '%s\n' "$cout" | sed -n 's/^log: //p' | tail -n 1)
         # Mimo kontraktu 0/1/4 (config, argumenty, pád skriptu): neblokovať, ale ani nehlásiť pass.

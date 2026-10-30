@@ -8,14 +8,14 @@ DK_NO_STDIN=1
 DK_NO_CONTAINER_CACHE=1
 
 dk_usage() {
-    echo "použitie: check.sh [--quick|--full|--auto|--stop] [--session <id>] [--project <dir>] [--files <rel>…]"
+    echo "použitie: check.sh [--quick|--full|--auto|--stop] [--session <id>] [--project <dir>] [--config <súbor>] [--files <rel>…]"
 }
 
 DK_EXCERPT_RE='^[0-9]+\) |^FAILED |^ERROR|:[0-9]+(:|$)|on line [0-9]+|[Ee]rror|[Ee]xception|FAILURES!|^Tests: |[Ff]ailed asserting|^E[[:space:]]|^-- FAILED: |^[[:space:]]+Failed: |^Found [0-9]+ |^(Package|Advisory ID|CVE|Title): |^Name +Version +ID|[[:space:]](PYSEC|GHSA|CVE)-[0-9A-Za-z]'
 # Riadok nálezu v kóde: číslo riadku, test Nette Testeru (ten čísla riadkov s dvojbodkou nemá) alebo hlavička auditu.
 DK_RE_FINDING=':[0-9]|on line [0-9]|^-- FAILED: |^Found [0-9]+ (security vulnerability advisor|known vulnerabilit|abandoned package)'
 
-mode=quick files_arg="" files_set=0 project="" session=""
+mode=quick files_arg="" files_set=0 project="" session="" cfg_file="" cfg_set=0
 while [ $# -gt 0 ]; do
     case "$1" in
         --quick|--full|--auto|--stop) mode=${1#--} ;;
@@ -23,6 +23,8 @@ while [ $# -gt 0 ]; do
         --session=*) session=${1#*=} ;;
         --project) project=${2:-}; [ $# -gt 1 ] && shift ;;
         --project=*) project=${1#*=} ;;
+        --config) cfg_file=${2:-}; cfg_set=1; [ $# -gt 1 ] && shift ;;
+        --config=*) cfg_file=${1#*=}; cfg_set=1 ;;
         --files)
             files_set=1
             shift
@@ -39,17 +41,29 @@ while [ $# -gt 0 ]; do
     shift
 done
 
+# Iný config (CI bez kontajnera): --config › DEVKIT_CONFIG; relatívna cesta od pwd volajúceho.
+[ "$cfg_set" = 1 ] || cfg_file=${DEVKIT_CONFIG:-}
+if [ "$cfg_set" = 1 ] && [ -z "$cfg_file" ]; then echo "[dev-kit] --config bez súboru"; dk_usage; exit 3; fi
+case "$cfg_file" in ''|/*) ;; *) cfg_file="$PWD/$cfg_file" ;; esac
+
 DK_PROJECT_ARG=${project:-$PWD}
 DK_SESSION_ARG=$session
 dk_init
 T0=$(dk_ms)
 
 if [ "$DK_HAS_JQ" != 1 ]; then echo "[dev-kit] chýba jq → kontroly nebežia (brew install jq)"; exit 3; fi
+# CFG_OVER = iný súbor než config projektu (markery nižšie).
+CFG_SHOW=.claude/devkit.json CFG_OVER=""
+if [ -n "$cfg_file" ]; then
+    if [ ! -f "$cfg_file" ]; then echo "[dev-kit] config $cfg_file neexistuje (--config, DEVKIT_CONFIG)"; exit 3; fi
+    { [ -n "$DK_CFG" ] && [ "$cfg_file" -ef "$DK_CFG" ]; } || CFG_OVER=$cfg_file
+    DK_CFG=$cfg_file CFG_SHOW=$cfg_file
+fi
 if [ -z "$DK_CFG" ]; then echo "[dev-kit] chýba .claude/devkit.json — spusti /dev:project-init"; exit 3; fi
 if ! dk_cfg_read '((.check.steps // [])[] | "S\u001f\(.id|s)\u001f\(.requires|s)\u001f\(.run|s)\u001f\(.runFiles|s)\u001f\((.ext // []) | join(","))\u001f\((.modes // ["quick","full"]) | join(","))\u001f\(.changedLinesOnly // false | s)\u001f\(.runtime|s)"),
     ((.check.fullWhen // [])[] | "W\u001f\(.|s)"),
     ((.check.knownFailures // [])[] | "F\u001f\(.step|s)\u001f\(.pattern|s)")'; then
-    echo "[dev-kit] .claude/devkit.json nie je platný JSON → jq . .claude/devkit.json"
+    echo "[dev-kit] $CFG_SHOW nie je platný JSON → jq . $CFG_SHOW"
     exit 3
 fi
 mkdir -p "$DK_PDATA/logs" "$DK_PDATA/sessions" 2>/dev/null
@@ -120,6 +134,7 @@ LOG="$DK_PDATA/logs/check-$mode-$DK_T0.log"
 {
     echo "# dev-kit check $mode · $(date '+%Y-%m-%d %H:%M:%S') · $DK_PROJECT"
     echo "# súbory: $(printf '%s' "$EXIST" | tr '\n' ' ')"
+    [ -z "$CFG_OVER" ] || echo "# config: $CFG_OVER"
 } 2>/dev/null > "$LOG"
 
 NOK=0 NKNOWN=0 NFAIL=0 NSKIP=0 NBLOCK=0 STEPLINES="" FAILSTEPS="" BLOCKIDS="" ENV_READY=0 ENV_SKIP=""
@@ -362,8 +377,9 @@ fi
 
 # Markery a log pred výpisom: zatvorený stdout (SIGPIPE) ich nesmie zahodiť.
 # PARTIAL nikdy nezapíše pass.json: v quick/full ide do partial.json (vysvetlenie v commit gate),
-# v Stop do stavu session (neopakovať kontrolu nad tým istým obsahom).
-if [ "$mode" != stop ]; then
+# v Stop do stavu session (neopakovať kontrolu nad tým istým obsahom). Beh s iným configom
+# markery nepíše ani nemaže: commit gate a Stop overujú config projektu.
+if [ -z "$CFG_OVER" ] && [ "$mode" != stop ]; then
     if [ "$VERDICT" = PARTIAL ]; then
         # ok = kroky, ktoré by po vypnutí blokovaných dali PASS; steps úplné, lines len na zobrazenie.
         printf '%s' "$STEPLINES" | grep '^! ' | head -n 5 \
@@ -375,7 +391,9 @@ if [ "$mode" != stop ]; then
         rm -f "$DK_PDATA/partial.json"
     fi
 fi
-if [ "$mode" = stop ] && { [ "$RC" = 0 ] || [ "$VERDICT" = PARTIAL ]; }; then
+if [ -n "$CFG_OVER" ]; then
+    :
+elif [ "$mode" = stop ] && { [ "$RC" = 0 ] || [ "$VERDICT" = PARTIAL ]; }; then
     SF=$(dk_stop_file)
     jq -n --arg h "$SNAP_HASH" --argjson t "$(dk_now)" --arg r "$VERDICT" '{hash: $h, time: $t, fails: 0, result: $r}' \
         2>/dev/null > "$SF.tmp.$$" && mv "$SF.tmp.$$" "$SF"
@@ -392,6 +410,7 @@ dk_log check "check:$mode" "$dec" "" "$TOTAL"
 
 NSTEP=$(printf '%s' "$STEPLINES" | grep -c .)
 BUDGET=$((20 - NSTEP - 2))
+[ -z "$CFG_OVER" ] || BUDGET=$((BUDGET - 1))
 PER=$BUDGET
 [ "$NFAIL" -gt 0 ] && PER=$((BUDGET / NFAIL))
 {
@@ -415,6 +434,7 @@ PER=$BUDGET
 $FAILSTEPS
 EOF
     fi
+    [ -z "$CFG_OVER" ] || echo "config: $CFG_OVER (namiesto .claude/devkit.json; výsledok neodomkne commit)"
     echo "log: $LOG"
 }
 

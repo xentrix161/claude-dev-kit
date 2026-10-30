@@ -32,7 +32,7 @@ trap 'exit 130' INT TERM
 
 # Izolácia: vlastný HOME (žiadny zápis do ~/.claude, žiadna globálna git konfigurácia),
 # atrapa docker na PATH (selftest nikdy nesiahne na skutočné kontajnery).
-unset CLAUDE_PROJECT_DIR CLAUDE_PLUGIN_ROOT CLAUDE_PLUGIN_DATA CLAUDE_ENV_FILE DEVKIT_DATA \
+unset CLAUDE_PROJECT_DIR CLAUDE_PLUGIN_ROOT CLAUDE_PLUGIN_DATA CLAUDE_ENV_FILE DEVKIT_DATA DEVKIT_CONFIG \
   GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_CONFIG_GLOBAL GIT_CONFIG_PARAMETERS GIT_CEILING_DIRECTORIES
 export HOME="$ROOT/home" XDG_CONFIG_HOME="$ROOT/home/.config" GIT_CONFIG_NOSYSTEM=1
 mkdir -p "$HOME/.config" "$ROOT/fakebin"
@@ -2541,6 +2541,65 @@ t_templates_audit() {
   done
 }
 
+# CI (SPEC §4.5): kópia configu s container "" cez --config / DEVKIT_CONFIG; markery a Stop ostávajú pri configu projektu.
+t_check_config() {
+  new_case
+  DOCKER_OK=1
+  cfg '.container = "app-php"'
+  add app/Foo.php '$c = 31;'
+  check --quick --project "$REPO"
+  want_rc 4 "config projektu" && want_out 'check quick: PARTIAL · 0 ok' && want_not 'config:' || return 1
+  [ -f "$PDATA/partial.json" ] || { fail "config projektu: chýba partial.json"; return 1; }
+  jq '.container = "" | .check.steps += [{"id": "cionly", "requires": "bin/fake-ok", "run": "sh bin/fake-ok cionly", "modes": ["stop", "quick", "full"]}]' \
+    "$REPO/.claude/devkit.json" > "$CASE/ci.json"
+  : > "$CASE/docker.calls"
+  RUNDIR=$CASE
+  check --quick --project "$REPO" --config ci.json
+  want_rc 0 "--config relatívne k pwd" && want_out 'check quick: PASS · 3 ok' && want_out '✓ cionly' \
+    && want_out "config: $CASE/ci.json (namiesto .claude/devkit.json; výsledok neodomkne commit)" || return 1
+  [ ! -s "$CASE/docker.calls" ] || { fail "--config s container \"\": docker volaný: $(flat "$(docker_calls)")"; return 1; }
+  [ ! -f "$PDATA/pass.json" ] || { fail "--config zapísal pass.json"; return 1; }
+  [ -f "$PDATA/partial.json" ] || { fail "--config zmazal partial.json"; return 1; }
+  LC_ALL=C grep -qF "# config: $CASE/ci.json" "$(printf '%s\n' "$OUT" | sed -n 's/^log: //p')" ||
+    { fail "log bez riadku # config$(ctx)"; return 1; }
+  export DEVKIT_CONFIG="$CASE/chyba.json"
+  check --quick --project "$REPO"
+  want_rc 3 "DEVKIT_CONFIG bez súboru" && want_out "[dev-kit] config $CASE/chyba.json neexistuje" || return 1
+  check --full --project "$REPO" --config "$CASE/ci.json"
+  want_rc 0 "--config prebije DEVKIT_CONFIG" && want_out 'check full: PASS · 4 ok' || return 1
+  export DEVKIT_CONFIG="$CASE/ci.json"
+  check --quick --project "$REPO"
+  want_rc 0 "DEVKIT_CONFIG" && want_out "config: $CASE/ci.json" || return 1
+  rm -f "$REPO/.marks/ran-cionly"
+  session_files app/Foo.php
+  stop_check
+  want_rc 0 "Stop s DEVKIT_CONFIG" && want_no_block "Stop s DEVKIT_CONFIG" \
+    && want_json '.hookSpecificOutput.additionalContext | contains("[partial]")' "Stop s DEVKIT_CONFIG" || return 1
+  want_jfile "$PDATA/sessions/$SID.stop.json" '.result == "PARTIAL"' || return 1
+  [ ! -f "$REPO/.marks/ran-cionly" ] || fail "Stop použil DEVKIT_CONFIG namiesto configu projektu"
+}
+t_check_config_edges() {
+  new_case nocfg
+  add app/Foo.php '$c = 32;'
+  jq . "$FIX/devkit.json" > "$CASE/ci.json"
+  check --quick --project "$REPO" --config="$CASE/ci.json"
+  want_rc 0 "projekt bez devkit.json" && want_out 'check quick: PASS · 2 ok' && want_out "config: $CASE/ci.json" || return 1
+  [ ! -f "$PDATA/pass.json" ] || { fail "projekt bez devkit.json: --config zapísal pass.json"; return 1; }
+  printf '{"check": \n' > "$CASE/bad.json"
+  check --quick --project "$REPO" --config "$CASE/bad.json"
+  want_rc 3 "neplatný JSON" && want_out "[dev-kit] $CASE/bad.json nie je platný JSON" || return 1
+  check --quick --project "$REPO" --config
+  want_rc 3 "--config bez hodnoty" && want_out '--config bez súboru' || return 1
+  cp "$CASE/ci.json" "$REPO/.claude/devkit.json"
+  check --quick --project "$REPO" --config .claude/devkit.json
+  want_rc 0 "--config = config projektu" && want_not 'config:' || return 1
+  want_jfile "$PDATA/pass.json" '.mode == "quick"' || return 1
+  rm -f "$PDATA/pass.json"
+  export DEVKIT_CONFIG=""
+  check --quick --project "$REPO"
+  want_rc 0 "prázdne DEVKIT_CONFIG" && want_not 'config:' && want_jfile "$PDATA/pass.json" '.mode == "quick"'
+}
+
 # ---------------------------------------------------------------- beh
 
 N=0
@@ -2718,6 +2777,8 @@ t "Phinx: _init, detekcia phinx.{php,json,yaml,yml}, db-dibi.md; migrations.path
 t "check.sh: knownFailures zo zraniteľností composer audit a pip-audit (vzor na CVE alias pokryje záznam, ukotvenie platí)" t_check_known_failures_audit
 t "check.sh: audit — abandoned ostáva FAIL, Ignore reason a blok bez id, tabuľka, sieť = PARTIAL, pytest bez hlavičky bez id" t_check_audit_edges
 t "šablóny: krok audit len vo full so súhlasom v pláne initu; review a production-audit odkazujú na krok" t_templates_audit
+t "check.sh --config / DEVKIT_CONFIG: kópia s container \"\" beží na hoste, bez pass.json a partial.json, Stop berie config projektu" t_check_config
+t "check.sh --config: projekt bez devkit.json, neplatný JSON, chýbajúca hodnota, ten istý súbor a prázdne DEVKIT_CONFIG → markery" t_check_config_edges
 
 wait
 for f in "$RES"/*; do

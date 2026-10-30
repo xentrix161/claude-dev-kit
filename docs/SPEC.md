@@ -89,7 +89,8 @@ deletes `sessions/*.files|.head|.stop.json|.cfgnote` and `pairs-*.done` older th
 ## 3. Project config `.claude/devkit.json` (schema v1)
 
 Located at `<project>/.claude/devkit.json`. Missing file ⇒ every hook is a no-op (except the one-line
-hint in session-card and the `agentReadOnly` deny of the kit's agents in pre-edit, §4.3). Unknown keys
+hint in session-card and the `agentReadOnly` deny of the kit's agents in pre-edit, §4.3). Only `check.sh`
+can read another file of this schema instead (`--config`/`DEVKIT_CONFIG`, CI, §4.5). Unknown keys
 and keys starting with `_` (template notes such as `_init`) are ignored. Example (typical Nette project):
 ```json
 {
@@ -393,11 +394,20 @@ Never block `git commit --amend --no-edit` differently — same rules apply. Do 
 intercept `--no-verify` (irrelevant to Claude hooks).
 
 ### 4.5 `check.sh` — the single source of truth (`/dev:check`, Stop, commit, CI)
-Usage: `check.sh [--quick|--full|--auto|--stop] [--session <id>] [--project <dir>] [--files <rel>…]` —
+Usage: `check.sh [--quick|--full|--auto|--stop] [--session <id>] [--project <dir>] [--config <file>] [--files <rel>…]` —
 flags in any order; `--files` consumes paths until the next `--` flag.
 - Without hook stdin (called from Bash tool or CI). Reads config of `--project` (default `pwd`'s git
   toplevel; worktree rule in §4). No config ⇒ print `[dev-kit] chýba .claude/devkit.json — spusti
-  /dev:project-init` exit 3.
+  /dev:project-init` exit 3; invalid JSON ⇒ `[dev-kit] <config> nie je platný JSON → jq . <config>` exit 3.
+- Config override (CI, e.g. a copy with `"container": ""` when the runner has no compose): `--config <file>`
+  (or `--config=<file>`), else env `DEVKIT_CONFIG` (empty = unset), replaces the project's config for this
+  run; the project needs none of its own. A relative path is resolved against the caller's cwd, `--project`
+  still sets the project. Missing file ⇒ `[dev-kit] config <path> neexistuje (--config, DEVKIT_CONFIG)` exit 3;
+  `--config` without a value ⇒ `[dev-kit] --config bez súboru` + usage, exit 3. A file other than the project's
+  config (`[ -ef ]`; the same file is no override) writes and removes no marker (`pass.json`, `partial.json`,
+  `stop.json`): the commit gate and Stop vouch only for the project's config. Such a run prints `config: <path>
+  (namiesto .claude/devkit.json; výsledok neodomkne commit)` before `log:` (within the 20 lines) and the log
+  has `# config: <path>` after `# súbory:`. Stop (§4.6 step 4) clears `DEVKIT_CONFIG`.
 - Mode: default `--quick`; `--auto` = full when any CHANGED file matches `fullWhen`, else quick. When
   `--auto` switches to full and no enabled step runs in only one of quick/full, the step lines start with
   `– full: rovnaké kroky ako quick` (not counted as skip).
@@ -435,10 +445,10 @@ flags in any order; `--files` consumes paths until the next `--` flag.
   vendor/bin/phpcs` / `! unit: príkaz sa nedá spustiť (exit 127)`, then for failing steps up to 8 most
   relevant output lines each (`DK_EXCERPT_RE`: PHPUnit, pytest, Tester `-- FAILED:` and its `Failed:` lines,
   `file:line` findings, errors, audit `Found <n> …`, `Package:`/`Advisory ID:`/`CVE:`/`Title:` and `pip-audit`
-  rows; total cap 20), then `log: <path>`.
+  rows; total cap 20), then the `config:` line of an override run, then `log: <path>`.
 - Verdict and exit: some FAIL ⇒ FAIL, 1; else some blocked step ⇒ PARTIAL, 4; else ≥1 `ok` or `známe`
   ⇒ PASS, 0; else (nothing ran) ⇒ SKIP, 4. 3 = config error. Exit 4 = incomplete verification — never
-  report it as PASS.
+  report it as PASS. CI treats every exit other than 0 as a failed job.
 - On exit 0 in quick/full: write `pass.json` = `{"time":…,"mode":"quick|full","head":"<sha>","blobs":{"<rel>":"<blob sha or ->"}}`
   for the checked file set (CHANGED files, or exactly the `--files` set); PARTIAL never writes it.
   On PARTIAL in quick/full write `partial.json` = `{"time":…,"mode":"quick|full","ok":<n>,"steps":["<id>",…],"lines":["! <id>: <reason>",…]}`
@@ -447,7 +457,7 @@ flags in any order; `--files` consumes paths until the next `--` flag.
   quick/full verdict removes it, stop mode leaves it alone. Stop mode on PASS or PARTIAL writes `sessions/<session_id>.stop.json` (`{"hash":
   <dk_hash_files of the session code files, §4.6 step 3>, "time":…, "fails":0, "result":"PASS|PARTIAL"}`); the FAIL shape is
   written by `stop-check.sh` (§4.6 step 5). Markers are written
-  via a per-process temp file and `mv`.
+  via a per-process temp file and `mv`; an override run (`--config`/`DEVKIT_CONFIG`) neither writes nor removes them.
 - Prune logs to the newest 20 per project.
 
 ### 4.6 `stop-check.sh` — Stop
@@ -476,8 +486,8 @@ flags in any order; `--files` consumes paths until the next `--` flag.
    and guards) is skipped and step 5 blocks again from the stored `reason`; the header says
    `výsledok predošlej kontroly — súbory session sa nezmenili`. A `stop.json` without `reason` or `ctx`
    (older version) runs the check.
-4. Run `check.sh --stop --session <id> --project <P>` (+ guards over those files' added lines,
-   because files may have been changed via Bash).
+4. Run `check.sh --stop --session <id> --project <P>` with `DEVKIT_CONFIG` cleared (the project's config,
+   like steps 1–3; §4.5) (+ guards over those files' added lines, because files may have been changed via Bash).
 5. Output on stdout, exit 0:
    - Failure (check FAIL or guard finding) ⇒ `{"decision":"block","reason":"<≤20 lines>"}`; the reason
      says what failed and that it must be fixed before the turn ends, lists failing lines, guard findings
