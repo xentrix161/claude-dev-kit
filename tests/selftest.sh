@@ -2708,6 +2708,72 @@ t_evals_suite() {
     fail "review-format: diff lib/orders.sh s eval"
 }
 
+# ---------------------------------------------------------------- PreCompact (B12)
+
+j_compact() { # [trigger] [session_id]
+  jq -nc --arg s "${2:-$SID}" --arg c "$REPO" --arg t "${1:-manual}" \
+    '{session_id: $s, transcript_path: "/dev/null", cwd: $c, hook_event_name: "PreCompact",
+      trigger: $t, custom_instructions: null}'
+}
+pre_compact() { hook pre-compact "$(j_compact "$@")"; }
+t_pre_compact_silent() {
+  jq -e '.hooks.PreCompact | length == 1 and (.[0] | has("matcher") | not)
+    and (.[0].hooks[0] | .type == "command" and .timeout == 10
+      and .command == "bash \"${CLAUDE_PLUGIN_ROOT}/scripts/pre-compact.sh\"")' \
+    "$KIT/plugins/dev/hooks/hooks.json" >/dev/null 2>&1 ||
+    { fail "hooks.json: PreCompact → scripts/pre-compact.sh, timeout 10, bez matchera"; return 1; }
+  new_case nocfg
+  session_files app/Foo.php
+  lock_at "$(now)"
+  pre_compact
+  want_rc 0 "bez devkit.json" && want_silent "bez devkit.json" && want_no_errors "bez devkit.json" || return 1
+  cfg .
+  local p="$CASE/nojq"
+  mkpath "$p" jq
+  printf '%s\n' "$(j_compact)" > "$CASE/in.json"
+  (cd "$REPO" && PATH="$p" bash "$S/pre-compact.sh") < "$CASE/in.json" > "$CASE/out" 2> "$CASE/err"
+  RC=$? OUT=$(cat "$CASE/out") ERR=$(cat "$CASE/err")
+  want_rc 0 "bez jq" && want_silent "bez jq" || return 1
+  printf '{"version": 1,\n' > "$REPO/.claude/devkit.json"
+  pre_compact
+  want_rc 0 "neplatný devkit.json" && want_silent "neplatný devkit.json" || return 1
+  cfg .
+  rm -f "$PDATA/test-lock.json" "$PDATA/sessions/$SID.files"
+  pre_compact auto
+  want_rc 0 "bez stavu session" && want_silent "bez stavu session"
+}
+t_pre_compact_facts() {
+  new_case
+  local i=1
+  mkdir -p "$PDATA/sessions"
+  while [ $i -le 10 ]; do printf 'app/F%02d.php\n' $i >> "$PDATA/sessions/$SID.files"; i=$((i + 1)); done
+  printf '{"hash":"h","time":%s,"fails":1,"failHash":"h","result":"FAIL","reason":"r","log":"l","ctx":"c"}\n' "$(now)" \
+    > "$PDATA/sessions/$SID.stop.json"
+  printf '{"hash":"h","time":%s,"fails":0,"result":"PARTIAL"}\n' "$(now)" > "$PDATA/sessions/other-sess.stop.json"
+  printf '{"time":%s,"mode":"full","head":"","blobs":{}}\n' "$(now)" > "$PDATA/pass.json"
+  lock_at "$(now)"
+  printf '{"time": %s, "title": "Košík a DPH", "path": "docs/handoff.md"}\n' "$(now)" > "$PDATA/last-handoff.json"
+  pre_compact
+  want_rc 0 && want_no_errors || return 1
+  [ -z "$ERR" ] || { fail "stderr: $(flat "$ERR")"; return 1; }
+  case "$OUT" in '[dev-kit] stav session pred kompakciou'*) ;; *) fail "stdout nie je plain text s [dev-kit] hlavičkou$(ctx)"; return 1 ;; esac
+  [ "$(nlines "$OUT")" = 6 ] || { fail "čakal som 6 riadkov (limit 10)$(ctx)"; return 1; }
+  want_out '- súbory session (10): app/F01.php, app/F02.php' && want_out 'app/F08.php · … ďalšie: 2' &&
+    want_not 'app/F09.php' || return 1
+  printf '%s\n' "$OUT" | LC_ALL=C grep -q '^- posledná Stop kontrola: FAIL, [0-9][0-9]\.[0-9][0-9]\. [0-9][0-9]:[0-9][0-9]$' ||
+    { fail "riadok Stop kontroly s časom dd.mm. HH:MM$(ctx)"; return 1; }
+  want_not 'PARTIAL' "Stop inej session" || return 1
+  want_out '- posledný PASS /dev:check: full, ' && want_out '- zamknutý test (/dev:fix): tests/FooTest.php (do ' &&
+    want_out '- posledný handoff: Košík a DPH, ' && want_out ' → docs/handoff.md' || return 1
+  lock_at $(($(now) - 7 * 3600))
+  printf '{"time": %s, "title": "Starý handoff", "path": "docs/handoff.md"}\n' $(($(now) - 25 * 3600)) > "$PDATA/last-handoff.json"
+  pre_compact auto other-sess
+  want_rc 0 "iná session" && want_out '- posledná Stop kontrola: PARTIAL, ' "iná session" &&
+    want_out '- posledný PASS /dev:check: full, ' "iná session" || return 1
+  want_not 'súbory session' "iná session" && want_not 'FAIL' "iná session" &&
+    want_not 'zamknutý test' "zámok po ttlHours" && want_not 'handoff' "handoff starší ako 24 h"
+}
+
 # ---------------------------------------------------------------- beh
 
 N=0
@@ -2888,6 +2954,8 @@ t "šablóny: krok audit len vo full so súhlasom v pláne initu; review a produ
 t "check.sh --config / DEVKIT_CONFIG: kópia s container \"\" beží na hoste, bez pass.json a partial.json, Stop berie config projektu" t_check_config
 t "check.sh --config: projekt bez devkit.json, neplatný JSON, chýbajúca hodnota, ten istý súbor a prázdne DEVKIT_CONFIG → markery" t_check_config_edges
 t "eval suite: prompt.md a gradery, fixture shop zo scaffold.sh (PARTIAL, commit gate, zámok testu, diff), make eval mimo check" t_evals_suite
+t "pre-compact: hooks.json PreCompact; bez devkit.json, bez jq, s neplatným configom a bez stavu session exit 0 bez výstupu" t_pre_compact_silent
+t "pre-compact: plain text (nie JSON) — súbory session (8 + ďalšie), Stop len tejto session, pass.json, zámok a handoff < 24 h" t_pre_compact_facts
 
 wait
 for f in "$RES"/*; do

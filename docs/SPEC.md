@@ -30,7 +30,8 @@ version is only in `plugins/dev/.claude-plugin/plugin.json`, changes per version
   data go to `awk` via `ENVIRON`, never `-v` (it expands backslash escapes: `\t` in a path becomes a TAB).
 - Dependencies at runtime: bash, git, jq (required for hooks; if missing → hooks exit 0 silently except
   session-card which says so in static JSON, §4.7), docker (only when `container` is set).
-- Hook discipline: consume stdin fully; stdout silent unless emitting the documented JSON; exit 0 when
+- Hook discipline: consume stdin fully; stdout silent unless emitting the documented JSON (PreCompact: the
+  documented plain text, §4.10); exit 0 when
   nothing to report; never crash the session — any internal error → log to `$DK_DATA/errors.log` and
   exit 0. Respect hook timeouts (see hooks.json).
 - No comments that narrate history. Comments short, only for non-obvious things.
@@ -43,7 +44,7 @@ KIT/
   plugins/dev/
     .claude-plugin/plugin.json        # {"name":"dev","version":"x.y.z","description":"…","author":{"name":"dev-kit"}}
     hooks/hooks.json
-    scripts/   lib.sh check.sh on-edit.sh pre-edit.sh pre-bash.sh stop-check.sh session-card.sh test-lock.sh stats.sh
+    scripts/   lib.sh check.sh on-edit.sh pre-edit.sh pre-bash.sh stop-check.sh session-card.sh pre-compact.sh test-lock.sh stats.sh
     skills/    <command skills> <reference skills>   (see §5)
     agents/    ecc-silent-failure-hunter.md ecc-pr-test-analyzer.md ecc-a11y-architect.md ecc-performance-optimizer.md
     templates/ common/ php-nette/ php-symfony/ python/ skills/   (see §7)
@@ -215,7 +216,8 @@ Semantics:
       {"matcher": "Bash", "hooks": [{"type": "command", "command": "bash \"${CLAUDE_PLUGIN_ROOT}/scripts/pre-bash.sh\"", "timeout": 30}]}
     ],
     "PostToolUse": [{"matcher": "Edit|Write|MultiEdit|NotebookEdit", "hooks": [{"type": "command", "command": "bash \"${CLAUDE_PLUGIN_ROOT}/scripts/on-edit.sh\"", "timeout": 60}]}],
-    "Stop": [{"hooks": [{"type": "command", "command": "bash \"${CLAUDE_PLUGIN_ROOT}/scripts/stop-check.sh\"", "timeout": 600}]}]
+    "Stop": [{"hooks": [{"type": "command", "command": "bash \"${CLAUDE_PLUGIN_ROOT}/scripts/stop-check.sh\"", "timeout": 600}]}],
+    "PreCompact": [{"hooks": [{"type": "command", "command": "bash \"${CLAUDE_PLUGIN_ROOT}/scripts/pre-compact.sh\"", "timeout": 10}]}]
   }
 }
 ```
@@ -560,6 +562,28 @@ flags in any order; `--files` consumes paths until the next `--` flag.
 (block/deny/ask/warn/pass), top 5 noisiest rules, stop-check block rate, commit-gate denials and the
 `PASS na prvý raz` share (commit gate attempts grouped by the content key from §4.4), average ms per
 hook. Exit 0.
+
+### 4.10 `pre-compact.sh` — PreCompact (no matcher: `manual` and `auto`)
+- Output channel. `hooks.md` lists no `additionalContext` for PreCompact (only SessionStart, SubagentStart,
+  UserPromptSubmit/Expansion, the tool events, Stop/SubagentStop and PostModelSwitch take it) and says Claude Code
+  discards a PreCompact hook's `systemMessage` and `continue`; exit 2 or `decision: "block"` would block the
+  compaction, which the kit never does. The stdout of a successful, non-blocking run is plain text that Claude
+  Code appends to the compaction's custom instructions (after the user's `/compact <instructions>`) and, on a
+  manual `/compact`, shows to the user as `PreCompact [<command>] completed successfully: <output>` (CLI
+  2.1.308; the 2.1.314 changelog caps each PreCompact hook's output at 10 000 characters). A compaction inside
+  a subagent ignores it. So the script prints plain text, never JSON — a JSON object would land in the
+  instructions verbatim. The facts reach Claude through the summary; the card after compaction (SessionStart
+  `compact`, §4.7) still runs.
+- No jq, no config or config jq cannot read ⇒ exit 0, no output. No fact below ⇒ no output.
+- Otherwise ≤ 10 lines, facts only (no imperatives, `hooks.md` "Add context for Claude"): the header
+  `[dev-kit] stav session pred kompakciou (fakty pre súhrn):`, then each line only when its source exists:
+  - `- súbory session (<N>): <a>, <b>, …` — the first 8 of `sessions/<session_id>.files`, then ` · … ďalšie: <K>`
+  - `- posledná Stop kontrola: PASS|PARTIAL|FAIL, <time>` — `sessions/<session_id>.stop.json` of this session only
+  - `- posledný PASS /dev:check: quick|full, <time>` — `pass.json` (§4.5)
+  - `- zamknutý test (/dev:fix): <files> (do <time>)` — an active lock (`dk_lock_read`, ttl `testLock.ttlHours`)
+  - `- posledný handoff: <title>, <time> → <path>` — `last-handoff.json` younger than 24 h (card line 4, §4.7)
+  `<time>` = local `dd.mm. HH:MM` (the summary may be read on another day). Reads only, writes no marker,
+  exit 0 always.
 
 ## 5. Skills (`ROOT/skills/<name>/SKILL.md`)
 

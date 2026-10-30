@@ -1,5 +1,5 @@
 {
-  "description": "dev-kit: úvodná karta, zámok testu a commitnuté migrácie, commit gate s tajomstvami, lint, guardy a tajomstvá po edite, Stop kontrola s pripomienkami",
+  "description": "dev-kit: úvodná karta, zámok testu a commitnuté migrácie, commit gate s tajomstvami, lint, guardy a tajomstvá po edite, Stop kontrola s pripomienkami, stav session do súhrnu kompakcie",
   "hooks": {
     "SessionStart": [
       {"matcher": "startup|resume|clear|compact", "hooks": [{"type": "command", "command": "bash \"${CLAUDE_PLUGIN_ROOT}/scripts/session-card.sh\"", "timeout": 10}]}
@@ -13,6 +13,9 @@
     ],
     "Stop": [
       {"hooks": [{"type": "command", "command": "bash \"${CLAUDE_PLUGIN_ROOT}/scripts/stop-check.sh\"", "timeout": 600}]}
+    ],
+    "PreCompact": [
+      {"hooks": [{"type": "command", "command": "bash \"${CLAUDE_PLUGIN_ROOT}/scripts/pre-compact.sh\"", "timeout": 10}]}
     ]
   }
 }

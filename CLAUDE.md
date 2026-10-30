@@ -44,7 +44,7 @@ Spúšťaj z koreňa repa.
 ```
 .claude-plugin/marketplace.json   marketplace dev-kit (bez verzie)
 plugins/dev/.claude-plugin/       plugin.json — jediné miesto verzie
-plugins/dev/hooks/hooks.json      SessionStart, PreToolUse, PostToolUse, Stop
+plugins/dev/hooks/hooks.json      SessionStart, PreToolUse, PostToolUse, Stop, PreCompact
 plugins/dev/scripts/              lib.sh (spoločné funkcie) + skript na každý hook, check.sh
 plugins/dev/skills/               príkazy /dev:* a referenčné skilly
 plugins/dev/agents/               read-only agenti
