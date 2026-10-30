@@ -18,7 +18,7 @@ Projekt bez `.claude/devkit.json` kit nechá na pokoji: hooky v ňom nič nerobi
 
 1. `/dev:project-init --dry-run` ukáže plán súborov a návrh `.claude/devkit.json`. Nič nezapíše.
 2. `/dev:project-init` zapíše nastavenie, rules a `CLAUDE.md` (v lokálnom režime `CLAUDE.local.md`). Súhlas pýta po fázach: plán, zápis s kontrolou, konvencie, `CLAUDE.md`; existujúci súbor zmení len so súhlasom. Nastavenie môže ostať lokálne (`.git/info/exclude`) alebo ho commitneš pre tím.
-3. `/dev:check --full` uloží východiskový stav. Staré zlyhania sa zapíšu do `check.knownFailures` len so súhlasom, inak by commit gate blokoval každý commit.
+3. `/dev:check --full` uloží východiskový stav. Staré zlyhania sa zapíšu do `check.knownFailures` len so súhlasom, inak by commit gate blokoval každý commit. Krok `audit` (`composer audit`, `pip-audit`) beží len vo `--full` a pošle zoznam balíkov projektu na Packagist alebo PyPI; init ho zaradí len so schválením plánu.
 
 Po novej verzii kitu obnovíš skopírované šablóny príkazom `/dev:project-init --sync`.
 

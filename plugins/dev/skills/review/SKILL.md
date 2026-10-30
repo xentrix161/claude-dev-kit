@@ -111,7 +111,7 @@ Navyše k prechodu 2. Pri celom projekte začni vstupnými bodmi: presentery/con
 - **CSRF**: formuláre, signály, zmena stavu cez GET
 - **Súbory**: upload (typ, veľkosť, prípona, úložisko mimo webrootu), path traversal, dočasné súbory s osobnými údajmi
 - **Konfigurácia**: debug režim/Tracy v produkcii, stack trace navonok, CORS `*`, chýbajúce hlavičky (CSP, X-Frame-Options)
-- **Závislosti**: `composer audit` (s kontajnerom z `devkit.json`: `docker exec -i -w <workdir> <container> sh -c 'composer audit'`, workdir = `appRoot`, vo worktree `appRoot/<cesta worktree>`; bez kontajnera na hostiteľovi), pri Pythone `pip-audit`, ak je dostupný; hlás len balíky so známou zraniteľnosťou
+- **Závislosti**: krok `audit` v `devkit.json` (`composer audit`, `pip-audit`; beží v `/dev:check --full`, súhlas s odoslaním zoznamu balíkov na Packagist/PyPI dal init) — nástroj sám nespúšťaj; vychádzaj z výstupu `/dev:check --full`, inak ho odporuč; projekt bez kroku → navrhni ho cez `/dev:project-init --sync`; hlás len balíky so známou zraniteľnosťou
 - závažnosť: CRITICAL (zneužiteľné) → 🔴 · HIGH (opraviť pred nasadením) a MEDIUM (oslabuje ochranu) → 🟡 · LOW (hardening) → 🔵
 
 ## Overenie (povinné pred nahlásením)

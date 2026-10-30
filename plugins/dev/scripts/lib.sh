@@ -45,7 +45,8 @@ AKIA[0-9A-Z]{16}
 DK_SECRET_PLACEHOLDER='^(%env\([^)]*\)%|%[A-Za-z0-9_.]+%|\$\{[^}]*\}?|\$[A-Za-z_][A-Za-z0-9_]*(->[A-Za-z_][A-Za-z0-9_]*)*|\{\{.*|<.*|\*+|[xX]+|\.\.\.)$'
 
 # Zlyhanie nástroja samotného (nie nález v kóde) — taký výstup kontrolu preskočí, neblokuje.
-DK_RE_INFRA='Could not open input file|command not found|No such file or directory|Error response from daemon|OCI runtime|is not running|Cannot connect to the Docker daemon|executable file not found|No files were checked'
+# Sieť: composer (curl, „could not be downloaded“) a pip-audit (urllib3, rada pri chybe spojenia).
+DK_RE_INFRA='Could not open input file|command not found|No such file or directory|Error response from daemon|OCI runtime|is not running|Cannot connect to the Docker daemon|executable file not found|No files were checked|curl error [0-9]+ while downloading|could not be downloaded|Max retries exceeded|network may be blocking this service'
 
 dk_now() { date +%s; }
 

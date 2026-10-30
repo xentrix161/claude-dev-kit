@@ -1,0 +1,9 @@
+Found 1 security vulnerability advisory affecting 1 package:
+Package: example/http-client
+Severity: high
+Advisory ID: PKSA-7k2m-9qwx-4t8n
+CVE: CVE-2026-31415
+Title: Request smuggling via malformed Transfer-Encoding header
+URL: https://github.com/advisories/GHSA-4f7x-q2m9-8c3v
+Affected versions: >=2.0.0,<2.4.3
+Reported at: 2026-03-14T09:30:00+00:00

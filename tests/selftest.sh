@@ -2437,6 +2437,110 @@ t_templates_phinx() {
   want_decision ask "db/migrations"
 }
 
+# ---------------------------------------------------------------- audit závislostí (B14)
+# composer audit (Advisory ID + CVE) a pip-audit (ID + aliasy): vzor na jedno id pokryje záznam — SPEC §3
+t_check_known_failures_audit() {
+  new_case
+  local c p
+  c=$(real composer-audit-plain 1)
+  p=$(real pip-audit-columns 1)
+  cfg --arg c "$c" --arg p "$p" '.check.steps = [{"id": "audit", "run": $c, "modes": ["quick", "full"]},
+    {"id": "pyaudit", "run": $p, "modes": ["quick", "full"]}]'
+  add app/Foo.php '$f = 6;'
+  check --quick --project "$REPO"
+  want_rc 1 "bez knownFailures" && want_out '✗ audit' "bez knownFailures" && want_out '✗ pyaudit' "bez knownFailures" \
+    && want_out 'Advisory ID: PKSA-7k2m-9qwx-4t8n' "výťah composer" && want_out 'CVE: CVE-2026-31415' "výťah composer" \
+    && want_out 'PYSEC-2026-1042' "výťah pip-audit" && want_not '! audit' "nález nie je chyba prostredia" || return 1
+  cfg --arg c "$c" --arg p "$p" '.check.steps = [{"id": "audit", "run": $c, "modes": ["quick", "full"]},
+      {"id": "pyaudit", "run": $p, "modes": ["quick", "full"]}]
+    | .check.knownFailures = [{"step": "audit", "pattern": "^CVE-2026-31415$"}, {"step": "pyaudit", "pattern": "^CVE-2026-27182$"}]'
+  check --quick --project "$REPO"
+  want_rc 0 "CVE aliasy" && want_out 'PASS · 0 ok · 2 známe · 0 fail' "CVE aliasy" || return 1
+  cfg --arg c "$c" --arg p "$p" '.check.steps = [{"id": "audit", "run": $c, "modes": ["quick", "full"]},
+      {"id": "pyaudit", "run": $p, "modes": ["quick", "full"]}]
+    | .check.knownFailures = [{"step": "audit", "pattern": "^CVE-2026-3141$"}, {"step": "pyaudit", "pattern": "^PYSEC-2026-1042$"}]'
+  check --quick --project "$REPO"
+  want_rc 1 "ukotvený vzor bez zhody" && want_out '✗ audit' "ukotvený vzor bez zhody" && want_out '✓ pyaudit' "id PYSEC"
+}
+# Okraje: abandoned balík ostáva zlyhaním, blok Ignore reason sa nepočíta, blok bez id = balík, tabuľka composeru,
+# sieťová chyba = chyba prostredia, „Package:“/„Found“ bez hlavičky auditu nie sú id (pytest)
+t_check_audit_edges() {
+  new_case
+  local adv abd
+  adv="Found 1 ignored security vulnerability advisory affecting 1 package:
+Package: example/old-lib
+CVE: CVE-2025-11111
+Title: Ignored advisory
+Reported at: 2025-01-01T00:00:00+00:00
+Ignore reason: not reachable
+Found 2 security vulnerability advisories affecting 2 packages:
+Package: example/http-client
+Severity: high
+CVE: CVE-2026-31415
+Title: Request smuggling
+Reported at: 2026-03-14T09:30:00+00:00
+--------
+Package: example/yaml
+Severity: medium
+CVE: NO CVE
+Title: Unbounded alias expansion
+Reported at: 2026-03-15T08:00:00+00:00"
+  abd="Found 1 abandoned package:
+example/legacy-mailer is abandoned. No replacement was suggested."
+  put audit-abandoned.txt "$adv
+$abd"
+  put audit-ok.txt "$adv"
+  put audit-table.txt "Found 1 security vulnerability advisory affecting 1 package:
++-------------------+---------------------+
+| Package           | example/http-client |
+| Advisory ID       | PKSA-7k2m-9qwx-4t8n |
+| CVE               | NO CVE              |
+| Reported at       | 2026-03-14T09:30:00+00:00 |
++-------------------+---------------------+"
+  put pytest-out.txt "FAILED tests/test_order.py::test_total - AssertionError
+----- Captured stdout call -----
+Found 2 records
+Package: demo
+CVE: CVE-2020-0001
+=== 1 failed in 0.12s ==="
+  cfg '.check.steps = [{"id": "abandon", "run": "cat audit-abandoned.txt; exit 1", "modes": ["quick"]},
+      {"id": "table", "run": "cat audit-table.txt; exit 1", "modes": ["quick"]},
+      {"id": "net", "run": "printf %s\\\\n \"In CurlDownloader.php line 390:\" \"  curl error 6 while downloading https://repo.packagist.org/api/security-advisories/: Could not resolve host: repo.packagist.org\"; exit 100", "modes": ["quick"]},
+      {"id": "pyt", "run": "cat pytest-out.txt; exit 1", "modes": ["quick"]}]
+    | .check.knownFailures = ([["abandon", "^CVE-2026-31415$"], ["abandon", "^example/yaml$"], ["table", "^PKSA-7k2m-9qwx-4t8n$"],
+        ["pyt", "^tests/test_order\\.py::test_total$"]] | map({step: .[0], pattern: .[1]}))'
+  check --quick --project "$REPO"
+  want_rc 1 "abandoned" && want_out '✗ abandon' "abandoned ostáva zlyhaním" \
+    && want_out '✓ table' "tabuľka composeru" && want_out '! net: chyba prostredia, nie kódu (curl error 6 while downloading)' "sieť" \
+    && want_out '✓ pyt' "pytest bez hlavičky auditu" || return 1
+  [ "$(printf '%s\n' "$OUT" | grep -c '(známe zlyhania: 1)')" = 2 ] || { fail "table a pyt: čakal som 2× (známe zlyhania: 1)$(ctx)"; return 1; }
+  cfg '.check.steps = [{"id": "abandon", "run": "cat audit-ok.txt; exit 1", "modes": ["quick"]}]
+    | .check.knownFailures = [{"step": "abandon", "pattern": "^CVE-2026-31415$"}, {"step": "abandon", "pattern": "^example/yaml$"}]'
+  check --quick --project "$REPO"
+  want_rc 0 "ignorovaný blok sa nepočíta" && want_out '(známe zlyhania: 2)' "ignorovaný blok sa nepočíta"
+}
+# Šablóny: krok audit len vo full, súhlas s odoslaním zoznamu balíkov v pláne initu; skilly odkazujú na krok
+t_templates_audit() {
+  local T="$KIT/plugins/dev/templates" sk="$KIT/plugins/dev/skills" st s
+  for st in php-nette php-symfony python; do
+    s=$(jq -r --arg st "$st" '([.check.steps[] | select(.id == "audit")] | first) as $a
+      | if $a == null then "chýba krok audit"
+        elif $a.modes != ["full"] or $a.changedLinesOnly != null or $a.ext != null then "krok audit: \($a | tojson)"
+        elif ($st != "python") and ($a.run != "composer audit --no-interaction --format=plain" or $a.requires != "composer.json") then "krok audit: \($a | tojson)"
+        elif ($st == "python") and ($a.run != "{{bin}}pip-audit --progress-spinner off --aliases on" or $a.requires != "{{bin}}pip-audit") then "krok audit: \($a | tojson)"
+        elif [._init[] | select(test("^audit ") and test("súhlas") and test("fáza 1") and test("Packagist|PyPI"))] | length != 1 then "_init bez pokynu o súhlase"
+        else empty end' "$T/$st/devkit.json" 2>&1)
+    [ -z "$s" ] || { fail "šablóna $st: $s"; return 1; }
+  done
+  LC_ALL=C grep -q '^- \*\*Audit závislostí:\*\*.*Schválenie plánu je súhlas' "$sk/project-init/SKILL.md" &&
+    LC_ALL=C grep -q '^| audit závislostí |' "$sk/project-init/SKILL.md" ||
+    { fail "project-init: chýba riadok detekcie alebo súhlas s krokom audit v pláne"; return 1; }
+  for s in review ecc-production-audit; do
+    LC_ALL=C grep -q 'krok `audit`' "$sk/$s/SKILL.md" || { fail "$s: neodkazuje na krok audit"; return 1; }
+    ! LC_ALL=C grep -q "sh -c 'composer audit'" "$sk/$s/SKILL.md" || { fail "$s: spúšťa composer audit sám"; return 1; }
+  done
+}
+
 # ---------------------------------------------------------------- beh
 
 N=0
@@ -2611,6 +2715,9 @@ t "stop-check: prípona len z kroku quick/full (.css) Stop nespustí, commit gat
 t "check.sh: knownFailures z Nette Tester „-- FAILED:“ (id = cesta + method=/dataprovider=, bez titulku), nie chyba prostredia" t_check_known_failures_tester
 t "šablóna php-nette: krok tester, .phpt v lint a commitGate.ext, guardy debug-php a test-skip (Environment::skip) pre .phpt" t_templates_tester
 t "Phinx: _init, detekcia phinx.{php,json,yaml,yml}, db-dibi.md; migrations.paths s * (module/*/migrations) → ask len pri commitnutej" t_templates_phinx
+t "check.sh: knownFailures zo zraniteľností composer audit a pip-audit (vzor na CVE alias pokryje záznam, ukotvenie platí)" t_check_known_failures_audit
+t "check.sh: audit — abandoned ostáva FAIL, Ignore reason a blok bez id, tabuľka, sieť = PARTIAL, pytest bez hlavičky bez id" t_check_audit_edges
+t "šablóny: krok audit len vo full so súhlasom v pláne initu; review a production-audit odkazujú na krok" t_templates_audit
 
 wait
 for f in "$RES"/*; do

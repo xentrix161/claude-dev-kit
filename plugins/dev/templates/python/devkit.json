@@ -9,7 +9,8 @@
     "Krok unit končí exit 5, keď projekt nemá testy alebo sú všetky pod markerom slow/integration — uprav -m alebo krok vypusť.",
     "Legacy s množstvom chýb mypy: pri kroku mypy zmeň changedLinesOnly zo \"stop\" na true. Čistý ruff (ruff check . prejde): kroku ruff môžeš pridať run nad celým repom.",
     "pairs.unless a migrations.paths prispôsob nástroju migrácií (Django app/migrations, Alembic alembic/versions, Flask-Migrate migrations/versions).",
-    "Guardy majú aj .ipynb (riadky buniek v JSON notebooku); lint .ipynb šablóna nemá — ruff hlási riadky v bunke (cell N:riadok), filter zmenených riadkov ich nespáruje."
+    "Guardy majú aj .ipynb (riadky buniek v JSON notebooku); lint .ipynb šablóna nemá — ruff hlási riadky v bunke (cell N:riadok), filter zmenených riadkov ich nespáruje.",
+    "audit (pip-audit, len full): posiela zoznam balíkov projektu (mená a verzie) na PyPI — krok zaraď len so súhlasom, ktorý je súčasťou schválenia plánu (fáza 1; plán to pri kroku povie), bez súhlasu ho vypusť. pip-audit bez argumentov audituje prostredie, v ktorom beží → ponechaj len s pip-audit v {{bin}} projektu, inak krok vypusť; --aliases on (pip-audit 2.7+, staršiemu ho vypusť) pridá CVE aliasy. Bez changedLinesOnly; známu zraniteľnosť do knownFailures podľa id (^PYSEC-…$, ^GHSA-…$, ^CVE-…$)."
   ],
   "version": 1,
   "stack": "python",
@@ -39,6 +40,9 @@
        "modes": ["stop", "quick"]},
       {"id": "pytest", "requires": "{{bin}}pytest",
        "run": "{{bin}}pytest -q",
+       "modes": ["full"]},
+      {"id": "audit", "requires": "{{bin}}pip-audit",
+       "run": "{{bin}}pip-audit --progress-spinner off --aliases on",
        "modes": ["full"]}
     ],
     "fullWhen": [

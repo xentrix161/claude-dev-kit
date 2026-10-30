@@ -14,7 +14,7 @@ Inžinierske triedenie rizík z lokálnych dôkazov, nie certifikácia ani práv
 
 ## Hranice
 - len lokálne a používateľom povolené dôkazy; žiadne vzdialené skenery, `@latest` balíky ani odosielanie kódu či dát tretím stranám bez výslovného súhlasu s konkrétnym nástrojom
-- `composer audit` posiela zoznam balíkov na Packagist → len so súhlasom
+- závislosti preveruje krok `audit` v `devkit.json` (`composer audit`, `pip-audit`) v kroku 2 — zoznam balíkov ide na Packagist/PyPI so súhlasom z initu; bez kroku nástroj sám nespúšťaj, navrhni ho cez `/dev:project-init --sync`
 - nič nenasadzuj, nemeň konfiguráciu prostredí, nespúšťaj migrácie
 - nasadené URL len na čítanie (HTTP hlavičky, health check), bez prihlásenia, kým nedostaneš testovací účet
 - tajomstvá nevypisuj — stačí `súbor:riadok obsahuje heslo`
@@ -29,6 +29,7 @@ Inžinierske triedenie rizík z lokálnych dôkazov, nie certifikácia ani práv
 2. Kontroly kitu (Bash timeout 600000 ms, beží aj integračné testy):
    `bash "${CLAUDE_PLUGIN_ROOT}/scripts/check.sh" --full --project "${CLAUDE_PROJECT_DIR}"`
    - exit 0 = PASS · 1 = FAIL · 3 = chýba `.claude/devkit.json` · 4 = neúplné overenie (PARTIAL/SKIP); PASS tvrď len podľa výstupu
+   - krok `audit`: `✗` = blokujúci bod (balík a id z výťahu), `známe zlyhania: N` = prijaté riziko — vymenuj ho, krok chýba alebo `!` → Chýba dôkaz
 3. Prejdi oblasti nižšie len tam, kde ich repozitár naozaj má; každé tvrdenie opri o `súbor:riadok` alebo príkaz
 4. Výstup podľa šablóny dole
 

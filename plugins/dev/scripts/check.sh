@@ -11,9 +11,9 @@ dk_usage() {
     echo "použitie: check.sh [--quick|--full|--auto|--stop] [--session <id>] [--project <dir>] [--files <rel>…]"
 }
 
-DK_EXCERPT_RE='^[0-9]+\) |^FAILED |^ERROR|:[0-9]+(:|$)|on line [0-9]+|[Ee]rror|[Ee]xception|FAILURES!|^Tests: |[Ff]ailed asserting|^E[[:space:]]|^-- FAILED: |^[[:space:]]+Failed: '
-# Riadok nálezu v kóde: číslo riadku alebo test Nette Testeru (ten čísla riadkov s dvojbodkou nemá).
-DK_RE_FINDING=':[0-9]|on line [0-9]|^-- FAILED: '
+DK_EXCERPT_RE='^[0-9]+\) |^FAILED |^ERROR|:[0-9]+(:|$)|on line [0-9]+|[Ee]rror|[Ee]xception|FAILURES!|^Tests: |[Ff]ailed asserting|^E[[:space:]]|^-- FAILED: |^[[:space:]]+Failed: |^Found [0-9]+ |^(Package|Advisory ID|CVE|Title): |^Name +Version +ID|[[:space:]](PYSEC|GHSA|CVE)-[0-9A-Za-z]'
+# Riadok nálezu v kóde: číslo riadku, test Nette Testeru (ten čísla riadkov s dvojbodkou nemá) alebo hlavička auditu.
+DK_RE_FINDING=':[0-9]|on line [0-9]|^-- FAILED: |^Found [0-9]+ (security vulnerability advisor|known vulnerabilit|abandoned package)'
 
 mode=quick files_arg="" files_set=0 project="" session=""
 while [ $# -gt 0 ]; do
@@ -155,14 +155,60 @@ EOF
 dk_skip() { STEPLINES="${STEPLINES}– $1: $2$DK_NL"; NSKIP=$((NSKIP + 1)); }
 dk_block() { STEPLINES="${STEPLINES}! $1: $2$DK_NL"; BLOCKIDS="$BLOCKIDS$1$DK_NL"; NSKIP=$((NSKIP + 1)); NBLOCK=$((NBLOCK + 1)); }
 
+# Záznamy zraniteľností: composer audit (plain aj table: bloky od Package: za hlavičkou „Found N … security
+# vulnerability advisor…“, bez blokov s Ignore reason:) a pip-audit (riadky pod hlavičkou Name Version ID).
+# Id záznamu = jeho identifikátory oddelené tabulátorom; iný riadok „Found N …“ composeru (abandoned) je id sám.
+dk_audit_ids() {
+    awk '
+    function flush() {
+        if (inb && !ign) print (ids != "" ? ids : pkg)
+        inb = 0; ids = ""; pkg = ""; ign = 0
+    }
+    function val(s) { sub(/^[^:]*:[ \t]*/, "", s); sub(/[ \t].*$/, "", s); return s }
+    {
+        l = $0
+        sub(/\r$/, "", l); sub(/^[| \t]+/, "", l); sub(/[| \t]+$/, "", l)
+        if (l ~ /^[A-Z][A-Za-z ]*[A-Za-z] +[|] /) sub(/ +[|] +/, ": ", l)
+        if (l ~ /^Found [0-9]+ /) {
+            flush(); tab = 0
+            if (l ~ /^Found [0-9]+ (ignored )?security vulnerability advisor/) comp = 1
+            else if (l !~ /^Found [0-9]+ known vulnerabilit/) { sub(/[:.]$/, "", l); other = other l "\n" }
+            next
+        }
+        if (comp && l ~ /^Package: /) { flush(); inb = 1; pkg = val(l); next }
+        if (inb && l ~ /^(Advisory ID|CVE): /) {
+            v = val(l)
+            if (v != "" && v != "NO") ids = ids (ids != "" ? "\t" : "") v
+            next
+        }
+        if (inb && l ~ /^Ignore reason: /) { ign = 1; next }
+        if (l ~ /^Name +Version +ID( |$)/) { flush(); tab = 1; next }
+        if (tab == 1) { tab = (l ~ /^-+( +-+)+$/) ? 2 : 0; next }
+        if (tab == 2) {
+            if (l == "" || l ~ /^Name +Skip Reason/) { tab = 0; next }
+            n = split(l, a, " ")
+            if (n < 3 || a[3] !~ /^[A-Za-z][A-Za-z0-9]*-[A-Za-z0-9-]+$/) next
+            s = a[3]
+            for (i = 4; i <= n; i++) {
+                t = a[i]; sub(/,$/, "", t)
+                if (t ~ /^[A-Za-z][A-Za-z0-9]*-[A-Za-z0-9-]+$/) s = s "\t" t
+                else if (t !~ /^[0-9]/) break
+            }
+            print s
+        }
+    }
+    END { flush(); if (comp) printf "%s", other }' "$1"
+}
+
 dk_known_ok() { # <step-id> <outfile> → 0 keď všetky zlyhania sú známe; počet v KNOWN_N
     local id="$1" ids pats x p gi hit
     KNOWN_N=0
     pats=$(printf '%s' "$KNOWN" | awk -F"$DK_US" -v s="$id" '$1 == s { print $2 }')
     [ -n "$pats" ] || return 1
-    # PHPUnit „N) Trieda::metóda“, pytest „FAILED <id>“, Nette Tester „-- FAILED: [titulok | ]<cesta>[ <argumenty>]“.
-    ids=$(sed -nE 's/^[0-9]+\) ([^[:space:]]+::[^[:space:]]+).*/\1/p; s/^FAILED ([^[:space:]]+).*/\1/p
-        /^-- FAILED: /{ s/^-- FAILED: //; s/^.* \| ([^[:space:]|]+\.phpt?( |$))/\1/; p;}' "$2" | sort -u)
+    # PHPUnit „N) Trieda::metóda“, pytest „FAILED <id>“, Nette Tester „-- FAILED: [titulok | ]<cesta>[ <argumenty>]“,
+    # záznamy auditu; záznam s viacerými id je známy, keď vzor pokryje aspoň jedno z nich.
+    ids=$({ sed -nE 's/^[0-9]+\) ([^[:space:]]+::[^[:space:]]+).*/\1/p; s/^FAILED ([^[:space:]]+).*/\1/p
+        /^-- FAILED: /{ s/^-- FAILED: //; s/^.* \| ([^[:space:]|]+\.phpt?( |$))/\1/; p;}' "$2"; dk_audit_ids "$2"; } | sort -u)
     [ -n "$ids" ] || return 1
     while IFS= read -r x; do
         [ -n "$x" ] || continue
@@ -171,7 +217,7 @@ dk_known_ok() { # <step-id> <outfile> → 0 keď všetky zlyhania sú známe; po
             [ -n "$p" ] || continue
             gi=""
             case "$p" in '(?i)'*) p=${p#'(?i)'}; gi=-i ;; esac
-            if printf '%s\n' "$x" | grep -Eq $gi -e "$p"; then hit=1; break; fi
+            if printf '%s\n' "$x" | tr '\t' '\n' | grep -Eq $gi -e "$p"; then hit=1; break; fi
         done <<EOF2
 $pats
 EOF2

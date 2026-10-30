@@ -1,0 +1,4 @@
+Found 1 known vulnerability in 1 package
+Name         Version ID              Fix Versions Aliases
+------------ ------- --------------- ------------ -----------------------------------
+example-http 1.2.0   PYSEC-2026-1042 1.2.4        CVE-2026-27182, GHSA-m2v4-pq7x-3w8h

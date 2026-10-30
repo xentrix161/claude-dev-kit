@@ -7,7 +7,8 @@
     "Phinx (vendor/bin/phinx + phinx.php, phinx.json, phinx.yaml alebo phinx.yml; project-init krok 1): migrations.paths = <cesta>/** pre každú cestu z paths.migrations (%%PHINX_CONFIG_DIR%% a __DIR__ = adresár configu), cestu mimo db/ a migrations/ aj do fullWhen; {{migrationsDir}} = prvá cesta. phinx.php nespúšťaj ani cez príkaz phinx (include s autoloadom, prípadne pripojením k DB), len ho čítaj; hodnotu, ktorú text neprezradí, zaraď do otázky 4. Bez Phinx migrations.paths zo šablóny.",
     "unit a integration: init vyberie podľa phpunit.xml(.dist) — mená <testsuite> presne; bez rýchlej sady testy so skupinou integration → --exclude-group integration / --group integration; bez pomalých testov krok integration vypusti. V stop nechaj len rýchle kroky.",
     "Nette Tester (vendor/bin/tester, testy *.phpt v tests/): krok tester namiesto unit a integration, keď projekt nemá PHPUnit; s PHPUnit oba kroky a tester len nad adresárom s .phpt testami (Tester spúšťa aj *Test.php). Pomalé testy Testera v samostatnom adresári → tester nad adresárom rýchlych, krok integration = php vendor/bin/tester <adresár pomalých> -s -C len vo full. -C ponechaj (staršie verzie Testera bez neho spúšťajú PHP bez php.ini). Bez Testera krok tester a kľúč .phpt v lint vypusť.",
-    "Frontend: krok eslint a prípony .js, .ts v commitGate.ext ponechaj len keď package.json má eslint (dependencies/devDependencies) a projekt má jeho config; rovnako stylelint s .css, .scss; inak krok aj prípony vypusť bez otázky. runtime host = Node na hostiteľovi; Node len v kontajneri z poľa container → runtime vypusť. eslint bez changedLinesOnly (výstup stylish nemá cestu na riadku nálezu). Guardy console-log a inner-html ponechaj vždy."
+    "Frontend: krok eslint a prípony .js, .ts v commitGate.ext ponechaj len keď package.json má eslint (dependencies/devDependencies) a projekt má jeho config; rovnako stylelint s .css, .scss; inak krok aj prípony vypusť bez otázky. runtime host = Node na hostiteľovi; Node len v kontajneri z poľa container → runtime vypusť. eslint bez changedLinesOnly (výstup stylish nemá cestu na riadku nálezu). Guardy console-log a inner-html ponechaj vždy.",
+    "audit (composer audit, len full): posiela zoznam balíkov projektu (mená a verzie) na Packagist — krok zaraď len so súhlasom, ktorý je súčasťou schválenia plánu (fáza 1; plán to pri kroku povie), bez súhlasu ho vypusť. composer v kontajneri (docker exec <c> sh -c 'command -v composer') → krok bez runtime; len na hostiteľovi (command -v composer) → runtime host; nikde → krok vypusť. Výstup nemá čísla riadkov → bez changedLinesOnly; známu zraniteľnosť do knownFailures podľa id (^CVE-…$, ^PKSA-…$, ^GHSA-…$)."
   ],
   "version": 1,
   "stack": "php-nette",
@@ -48,6 +49,9 @@
        "modes": ["full"]},
       {"id": "doctrine-schema", "requires": "vendor/doctrine/orm/composer.json",
        "run": "php bin/console {{schemaValidateCmd}}",
+       "modes": ["full"]},
+      {"id": "audit", "requires": "composer.json",
+       "run": "composer audit --no-interaction --format=plain",
        "modes": ["full"]}
     ],
     "fullWhen": ["app/models/**", "app/model/**", "app/Model/**", "libs/**", "db/**", "migrations/**",

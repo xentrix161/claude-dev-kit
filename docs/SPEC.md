@@ -188,7 +188,16 @@ Semantics:
   directory of the tests that ran) plus the variant arguments (`method=<m>`, `dataprovider=<item>|<file>`); the
   title before the last ` | ` that is followed by a `.php`/`.phpt` path is dropped, otherwise the whole text
   after `-- FAILED: ` is the id. A path-only pattern (`^Model/FooTest\.phpt$`) does not cover a method
-  variant. If ≥1
+  variant. Vulnerability records (step `audit`, §7) are identifiers too. `composer audit` (plain or table):
+  after a header `Found <n> [ignored ]security vulnerability advisor…` each block from `Package:` is one
+  record whose ids are the values of `Advisory ID:` and `CVE:` (`NO CVE` is none; Composer before 2.8 prints
+  no Advisory ID, 2.8 only without a CVE); a block without any id is the package name; a block with `Ignore
+  reason:` (Composer's own `audit.ignore`) is skipped; every other `Found <n> …` line of that output
+  (abandoned packages, filters) is a record of its own, so a known CVE never hides it. `pip-audit` (columns):
+  each row under the header `Name Version ID …` and its dash line is a record, ids = the `ID` column
+  (`PYSEC-…`, `GHSA-…`) plus the aliases (`--aliases on`: `CVE-…`). A record matches when a pattern matches
+  any of its ids (`^CVE-2026-12345$` covers `PKSA-… CVE-2026-12345`); without those headers nothing is read
+  as a record (a test printing `Package: x` adds no identifier). If ≥1
   identifier was found and every one matches some pattern for that step ⇒ the step does not fail; its
   line gets the note `známe zlyhania: N` and the summary counts it as `známe`, not `ok` (§4.5).
 
@@ -251,7 +260,7 @@ last 500 lines), `dk_now` (epoch seconds), `dk_ms` (best-effort ms: `perl -MTime
 seconds*1000), `dk_mask <match>` (always `****`, no character of the value;
 returns 1 for a placeholder value; shared by on-edit and pre-bash), `dk_secret_scan <rel> <added-spec> <patterns>` (one `line<US>masked value`
 per added line that matches; used by on-edit), `dk_data_dir` (creates `$DK_DATA` with mode 700, §2). Shared values: `DK_RE_GITPFX`, `DK_RE_COMMIT`, `DK_RE_ADD` (§4.4), `DK_RE_INFRA`
-(infrastructure errors, §4.5), `DK_MIN_CC` (minimum Claude Code version, §4.7).
+(infrastructure errors incl. network errors of package registries, §4.5), `DK_MIN_CC` (minimum Claude Code version, §4.7).
 
 ### 4.2 `on-edit.sh` — PostToolUse (edit/write)
 1. No config / no jq / file outside project ⇒ exit 0.
@@ -412,9 +421,12 @@ flags in any order; `--files` consumes paths until the next `--` flag.
   line (`nástroj nič neskontroloval (No files were checked)`). **Blocked** — the step should run but could
   not (line `! <id>: <reason>`, verdict at most PARTIAL): container not running or worktree outside its
   mount, unknown `runtime`, no `run`/`runFiles`, exit 125–127, output without any finding line that matches `DK_RE_INFRA`
-  (`chyba prostredia, nie kódu (<match>)`). A finding line (`DK_RE_FINDING`) is a numbered line (`:<n>`,
-  `on line <n>`) or a Nette Tester `-- FAILED: ` line (Tester prints `file.phpt(<n>)`, so a failing test whose
-  message says `No such file or directory` stays FAIL). Both count in `<n> skip`.
+  (`chyba prostredia, nie kódu (<match>)`; Docker, missing files and the network errors of `composer`/`pip-audit`:
+  `curl error <n> while downloading`, `could not be downloaded`, `Max retries exceeded`, `network may be blocking
+  this service`). A finding line (`DK_RE_FINDING`) is a numbered line (`:<n>`, `on line <n>`), a Nette Tester
+  `-- FAILED: ` line (Tester prints `file.phpt(<n>)`, so a failing test whose message says `No such file or
+  directory` stays FAIL) or an audit header `Found <n> security vulnerability advisor…` / `known vulnerabilit…` /
+  `abandoned package`. Both count in `<n> skip`.
 - Each step: elapsed time, exit code, output (ANSI sequences stripped) appended to the full log file.
   Result PASS/FAIL/skip; knownFailures may turn FAIL into a non-failing step with note. Blocked steps are
   never FAIL.
@@ -422,7 +434,8 @@ flags in any order; `--files` consumes paths until the next `--` flag.
   (`známe` only when > 0), one line per step `✓ phpstan 2,1 s` / `✗ unit 0,4 s` / `– phpcs: chýba
   vendor/bin/phpcs` / `! unit: príkaz sa nedá spustiť (exit 127)`, then for failing steps up to 8 most
   relevant output lines each (`DK_EXCERPT_RE`: PHPUnit, pytest, Tester `-- FAILED:` and its `Failed:` lines,
-  `file:line` findings, errors; total cap 20), then `log: <path>`.
+  `file:line` findings, errors, audit `Found <n> …`, `Package:`/`Advisory ID:`/`CVE:`/`Title:` and `pip-audit`
+  rows; total cap 20), then `log: <path>`.
 - Verdict and exit: some FAIL ⇒ FAIL, 1; else some blocked step ⇒ PARTIAL, 4; else ≥1 `ok` or `známe`
   ⇒ PASS, 0; else (nothing ran) ⇒ SKIP, 4. 3 = config error. Exit 4 = incomplete verification — never
   report it as PASS.
@@ -601,6 +614,10 @@ resolve check findings (`knownFailures`, baseline, `changedLinesOnly`, dropping 
    `devDependencies` plus its config ⇒ step `eslint`/`stylelint` and its extensions in `commitGate.ext`;
    otherwise both are dropped without a question (a missing `node_modules` only keeps the step, `requires`
    skips it until the user installs the dependencies; init never runs `npm install`).
+   Dependency audit: step `audit` (full only) for php when `composer` exists in the container (`docker exec <c>
+   sh -c 'command -v composer'`, the only `docker exec` of point 1) — no `runtime` — or only on the host
+   (`command -v composer`) — `runtime: host`; for python when `pip-audit` is in the project's tool directory
+   (`{{bin}}`; `--aliases` needs 2.7+). No tool ⇒ the step is dropped and listed.
    Nette Tester (php-nette): executable `vendor/bin/tester` and `*.phpt` files under `tests/` ⇒ step `tester`
    (`php vendor/bin/tester tests -s -C`) instead of `unit`/`integration` when the project has no PHPUnit;
    with PHPUnit both, `tester` only over the directory of the `.phpt` tests (Tester runs `*Test.php` too);
@@ -625,8 +642,11 @@ resolve check findings (`knownFailures`, baseline, `changedLinesOnly`, dropping 
    a `devkit.json` field. Selftest `t_templates_symbols` keeps the table complete.
 2. Dry-run plan shown to the user BEFORE writing anything: files to create/modify, devkit.json draft,
    which template rules, `permissions` block before → after, local-only vs team (commit) choice with its
-   exact lines, layer-B skills offered (`templates/skills/*`). Approving the plan covers new files and the
-   changes it showed exactly; any other existing file is never overwritten without explicit consent (diff).
+   exact lines, layer-B skills offered (`templates/skills/*`). The plan says next to step `audit` that
+   `/dev:check --full` sends the project's package list (names and versions) to Packagist (`composer audit`) or
+   PyPI (`pip-audit`); approving the plan is the consent to it (no separate question), an answer that declines
+   it drops the step. Approving the plan covers new files and the changes it showed exactly; any other
+   existing file is never overwritten without explicit consent (diff).
    Project rules win over the template: conflicts are listed as `template:line ↔ file:line`, a conflicting
    template rule is not copied without consent, and baseline/`changedLinesOnly` are not offered when the
    project rules exclude them.
@@ -661,7 +681,8 @@ resolve check findings (`knownFailures`, baseline, `changedLinesOnly`, dropping 
    when the frontend detection of point 1 finds the tool, together with its extensions for `commitGate.ext`;
    a new `tester` step only when point 1 finds Nette Tester, together with `.phpt` for `lint` and `commitGate.ext`;
    Phinx paths of point 1 that `migrations.paths` does not cover are proposed as `<path>/**` (outside `db/`
-   and `migrations/` also for `fullWhen`).
+   and `migrations/` also for `fullWhen`); a new `audit` step follows the detection of point 1 and is written
+   only after consent to sending the package list.
    A renamed placeholder keeps its old name in the table (`entityGlob` = `{{entityDir}}**`), so the old
    template version is filled from the project too.
 9. Final report stručne, ale úplne (§0): what was created, what to commit, how to undo.
@@ -689,7 +710,10 @@ php-nette/devkit.json            # like §3 example with {{container}}, {{appRoo
                                  # optional step `tester` (Nette Tester, `php vendor/bin/tester tests -s -C`, `requires:
                                  # vendor/bin/tester`, stop/quick/full) instead of `unit`/`integration` without PHPUnit; `.phpt` has
                                  # lint `php -l` (a Stop code extension) and is in `commitGate.ext`; guards `debug-php` and `test-skip`
-                                 # (also `Environment::skip(`) cover `.phpt`
+                                 # (also `Environment::skip(`) cover `.phpt`;
+                                 # step `audit` (`composer audit --no-interaction --format=plain`, `requires: composer.json`, full only,
+                                 # no changedLinesOnly — no line numbers; `runtime: host` when only the host has composer); init adds it
+                                 # only with the plan's consent to sending the package list to Packagist (§6)
 php-nette/settings.json          # permissions.ask (V4: make db-import*, docker stop/restart/rm * (any container), git push*, git checkout*/git switch*, Doctrine commands that change the DB, migration history or files (`*migrations:migrate*` incl. `--dry-run`, `*migrations:diff*`, `*schema:update*`, `*schema-tool:*`, `*dbal:run-sql*`, …; inert in Dibi projects); project-init adds existing Makefile targets that stop/rebuild containers or change the DB/index) + permissions.deny (O: Edit(/vendor/**), Edit(/node_modules/**) …, anchored to the project root)
 php-nette/.worktreeinclude       # V6: vendor/, app/config/config.local.neon, .test-credentials
 php-nette/rules/php-core.md      # paths: **/*.php — PHP 8.x, PSR-12, strict types where project uses them, no die(), no @
@@ -699,10 +723,12 @@ php-nette/rules/db-dibi.md       # paths: db/**, **/*Model.php, phinx.{php,json,
 php-nette/rules/db-doctrine.md   # paths: **/Entity/**, **/Repository/**, migrations/**, app/config/*doctrine*.neon — Doctrine ORM + Migrations in Nette; copied instead of db-dibi.md
 php-nette/rules/tests.md         # paths: tests/** — suites, rollback tests, credentials, verification output (PHPUnit and Nette Tester)
 php-symfony/…                    # same shape: CLAUDE.md.tmpl, devkit.json, settings.json, .worktreeinclude, rules/{php-core,symfony,twig-frontend,doctrine,api-platform,tests}.md;
-                                 # devkit.json has the same frontend steps, guards and `commitGate.ext` extensions as php-nette
+                                 # devkit.json has the same frontend steps, guards, `commitGate.ext` extensions and `audit` step as php-nette
 python/…                         # CLAUDE.md.tmpl, devkit.json (pytest, ruff, mypy; host or container; {{bin}} placeholder, _init note key), settings.json, .worktreeinclude, rules/{python-core,tests}.md;
                                  # guards also cover `.ipynb` (cell source lines in the notebook JSON, NotebookEdit); no `.ipynb` lint —
-                                 # ruff reports notebook findings as `cell N:<line>`, which the changed-lines filter (§4.2) cannot map
+                                 # ruff reports notebook findings as `cell N:<line>`, which the changed-lines filter (§4.2) cannot map;
+                                 # step `audit` (`{{bin}}pip-audit --progress-spinner off --aliases on`, `requires: {{bin}}pip-audit`, full
+                                 # only; audits the environment it runs in, sends the package list to PyPI — plan consent like php)
 skills/ecc-design-system/  skills/ecc-api-design/  skills/ecc-inherit-legacy-style/  skills/ecc-seo/   # layer B, copied into <project>/.claude/skills/ on request
 ```
 Template content is GENERIC for the stack (no project specifics, no project names, no data).
@@ -767,9 +793,10 @@ Pure bash 3.2, no docker/network. Creates temp dirs (`mktemp -d`), sets `DEVKIT_
 stub tools (small shell scripts in the fixture that emulate php -l / phpcs emacs output / phpunit
 failure lines and exit codes), feeds synthetic hook JSON on stdin, asserts exit codes, stdout JSON
 (`jq -e`) and stderr text. Real tool outputs live in `tests/fixtures/real/*.txt` (merged stdout+stderr
-only, CR/ESC bytes preserved) and are replayed by `tests/fixtures/bin/replay <file> <exit>`; the one synthetic
-file there, `tester-failed.txt`, follows the Nette Tester console format from its documentation and
-`ConsolePrinter` (no recorded run, no real data); secret
+only, CR/ESC bytes preserved) and are replayed by `tests/fixtures/bin/replay <file> <exit>`; the synthetic
+files there (no recorded run, no real data) are `tester-failed.txt` (Nette Tester console format from its
+documentation and `ConsolePrinter`), `composer-audit-plain.txt` (Composer `Auditor` plain format) and
+`pip-audit-columns.txt` (pip-audit columns format with `--aliases on`); secret
 samples for the template patterns are `tests/fixtures/secret-samples.txt`. Required cases: see the list
 in the builder prompt. Prints `PASS n/n` and exits non-zero on any failure. Runs < 20 s: cases run in subshells,
 `DK_SELFTEST_JOBS` at a time (default 4; `1` = sequential), results printed in order.
