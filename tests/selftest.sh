@@ -2112,6 +2112,80 @@ t_templates_symbols() {
   [ -z "$bad" ] || fail "$bad"
 }
 
+# ---------------------------------------------------------------- runtime host | container (B4)
+
+# Atrapa docker, ktorá vždy zlyhá (inspect aj exec); volania idú do docker.calls.
+docker_always_fails() {
+  local fb="$CASE/fakebin"
+  mkdir -p "$fb" &&
+    printf '#!/bin/sh\necho "$*" >> "${DK_FAKE_DOCKER_LOG:-/dev/null}"\necho "docker: atrapa vždy zlyhá" >&2\nexit 1\n' > "$fb/docker" &&
+    chmod +x "$fb/docker" || { fail "fixture: atrapa docker"; return 1; }
+  export PATH="$fb:$PATH"
+}
+# runtime host pri nastavenom container: krok, Stop aj lint bežia na hoste, hoci docker vždy zlyhá (SPEC §3)
+t_runtime_host() {
+  new_case
+  DOCKER_OK=1
+  docker_always_fails || return 1
+  cfg '.container = "app-php" | .check.steps |= map(.runtime = "host")
+    | .lint[".php"] = ["sh bin/fake-ok lint-kontajner {file}", {"run": "sh bin/fake-lint {file}", "runtime": "host"}]'
+  add app/Foo.php '$a = 1; // LINTERR'
+  on_edit app/Foo.php
+  want_rc 2 "on-edit" && want_err 'app/Foo.php:4:1: error' "on-edit" && want_err '[lint:.php]' "on-edit" || return 1
+  [ ! -e "$REPO/.marks/ran-lint-kontajner" ] || { fail "on-edit: kontajnerový lint bežal na hoste"; return 1; }
+  no_docker_exec "on-edit" || return 1
+  g checkout app/Foo.php && add app/Foo.php '$a = 1;'
+  : > "$CASE/docker.calls"
+  check --quick --project "$REPO"
+  want_rc 0 "check" && want_out 'check quick: PASS' "check" && want_out '✓ lint' "check" && want_out '✓ unit' "check" || return 1
+  [ "$(unit_calls)" = 1 ] || { fail "check: unit bežal $(unit_calls)×, čakal som 1×"; return 1; }
+  session_files app/Foo.php
+  fail_unit 'Tests\X::testY'
+  stop_check
+  want_rc 0 "stop-check" && want_json '.decision == "block"' "stop-check" || return 1
+  [ "$(unit_calls)" = 2 ] || { fail "stop-check: unit bežal $(unit_calls)×, čakal som 2×"; return 1; }
+  [ ! -s "$CASE/docker.calls" ] || { fail "host kroky volali docker: $(flat "$(docker_calls)")"; return 1; }
+  cfg '.container = "app-php" | .check.steps |= map(.runtime = "host") | .lint[".php"] = [{"run": "sh bin/fake-lint {file}", "runtime": "host"}]'
+  card
+  want_rc 0 "karta host" && want_out 'kontroly na hoste (kontajner app-php sa nepoužíva)' "karta host" || return 1
+  case "$SYSMSG" in *kontajner*|*docker*) fail "karta host: systemMessage $(flat "$SYSMSG")"; return 1 ;; esac
+  [ ! -s "$CASE/docker.calls" ] || { fail "karta host volala docker: $(flat "$(docker_calls)")"; return 1; }
+  rm -f "$REPO/.marks/fail-unit"
+  cfg '.container = "app-php" | .check.steps |= map(if .id == "lint" then .runtime = "host" else . end)'
+  check --quick --project "$REPO"
+  want_rc 4 "zmiešané" && want_out '✓ lint' "zmiešané" && want_out '! unit: kontajner app-php nebeží' "zmiešané" || return 1
+  [ "$(unit_calls)" = 2 ] || { fail "zmiešané: kontajnerový unit bežal na hoste"; return 1; }
+  no_docker_exec "zmiešané" || return 1
+  card
+  want_rc 0 "karta zmiešané" && want_out 'kontajner app-php NEBEŽÍ' "karta zmiešané"
+}
+# runtime container bez kontajnera = host; neznáma hodnota: krok `!`, lint do errors.log; lint ako jeden reťazec či objekt
+t_runtime_values() {
+  new_case
+  cfg '.lint[".php"] = "sh bin/fake-lint {file}"'
+  add app/Foo.php '$a = 1; // LINTERR'
+  on_edit app/Foo.php
+  want_rc 2 "lint reťazec" && want_err '[lint:.php]' "lint reťazec" || return 1
+  cfg '.lint[".php"] = {"run": "sh bin/fake-lint {file}", "runtime": "host"}'
+  on_edit app/Foo.php
+  want_rc 2 "lint objekt" && want_err '[lint:.php]' "lint objekt" || return 1
+  cfg '.lint[".php"] = [{"run": "sh bin/fake-lint {file}", "runtime": "hots"}]'
+  on_edit app/Foo.php
+  want_rc 0 "lint neznámy runtime" || return 1
+  grep -qF 'neznámy runtime "hots"' "$DATA/errors.log" 2>/dev/null ||
+    { fail "errors.log bez neznámeho runtime: $(flat "$(cat "$DATA/errors.log" 2>&1)")"; return 1; }
+  want_logged on-edit lint:.php skip || return 1
+  g checkout app/Foo.php && add app/Foo.php '$a = 1;'
+  cfg '.check.steps |= map(if .id == "unit" then .runtime = "container" else . end)'
+  check --quick --project "$REPO"
+  want_rc 0 "container bez kontajnera" && want_out '✓ unit' "container bez kontajnera" || return 1
+  [ "$(unit_calls)" = 1 ] || { fail "container bez kontajnera: unit bežal $(unit_calls)×"; return 1; }
+  cfg '.check.steps |= map(if .id == "unit" then .runtime = "hots" else . end)'
+  check --quick --project "$REPO"
+  want_rc 4 "neznámy runtime" && want_out '! unit: neznámy runtime "hots" (host|container)' "neznámy runtime" || return 1
+  [ "$(unit_calls)" = 1 ] || fail "neznámy runtime: unit bežal"
+}
+
 # ---------------------------------------------------------------- beh
 
 N=0
@@ -2277,6 +2351,8 @@ t "šablóny php: guardy die, debug-php a dql-concat (->exit(, \$this->dump( nie
 t "stop-check: pairs when/unless ako zoznam globov (php-nette model-test)" t_stop_pair_glob_list
 t "NotebookEdit: matcher v hooks.json, notebook_path v on-edit (guard python .ipynb) aj pre-edit" t_notebook_edit
 t "project-init: tabuľka Zástupné symboly pokrýva všetky {{…}} šablón, bez mŕtvych symbolov" t_templates_symbols
+t "runtime host pri nastavenom container: krok, Stop aj lint na hoste, docker vždy zlyhá; karta bez stavu kontajnera" t_runtime_host
+t "runtime: container bez kontajnera = host, neznáma hodnota → ! krok / lint do errors.log, lint ako reťazec či objekt" t_runtime_values
 
 wait
 for f in "$RES"/*; do

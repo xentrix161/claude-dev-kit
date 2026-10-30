@@ -44,7 +44,7 @@ T0=$(dk_ms)
 
 if [ "$DK_HAS_JQ" != 1 ]; then echo "[dev-kit] chýba jq → kontroly nebežia (brew install jq)"; exit 3; fi
 if [ -z "$DK_CFG" ]; then echo "[dev-kit] chýba .claude/devkit.json — spusti /dev:project-init"; exit 3; fi
-if ! dk_cfg_read '((.check.steps // [])[] | "S\u001f\(.id|s)\u001f\(.requires|s)\u001f\(.run|s)\u001f\(.runFiles|s)\u001f\((.ext // []) | join(","))\u001f\((.modes // ["quick","full"]) | join(","))\u001f\(.changedLinesOnly // false | s)"),
+if ! dk_cfg_read '((.check.steps // [])[] | "S\u001f\(.id|s)\u001f\(.requires|s)\u001f\(.run|s)\u001f\(.runFiles|s)\u001f\((.ext // []) | join(","))\u001f\((.modes // ["quick","full"]) | join(","))\u001f\(.changedLinesOnly // false | s)\u001f\(.runtime|s)"),
     ((.check.fullWhen // [])[] | "W\u001f\(.|s)"),
     ((.check.knownFailures // [])[] | "F\u001f\(.step|s)\u001f\(.pattern|s)")'; then
     echo "[dev-kit] .claude/devkit.json nie je platný JSON → jq . .claude/devkit.json"
@@ -178,14 +178,19 @@ EOF
     return 0
 }
 
-while IFS=$DK_US read -r tag id req run runf exts modes cl <&3; do
+while IFS=$DK_US read -r tag id req run runf exts modes cl rt <&3; do
     [ "$tag" = S ] || continue
     [ -n "$id" ] || continue
     case ",$modes," in *",$mode,"*) ;; *) continue ;; esac
     dk_rule_on "step:$id" || continue
     if [ -n "$req" ] && [ ! -e "$DK_PROJECT/$req" ]; then dk_skip "$id" "chýba $req"; continue; fi
-    dk_env_check
-    if [ -n "$ENV_SKIP" ]; then dk_block "$id" "$ENV_SKIP"; continue; fi
+    if ! dk_runtime "$rt"; then dk_block "$id" "neznámy runtime \"$rt\" (host|container)"; continue; fi
+    srt=$DK_RT
+    # Krok na hoste nečaká na kontajner ani mapovanie worktree.
+    if [ "$srt" = container ]; then
+        dk_env_check
+        if [ -n "$ENV_SKIP" ]; then dk_block "$id" "$ENV_SKIP"; continue; fi
+    fi
 
     targets="" cmd=""
     if [ -n "$exts" ]; then
@@ -223,7 +228,7 @@ EOF
     esac
 
     s0=$(dk_ms)
-    dk_exec "$cmd" > "$DK_TMP/step.raw"
+    dk_exec "$cmd" "$srt" > "$DK_TMP/step.raw"
     rc=$?
     LC_ALL=C sed "s/$(printf '\033')\[[0-9;]*[A-Za-z]//g" "$DK_TMP/step.raw" > "$DK_TMP/step.out"
     ms=$(( $(dk_ms) - s0 ))
@@ -292,7 +297,7 @@ fi
 # fullWhen prepol na full, ale config nemá krok len pre jeden z režimov quick/full.
 if [ "$AUTO_FULL" = 1 ]; then
     same=1
-    while IFS=$DK_US read -r tag id req run runf exts modes cl; do
+    while IFS=$DK_US read -r tag id req run runf exts modes cl rt; do
         [ "$tag" = S ] && [ -n "$id" ] || continue
         dk_rule_on "step:$id" || continue
         case ",$modes," in *,full,*) a=1 ;; *) a=0 ;; esac

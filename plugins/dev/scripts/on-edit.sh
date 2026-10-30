@@ -19,7 +19,8 @@ dk_main() {
     ext=$(dk_ext "$rel")
 
     dk_cfg_read '"O\u001f\(.lintChangedLinesOnly // false | s)",
-        (if $ext == "" then empty else ((.lint // {})[$ext] // [] | .[] | "L\u001f\(.|s)") end),
+        (if $ext == "" then empty else ((.lint // {})[$ext] // [] | if type == "array" then .[] else . end
+            | if type == "object" then "L\u001f\(.run|s)\u001f\(.runtime|s)" else "L\u001f\(.|s)\u001f" end) end),
         ((.guards // [])[] | "G\u001f\(.id|s)\u001f\((.ext // []) | join(","))\u001f\(.pattern|s)\u001f\(.message|s)"),
         ((.secrets.patterns // [])[] | "P\u001f\(.|s)"),
         ((.secrets.allow // [])[] | "S\u001f\(.|s)"),
@@ -28,7 +29,7 @@ dk_main() {
     while IFS=$DK_US read -r tag a b c d; do
         case "$tag" in
             O) only=$a ;;
-            L) [ -n "$a" ] && lints="$lints$a$DK_NL" ;;
+            L) [ -n "$a" ] && lints="$lints$b$DK_US$a$DK_NL" ;;
             G) guards="$guards$tag$DK_US$a$DK_US$b$DK_US$c$DK_US$d$DK_NL" ;;
             P) pats="$pats$a$DK_NL" ;;
             S) allow="$allow$a$DK_NL" ;;
@@ -38,17 +39,29 @@ dk_main() {
 $DK_CFG_OUT
 EOF
 
-    # Lint (len keď beží kontajner, resp. na hoste).
-    if [ -n "$lints" ] && dk_rule_on "lint:$ext" && dk_container_ok; then
+    # Lint: príkaz v kontajneri len keď beží a worktree je v mounte; runtime host vždy na hoste.
+    if [ -n "$lints" ] && dk_rule_on "lint:$ext"; then
         DK_WD=""
-        if [ -n "$DK_CONTAINER" ]; then DK_WD=$(dk_workdir 2>/dev/null) || lints=""; fi
+        local rt cok=""
         # Názov začínajúci '-' by nástroj čítal ako prepínač.
         case "$rel" in -*) q=$(dk_shq "./$rel") ;; *) q=$(dk_shq "$rel") ;; esac
         esc=$(printf '\033')
-        while IFS= read -r cmd; do
+        while IFS=$DK_US read -r rt cmd; do
             [ -n "$cmd" ] || continue
+            if ! dk_runtime "$rt"; then
+                dk_err "lint '$cmd': neznámy runtime \"$rt\" (host|container)"
+                dk_log on-edit "lint:$ext" skip "$rel"
+                continue
+            fi
+            if [ "$DK_RT" = container ]; then
+                if [ -z "$cok" ]; then
+                    cok=0
+                    dk_container_ok && DK_WD=$(dk_workdir 2>/dev/null) && cok=1
+                fi
+                [ "$cok" = 1 ] || continue
+            fi
             cmd=${cmd//\{file\}/"$q"}
-            out=$(dk_exec "$cmd")
+            out=$(dk_exec "$cmd" "$DK_RT")
             rc=$?
             [ "$rc" = 0 ] && continue
             if [ "$rc" -ge 125 ] && [ "$rc" -le 127 ]; then

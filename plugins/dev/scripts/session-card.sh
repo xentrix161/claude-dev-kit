@@ -87,17 +87,21 @@ dk_card() {
     fi
     if ! dk_cfg_read '"S\u001f\(if .stopCheck == false then "false" else "true" end)",
         "G\u001f\(if (.commitGate|type) == "boolean" then .commitGate elif .commitGate.enabled == false then false else true end | s)",
-        "T\u001f\(.testLock.ttlHours // 6 | s)"'; then
+        "T\u001f\(.testLock.ttlHours // 6 | s)",
+        "R\u001f\([((.check.steps // [])[] | .runtime),
+            ((.lint // {})[] | if type == "array" then .[] else . end | if type == "object" then .runtime else null end)]
+            | map(select(. != "host")) | length)"'; then
         msg="[dev-kit] .claude/devkit.json nie je platný JSON → hooky kitu stoja (jq . .claude/devkit.json)"
         dk_emit "$msg" "$msg"
         return 0
     fi
-    local tag a stop=true gate=true ttl=6 l1 cont now warn="" w
+    local tag a stop=true gate=true ttl=6 nct=1 l1 cont now warn="" w
     while IFS=$DK_US read -r tag a; do
         case "$tag" in
             S) stop=$a ;;
             G) gate=$a ;;
             T) ttl=$a ;;
+            R) nct=$a ;;
         esac
     done <<EOF
 $DK_CFG_OUT
@@ -106,8 +110,11 @@ EOF
     dk_rule_on commitGate || gate=false
     [ "$stop" = true ] && stop=on || stop=off
     [ "$gate" = true ] && gate=on || gate=off
+    # Stav kontajnera len keď v ňom beží aspoň jeden krok alebo lint príkaz (runtime, SPEC §3).
     if [ -z "$DK_CONTAINER" ]; then
         cont="bez kontajnera (host)"
+    elif [ "$nct" = 0 ]; then
+        cont="kontroly na hoste (kontajner $DK_CONTAINER sa nepoužíva)"
     elif ! command -v docker >/dev/null 2>&1; then
         cont="chýba docker → kontroly v kontajneri sa preskočia"
         warn="$warn[dev-kit] $cont$DK_NL"

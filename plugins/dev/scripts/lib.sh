@@ -361,11 +361,23 @@ dk_container_ok() {
     [ "$DK_CONTAINER_STATE" = "true" ]
 }
 
+# Efektívny runtime kroku či lintu do DK_RT (SPEC §3): host, container (bez kontajnera = host); iná hodnota → 1.
+dk_runtime() {
+    dk_base
+    case "${1:-}" in
+        host) DK_RT=host ;;
+        ''|container) if [ -n "${DK_CONTAINER:-}" ]; then DK_RT=container; else DK_RT=host; fi ;;
+        *) DK_RT=""; return 1 ;;
+    esac
+    return 0
+}
+
 # Spustí príkaz v kontajneri (docker exec -i -w) alebo na hoste v DK_PROJECT; stderr ide do stdout.
+# Druhý parameter host = na hoste aj pri nastavenom kontajneri.
 dk_exec() {
     local cmd="$1" wd
     dk_base
-    if [ -n "${DK_CONTAINER:-}" ]; then
+    if [ "${2:-}" != host ] && [ -n "${DK_CONTAINER:-}" ]; then
         wd=${DK_WD:-}
         if [ -z "$wd" ]; then
             wd=$(dk_workdir 2>/dev/null) || return 125

@@ -139,15 +139,24 @@ and keys starting with `_` (template notes such as `_init`) are ignored. Example
 ```
 Semantics:
 - `container` empty/absent ⇒ commands run on the host: `cd <project> && sh -c "<cmd>"`.
+- `lint`: `"<ext>": [<command>, …]`; a command is a string or an object `{"run": "<cmd>", "runtime":
+  "host"|"container"}` (a single string or object instead of the list is accepted). Steps take the same
+  optional `runtime`.
+- `runtime` (per step, per lint command): `"host"` ⇒ the command runs on the host (`cd <P> && sh -c
+  "<cmd>"`) even when `container` is set, without the container state check and the workdir mapping;
+  `"container"` or absent ⇒ in the container when `container` is set, otherwise on the host (so a CI
+  copy with `container: ""` runs everything on the host). Any other value ⇒ the step is blocked
+  `! <id>: neznámy runtime "<x>" (host|container)` (§4.5); a lint command is skipped (`errors.log`,
+  decision `skip`). `{file}`/`{files}` are relative to P in both runtimes.
 - Path mapping (V6 worktrees): MAIN = main repo root (`git rev-parse --path-format=absolute
   --git-common-dir` → strip trailing `/.git`). The container mounts MAIN at `appRoot`. Container workdir
-  for a project dir P = `appRoot + "/" + relpath(P, MAIN)` (just `appRoot` when P == MAIN). Commands
-  execute as `docker exec -i -w <workdir> <container> sh -c "<cmd>"`; `{file}`/`{files}` are paths
+  for a project dir P = `appRoot + "/" + relpath(P, MAIN)` (just `appRoot` when P == MAIN). Container
+  commands execute as `docker exec -i -w <workdir> <container> sh -c "<cmd>"`; `{file}`/`{files}` are paths
   relative to P (shell-quoted). If P is not under MAIN ⇒ step SKIP with message
   `worktree mimo mountu kontajnera`.
-- `requires`: path relative to P checked on the HOST; missing ⇒ step SKIP `chýba <path>`.
+- `requires`: path relative to P checked on the HOST (in both runtimes); missing ⇒ step SKIP `chýba <path>`.
 - Container not running (`docker inspect -f '{{.State.Running}}'` ≠ true) ⇒ container steps SKIP
-  `kontajner <c> nebeží`.
+  `kontajner <c> nebeží`; `runtime: host` steps and lint commands run regardless.
 - `changedLinesOnly` (per step): `true` = keep only output lines on added lines (same filter as on-edit,
   §4.2 step 3) in every mode; `"stop"` = filter only in stop mode (`/dev:check` still shows whole-file
   findings); `false`/absent = no filter. `lintChangedLinesOnly` does the same for the `lint` map.
@@ -199,8 +208,10 @@ Functions (names fixed, other scripts depend on them):
 (per-project data dir, created), `DK_CFG` (path or empty), `DK_SESSION`), `dk_in <jq-filter>` (query
 DK_INPUT), `dk_cfg <jq-filter> [default]`, `dk_rule_on <rule-id>` (false when listed in disabledRules),
 `dk_main_root`, `dk_rel <abs-path>` (relative to DK_PROJECT; empty if outside), `dk_workdir`
-(container workdir, empty+message if outside mount), `dk_exec <cmd>` (runs in container or host, returns
-exit code, merges stderr into stdout), `dk_container_ok` (0 when container unset or running; reuses
+(container workdir, empty+message if outside mount), `dk_exec <cmd> [runtime]` (runs in container or host,
+returns exit code, merges stderr into stdout; runtime `host` ⇒ host even when `container` is set),
+`dk_runtime <value>` (effective runtime of a step or lint command into `DK_RT`: `host`, or `container`
+when `container` is set and the value is empty or `container`, else `host`; any other value returns 1), `dk_container_ok` (0 when container unset or running; reuses
 `container.state` (§2) younger than 30 s for the same container, otherwise asks `docker inspect` and writes
 it; `check.sh` sets `DK_NO_CONTAINER_CACHE`, so it always asks and only writes the fresh state),
 `dk_glob_match <path> <glob>`, `dk_added_lines <rel>` (newline list of added line numbers vs HEAD from
@@ -221,8 +232,9 @@ per added line that matches; used by on-edit), `dk_data_dir` (creates `$DK_DATA`
 1. No config / no jq / file outside project ⇒ exit 0.
 2. Append rel path to `sessions/<session_id>.files` (dedupe); the first write also stores
    `git rev-parse HEAD` in `sessions/<session_id>.head` (empty file when the repo has no HEAD).
-3. Lint (`lint` map by extension, rule `lint:<ext>`): only when `dk_container_ok` (state cached 30 s,
-   §4.1). Run each command
+3. Lint (`lint` map by extension, rule `lint:<ext>`): a container command (effective runtime, §3) only
+   when `dk_container_ok` (state cached 30 s, §4.1) and the workdir resolves, otherwise it is skipped
+   silently; a `runtime: host` command always runs on the host. Run each command
    with `{file}`. Treat exit≠0 as failure; exit 126/127, `command not found` or docker errors ⇒ SKIP,
    never block. When `lintChangedLinesOnly` is true, keep only output lines whose line number is in
    `dk_added_lines` (the same filter serves `changedLinesOnly` in check.sh). Understood formats:
@@ -355,7 +367,9 @@ flags in any order; `--files` consumes paths until the next `--` flag.
 - `--files` narrows the file set in every mode (quick/full/auto/stop); `pass.json` then records exactly
   those blobs, so `/dev:commit` can check only its group.
 - Steps = config steps whose `modes` contain the mode (stop/quick/full; auto resolves first), and whose
-  rule `step:<id>` is enabled. For each: `requires`/container checks (SKIP with reason); if `run` exists
+  rule `step:<id>` is enabled. For each: `requires` (on the host), unknown `runtime` (blocked), then for a
+  container step (effective runtime, §3) the container checks (with reason); a `runtime: host` step
+  skips them and calls neither `docker` nor `dk_workdir`; if `run` exists
   and mode ≠ stop ⇒ run whole; else if `runFiles` exists ⇒ files filtered by `ext` (none ⇒ SKIP
   `žiadne zmenené súbory`; a step without `ext` gets only code files, `dk_is_code`), substitute
   `{files}`; in stop mode prefer `runFiles` when files exist, else
@@ -365,7 +379,7 @@ flags in any order; `--files` consumes paths until the next `--` flag.
   `requires`, no changed files for its `ext`, tool output `No files were checked` without any numbered
   line (`nástroj nič neskontroloval (No files were checked)`). **Blocked** — the step should run but could
   not (line `! <id>: <reason>`, verdict at most PARTIAL): container not running or worktree outside its
-  mount, no `run`/`runFiles`, exit 125–127, output without any numbered line that matches `DK_RE_INFRA`
+  mount, unknown `runtime`, no `run`/`runFiles`, exit 125–127, output without any numbered line that matches `DK_RE_INFRA`
   (`chyba prostredia, nie kódu (<match>)`). Both count in `<n> skip`.
 - Each step: elapsed time, exit code, output (ANSI sequences stripped) appended to the full log file.
   Result PASS/FAIL/skip; knownFailures may turn FAIL into a non-failing step with note. Blocked steps are
@@ -442,7 +456,9 @@ flags in any order; `--files` consumes paths until the next `--` flag.
 - With config, the card:
   1. `[dev-kit] <stack> · kontajner <c> (beží|NEBEŽÍ — kontroly sa preskočia) · Stop kontrola on|off · commit gate on|off`;
      `container` set but no `docker` on PATH ⇒ `chýba docker → kontroly v kontajneri sa preskočia` in the
-     container slot of this line (also a `systemMessage` warning)
+     container slot of this line (also a `systemMessage` warning); `container` set but no step and no lint
+     command runs in it (all `runtime: host`, §3) ⇒ `kontroly na hoste (kontajner <c> sa nepoužíva)`,
+     without a docker call or warning
   2. `kontroly: /dev:check (quick) · /dev:check --full · /dev:commit`
   3. `git: <branch> · <N> zmenených súborov` + up to 3 lines of `git status --short`
   4. last handoff if < 24 h: `posledný handoff: <title> (pred <h> h) → <path>`
