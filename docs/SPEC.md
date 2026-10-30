@@ -605,11 +605,23 @@ resolve check findings (`knownFailures`, baseline, `changedLinesOnly`, dropping 
    (`php vendor/bin/tester tests -s -C`) instead of `unit`/`integration` when the project has no PHPUnit;
    with PHPUnit both, `tester` only over the directory of the `.phpt` tests (Tester runs `*Test.php` too);
    without Tester the step and the `.phpt` lint key are dropped.
+   Phinx (php-nette): executable `vendor/bin/phinx` and a config in the root, in Phinx's lookup order
+   `phinx.php`, `phinx.json`, `phinx.yaml`, `phinx.yml` (another file only from `-c`/`--configuration` in the
+   `Makefile` or composer scripts) ⇒ `migrations.paths` = `<path>/**` for every path of `paths.migrations` (a
+   string, a list, or a namespace ⇒ path map; `%%PHINX_CONFIG_DIR%%` and `__DIR__` = the config's directory,
+   other relative paths are from the directory phinx runs in, the repo root; a Phinx `*` stays, `{a,b}` becomes
+   several entries), a path outside `db/` and `migrations/` also goes to `fullWhen`, `{{migrationsDir}}` = the
+   first path, and a config outside the root adds `-c <config>` to the migrate command in `CLAUDE.md`.
+   `phinx.php` is read as text (grep), never executed — neither `php phinx.php` nor any `phinx` command
+   (Phinx loads it with `include`: project autoload, possibly a DB connection); a value built from a
+   variable, function, constant or `getenv` is undetected ⇒ question 4 with a candidate (the directory of
+   `<14 digits>_*.php` files). Without Phinx the template's `migrations.paths` stays.
    Placeholders: the skill's table „Zástupné symboly“ lists every `{{name}}` of the stack templates with
    its detection source and what to do when undetected; undetected ⇒ deleted without a question (the line,
    or the smallest part of it that needs the symbol; a version keeps the name; a `devkit.json` step or pair
    that needs it is dropped and listed). Questions only for `{{projectDescription}}`, `{{commitStyle}}`
-   (no usable git history) and `{{container}}` (no compose). `{{dbContainer}}` is text in `CLAUDE.md`, not
+   (no usable git history), `{{container}}` (no compose) and `{{migrationsDir}}` when a Phinx config exists
+   but `paths.migrations` cannot be read without running it. `{{dbContainer}}` is text in `CLAUDE.md`, not
    a `devkit.json` field. Selftest `t_templates_symbols` keeps the table complete.
 2. Dry-run plan shown to the user BEFORE writing anything: files to create/modify, devkit.json draft,
    which template rules, `permissions` block before → after, local-only vs team (commit) choice with its
@@ -647,7 +659,9 @@ resolve check findings (`knownFailures`, baseline, `changedLinesOnly`, dropping 
    when the project still holds the value of the template version it came from; an item the project
    changed is listed with its difference, never overwritten. A new `eslint`/`stylelint` step is proposed only
    when the frontend detection of point 1 finds the tool, together with its extensions for `commitGate.ext`;
-   a new `tester` step only when point 1 finds Nette Tester, together with `.phpt` for `lint` and `commitGate.ext`.
+   a new `tester` step only when point 1 finds Nette Tester, together with `.phpt` for `lint` and `commitGate.ext`;
+   Phinx paths of point 1 that `migrations.paths` does not cover are proposed as `<path>/**` (outside `db/`
+   and `migrations/` also for `fullWhen`).
    A renamed placeholder keeps its old name in the table (`entityGlob` = `{{entityDir}}**`), so the old
    template version is filled from the project too.
 9. Final report stručne, ale úplne (§0): what was created, what to commit, how to undo.
@@ -681,7 +695,7 @@ php-nette/.worktreeinclude       # V6: vendor/, app/config/config.local.neon, .t
 php-nette/rules/php-core.md      # paths: **/*.php — PHP 8.x, PSR-12, strict types where project uses them, no die(), no @
 php-nette/rules/nette.md         # paths: app/**, libs/** — presenters, DI, forms CSRF, ACL isAllowed
 php-nette/rules/latte-frontend.md# paths: **/*.latte, www/css/**, www/js/** — escaping, {!$} policy, data-bs-*, JS anchors, frontend guards and steps
-php-nette/rules/db-dibi.md       # paths: db/**, **/*Model.php — Dibi 4+ fetch null, params, no begin/commit in models, Phinx
+php-nette/rules/db-dibi.md       # paths: db/**, **/*Model.php, phinx.{php,json,yaml,yml} — Dibi 4+ fetch null, params, no begin/commit in models, Phinx (directory from `paths.migrations`)
 php-nette/rules/db-doctrine.md   # paths: **/Entity/**, **/Repository/**, migrations/**, app/config/*doctrine*.neon — Doctrine ORM + Migrations in Nette; copied instead of db-dibi.md
 php-nette/rules/tests.md         # paths: tests/** — suites, rollback tests, credentials, verification output (PHPUnit and Nette Tester)
 php-symfony/…                    # same shape: CLAUDE.md.tmpl, devkit.json, settings.json, .worktreeinclude, rules/{php-core,symfony,twig-frontend,doctrine,api-platform,tests}.md;

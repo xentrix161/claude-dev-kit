@@ -7,6 +7,9 @@ paths:
   - "app/Model/**"
   - "**/*Model.php"
   - "phinx.php"
+  - "phinx.json"
+  - "phinx.yaml"
+  - "phinx.yml"
 ---
 
 # Databáza — Dibi 4+ a Phinx
@@ -28,9 +31,9 @@ paths:
 
 ## Migrácie (Phinx)
 
-- Každá zmena schémy, číselníka alebo triggera = nová migrácia v `db/migrations/` (`YYYYMMDDHHMMSS_nazov.php`).
+- Každá zmena schémy, číselníka alebo triggera = nová migrácia (`YYYYMMDDHHMMSS_nazov.php`) v adresári z `paths.migrations` konfigurácie Phinx (predvolene `db/migrations/`).
 - Aplikovanú alebo commitnutú migráciu **neupravuj** — chybu oprav novou migráciou (hook sa pred úpravou pýta).
-- Vždy funkčné `down()` (alebo `change()`); dátové migrácie idempotentné.
+- Vždy funkčný návrat: `down()`, alebo `change()` len s operáciami, ktoré Phinx vie vrátiť (`up()`/`down()` vedľa `change()` ignoruje); dátové migrácie idempotentné.
 - Zmena modelu alebo tabuľky bez migrácie → opýtaj sa, či ju používateľ chce.
 - Zmena stĺpcov tabuľky s triggermi → skontroluj triggery (`SHOW TRIGGERS LIKE 'tabuľka'`).
 

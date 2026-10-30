@@ -2410,6 +2410,32 @@ t_templates_tester() {
     LC_ALL=C sort | LC_ALL=C tr '\n' '|')
   [ "$got" = "$want" ] || fail "nálezy '$got', čakal som '$want'$(ctx)"
 }
+# Phinx (B8): init berie migrations.paths z paths.migrations; cesta s `*` (module/*/migrations) chráni commitnuté migrácie
+t_templates_phinx() {
+  local T="$KIT/plugins/dev/templates/php-nette" sk="$KIT/plugins/dev/skills/project-init/SKILL.md" f
+  jq -e '[._init[] | select(test("paths\\.migrations") and test("migrations\\.paths") and test("phinx\\.php"))] | length == 1' \
+    "$T/devkit.json" >/dev/null 2>&1 || { fail "_init php-nette bez pokynu Phinx (paths.migrations → migrations.paths)"; return 1; }
+  for f in phinx.php phinx.json phinx.yaml phinx.yml; do
+    LC_ALL=C grep -q "^| Phinx (php-nette) |.*\`$f\`" "$sk" || { fail "project-init: riadok detekcie Phinx bez $f"; return 1; }
+    sed -n '2,/^---$/p' "$T/rules/db-dibi.md" | LC_ALL=C grep -qF "\"$f\"" ||
+      { fail "db-dibi.md paths: bez $f"; return 1; }
+  done
+  new_case
+  cfg '.migrations.paths = ["module/*/migrations/**", "db/migrations/**"]'
+  put module/shop/migrations/20260301000000_add_order_state.php '<?php'
+  put module/shop/Model/OrderModel.php '<?php'
+  g add -A && g commit -qm phinx || { fail "fixture: commit modulu"; return 1; }
+  pre_edit module/shop/migrations/20260301000000_add_order_state.php
+  want_decision ask "commitnutá migrácia modulu" &&
+    want_out 'module/shop/migrations/20260301000000_add_order_state.php' "commitnutá migrácia modulu" || return 1
+  pre_edit module/shop/Model/OrderModel.php
+  want_allow "model modulu" || return 1
+  put module/shop/migrations/20260302000000_add_note.php '<?php'
+  pre_edit module/shop/migrations/20260302000000_add_note.php
+  want_allow "nová migrácia modulu" || return 1
+  pre_edit db/migrations/20260101000000_init.php
+  want_decision ask "db/migrations"
+}
 
 # ---------------------------------------------------------------- beh
 
@@ -2584,6 +2610,7 @@ t "šablóny php: kroky eslint a stylelint na hoste, len ich prípony, nález �
 t "stop-check: prípona len z kroku quick/full (.css) Stop nespustí, commit gate ju ráta; .php → kontrola beží" t_stop_ext_quick_full_only
 t "check.sh: knownFailures z Nette Tester „-- FAILED:“ (id = cesta + method=/dataprovider=, bez titulku), nie chyba prostredia" t_check_known_failures_tester
 t "šablóna php-nette: krok tester, .phpt v lint a commitGate.ext, guardy debug-php a test-skip (Environment::skip) pre .phpt" t_templates_tester
+t "Phinx: _init, detekcia phinx.{php,json,yaml,yml}, db-dibi.md; migrations.paths s * (module/*/migrations) → ask len pri commitnutej" t_templates_phinx
 
 wait
 for f in "$RES"/*; do
