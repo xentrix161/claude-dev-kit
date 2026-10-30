@@ -44,7 +44,7 @@ Nebežiaci kontajner ani chýbajúci nástroj nič nezablokujú, kontrola sa len
 | `/dev:commit` | kontrola, zoskupenie zmien a správa `[#XX] typ: výstih`; nikdy nerobí push |
 | `/dev:review [branch [base]] [--security]` | review diffu: bugy, bezpečnosť, súlad s plánom, zastarané `CLAUDE.md` |
 | `/dev:fix` | repro test → zámok testu → oprava kódu → kontrola |
-| `/dev:test` | test najprv: RED → GREEN → REFACTOR (PHPUnit, pytest) |
+| `/dev:test` | test najprv: RED → GREEN → REFACTOR (PHPUnit, Nette Tester, pytest) |
 | `/dev:debug` | logy a stav prostredia → hypotéza → minimálny repro → návrh opravy |
 | `/dev:plan` | plán do `docs/plans/` pre väčšie alebo rizikové úlohy |
 | `/dev:handoff` | stav práce do handoff dokumentu pred `/clear` |

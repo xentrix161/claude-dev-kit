@@ -81,6 +81,7 @@ Pri diffe hodnoť zmenený kód; nezmenený len pri CRITICAL bezpečnostnom prob
 - markup, na ktorý sa viaže JS (triedy, `data-*`, `.closest()` / `.next()` traverz) — zmena rozloženia rozbije JS ticho
 - `die()` / `exit()` → `throw` alebo `$this->terminate()`; služba chýba v neon configu
 - migrácie (Phinx, Doctrine): úprava už commitnutej migrácie (vytvor novú); zmena schémy alebo entity bez migrácie
+- Nette Tester (`*.phpt`): `Environment::skip()` alebo zmazaná asercia namiesto opravy; `Assert::equal()` tam, kde záleží na identite objektu alebo poradí kľúčov (`same()`); bootstrap bez `Environment::setup()` pustí test bez asercie ako zelený
 - Doctrine v Nette: body `Doctrine` zo Symfony checklistu nižšie
 
 **Symfony / Twig / Doctrine**

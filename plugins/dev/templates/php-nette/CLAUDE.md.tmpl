@@ -12,6 +12,9 @@ Nepíš sem počty testov, časy behu ani dáta — zastarajú.
 Riadky s HTML komentárom db:dibi / db:doctrine závisia od DB vrstvy (project-init krok 1): ponechaj len
 riadky zistenej vrstvy a značku z nich odstráň aj s medzerou pred ňou (v tabuľke stojí pred posledným |);
 riadky inej vrstvy zmaž.
+Nette Tester namiesto PHPUnit (krok tester v devkit.json): v Stacku Nette Tester namiesto PHPUnit, riadky unit
+a integračných testov nahraď riadkami krokov tester/integration (`{{run}}php vendor/bin/tester tests -s -C`,
+zdravý výstup `OK (N tests, S seconds)`), v Overovaní práce markTestSkipped() → Environment::skip(); PHPUnit aj Tester → oboje.
 -->
 # CLAUDE.md — {{projectName}}
 

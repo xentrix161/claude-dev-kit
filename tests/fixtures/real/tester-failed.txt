@@ -1,0 +1,33 @@
+ _____ ___  ___ _____ ___  ___
+|_   _/ __)( __/_   _/ __)| _ )
+  |_| \___ /___) |_| \___ |_|_\  v2.5.4
+
+PHP 8.3.12 (cli) | php | 8 threads
+
+....F..s..F.F..F
+
+-- FAILED: Model/OrderTotalTest.phpt
+   Failed: 120 should be 100
+
+   in tests/Model/OrderTotalTest.phpt(14) Assert::same(100, $order->getTotal());
+
+-- FAILED: Order state transitions testCancel | Model/OrderStateTest.phpt method=testCancel
+   Failed: 'cancelled' should be 'new'
+
+   in tests/Model/OrderStateTest.phpt(31) Assert::same('new', $order->getState());
+
+-- FAILED: Model/PriceTest.phpt dataprovider=reduced|/application/tests/Model/prices.ini
+   Failed: 109.0 should be 110.0
+
+   in tests/Model/PriceTest.phpt(18) Assert::same($expected, $price->withVat());
+
+-- FAILED: Model/ImportTest.phpt
+   Exited with error code 255 (expected 0)
+   E_WARNING: file_get_contents(/application/tests/Model/fixtures/orders.csv): Failed to open stream: No such file or directory
+
+   in tests/Model/ImportTest.phpt(12) file_get_contents()
+
+-- Skipped: Integration/MailerTest.phpt
+   SMTP server is not configured.
+
+FAILURES! (16 tests, 4 failures, 1 skipped, 1.4 seconds)

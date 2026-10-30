@@ -13,6 +13,7 @@ paths:
 - `integration` — modely, presentery, autentifikácia nad reálnou DB; každý test beží v transakcii → `ROLLBACK`.
 - `smoke` — HTTP požiadavky na bežiacu appku (200, nie 500); prihlásené stránky potrebujú testovací login.
 - `e2e` — Playwright v `tests/e2e/`; auth setup uloží session, ostatné testy ju použijú.
+- Nette Tester (`*.phpt`, krok `tester`): sady sú adresáre pod `tests/`; `bootstrap.php` volá `Tester\Environment::setup()`.
 - Presné príkazy: CLAUDE.md (Príkazy) a `.claude/devkit.json` (`check.steps`).
 
 ## Písanie testov
@@ -43,14 +44,14 @@ paths:
 ## Overenie
 
 - Spúšťaj v kontajneri cez `docker exec` **bez `-it`**.
-- Do odpovede vlož súhrnný riadok: `OK (N tests, M assertions)` alebo `FAILURES! Tests: N, Failures: F`.
+- Do odpovede vlož súhrnný riadok: `OK (N tests, M assertions)` alebo `FAILURES! Tests: N, Failures: F`; Tester `OK (N tests, S seconds)` alebo `FAILURES! (N tests, F failures, …)`.
 - Padá test → oprav kód, nie test. Test meníš len keď je zlý — povedz prečo a nechaj to potvrdiť.
-- Nikdy `markTestSkipped()`, zmazaná asercia ani `--filter` na zakrytie zlyhania.
+- Nikdy `markTestSkipped()`, `Environment::skip()`, zmazaná asercia ani `--filter` na zakrytie zlyhania.
 
 ## Pasce
 
 - `make test*` s `docker exec -it` bez TTY padne: „the input device is not a TTY".
-- Test bez asercie je „risky" a pri `failOnRisky="true"` je celý beh neúspešný.
+- Test bez asercie je „risky" a pri `failOnRisky="true"` je celý beh neúspešný; Tester bez `Environment::setup()` ho pustí ako zelený.
 - Integračný test zelený len vďaka dátam v lokálnej DB padne u kolegu aj v CI.
 - `COUNT(*)` nad celou tabuľkou v asercii je krehký → porovnávaj rozdiel alebo vlastné záznamy.
 - Smoke a E2E pri nebežiacej appke alebo chýbajúcich credentials padajú — to je SKIP, nie dôvod meniť kód.

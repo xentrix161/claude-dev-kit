@@ -2360,6 +2360,57 @@ t_stop_ext_quick_full_only() {
   [ "$(unit_calls)" = 2 ] || fail "Stop s .php: unit $(unit_calls)×, čakal som 2 (quick + Stop)"
 }
 
+# ---------------------------------------------------------------- Nette Tester (B7)
+
+# knownFailures z „-- FAILED: [titulok | ]<cesta>[ <argumenty>]“: id = cesta s argumentmi variantu
+# (method=, dataprovider=) bez titulku; riadok „-- FAILED:“ je nález v kóde, nie chyba prostredia
+# (výstup obsahuje „No such file or directory“ a nemá číslo riadku s dvojbodkou) — SPEC §3, §4.5
+t_check_known_failures_tester() {
+  new_case
+  local c a='^Model/OrderTotalTest\.phpt$' m='^Model/OrderStateTest\.phpt method=testCancel$' \
+    f='^Model/OrderStateTest\.phpt$' t='^Order state' p='^Model/PriceTest\.phpt dataprovider=reduced\|' i='(^|/)ImportTest\.phpt$'
+  c=$(real tester-failed 1)
+  cfg --arg c "$c" '.check.steps = [{"id": "tester", "run": $c, "modes": ["quick", "full"]}]'
+  add app/Foo.php '$f = 6;'
+  check --quick --project "$REPO"
+  want_rc 1 "bez knownFailures" && want_out '✗ tester' "bez knownFailures" \
+    && want_out '-- FAILED: Model/ImportTest.phpt' "výťah" && want_out 'Failed: 120 should be 100' "výťah" || return 1
+  cfg --arg c "$c" --arg a "$a" --arg f "$f" --arg t "$t" --arg p "$p" --arg i "$i" \
+    '.check.steps = [{"id": "tester", "run": $c, "modes": ["quick", "full"]}]
+     | .check.knownFailures = [$a, $f, $t, $p, $i | {"step": "tester", "pattern": .}]'
+  check --quick --project "$REPO"
+  want_rc 1 "vzor cesty bez method= ani titulok variant nepokryje" && want_out '✗ tester' "variant method=" || return 1
+  cfg --arg c "$c" --arg a "$a" --arg m "$m" --arg p "$p" --arg i "$i" \
+    '.check.steps = [{"id": "tester", "run": $c, "modes": ["quick", "full"]}]
+     | .check.knownFailures = [$a, $m, $p, $i | {"step": "tester", "pattern": .}]'
+  check --quick --project "$REPO"
+  want_rc 0 "všetky známe" && want_out '✓ tester' "všetky známe" && want_out '(známe zlyhania: 4)' "všetky známe" \
+    && want_out 'PASS · 0 ok · 1 známe · 0 fail' "všetky známe"
+}
+# Šablóna php-nette: krok tester, .phpt v lint a commitGate.ext, guardy debug-php a test-skip
+# aj pre .phpt (Tester Environment::skip) — SPEC §7
+t_templates_tester() {
+  local T="$KIT/plugins/dev/templates/php-nette/devkit.json" s want got
+  s=$(jq -r '([.check.steps[] | select(.id == "tester")] | first) as $t
+    | if $t == null then "chýba krok tester"
+      elif $t.run != "php vendor/bin/tester tests -s -C" or $t.requires != "vendor/bin/tester" or $t.ext != null then "krok tester: \($t | tojson)"
+      elif (.lint[".phpt"] // []) != ["php -l {file}"] then "lint .phpt: \(.lint[".phpt"] | tojson)"
+      elif (.commitGate.ext | index(".phpt")) == null then "commitGate.ext bez .phpt"
+      elif [.guards[] | select((.id == "debug-php" or .id == "test-skip") and (.ext | index(".phpt")))] | length != 2 then "debug-php alebo test-skip bez .phpt"
+      else empty end' "$T" 2>&1)
+  [ -z "$s" ] || { fail "šablóna php-nette: $s"; return 1; }
+  new_case
+  cfg --slurpfile t "$T" '.guards = $t[0].guards' || return 1
+  put tests/Model/OrderTest.phpt "$(printf '%s\n' '<?php' "Tester\\Environment::skip('later');" 'Environment::skip("x");' \
+    'dump($order);' '$this->skip(1);' 'Assert::same(1, $x);' "\$this->markTestSkipped('x');")"
+  on_edit tests/Model/OrderTest.phpt
+  want_rc 2 ".phpt" || return 1
+  want="tests/Model/OrderTest.phpt:2 guard:test-skip|tests/Model/OrderTest.phpt:3 guard:test-skip|tests/Model/OrderTest.phpt:4 guard:debug-php|tests/Model/OrderTest.phpt:7 guard:test-skip|"
+  got=$(printf '%s\n' "$ERR" | LC_ALL=C sed -n 's/^\(tests\/Model\/OrderTest\.phpt:[0-9]*\) — .*\[\(guard:[a-z-]*\)\]$/\1 \2/p' |
+    LC_ALL=C sort | LC_ALL=C tr '\n' '|')
+  [ "$got" = "$want" ] || fail "nálezy '$got', čakal som '$want'$(ctx)"
+}
+
 # ---------------------------------------------------------------- beh
 
 N=0
@@ -2531,6 +2582,8 @@ t "runtime: container bez kontajnera = host, neznáma hodnota → ! krok / lint 
 t "šablóny php: guardy console-log a inner-html (console.error, innerHTML ===, .css nie)" t_templates_frontend_guards
 t "šablóny php: kroky eslint a stylelint na hoste, len ich prípony, nález → FAIL, bez node_modules → chýba" t_templates_frontend_steps
 t "stop-check: prípona len z kroku quick/full (.css) Stop nespustí, commit gate ju ráta; .php → kontrola beží" t_stop_ext_quick_full_only
+t "check.sh: knownFailures z Nette Tester „-- FAILED:“ (id = cesta + method=/dataprovider=, bez titulku), nie chyba prostredia" t_check_known_failures_tester
+t "šablóna php-nette: krok tester, .phpt v lint a commitGate.ext, guardy debug-php a test-skip (Environment::skip) pre .phpt" t_templates_tester
 
 wait
 for f in "$RES"/*; do

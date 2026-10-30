@@ -183,7 +183,12 @@ Semantics:
   `guard:test-skip`), `lint:<ext>` (e.g. `lint:.php`), `step:<id>`, `pair:<id>`, `secrets`, `migrations`,
   `testLock`, `stopCheck`, `commitGate`, `testRemoved`. Hook messages print these ids (§4.2, §4.6).
 - `knownFailures`: when a step fails, extract failing identifiers from its output — only PHPUnit lines
-  `^[0-9]+\) <Class>::<method>` and pytest `^FAILED <id>`; other numbered lines are not identifiers. If ≥1
+  `^[0-9]+\) <Class>::<method>`, pytest `^FAILED <id>` and Nette Tester `^-- FAILED: [<title> | ]<path>[ <args>]`;
+  other numbered lines are not identifiers. A Tester id is the path as Tester prints it (relative to the common
+  directory of the tests that ran) plus the variant arguments (`method=<m>`, `dataprovider=<item>|<file>`); the
+  title before the last ` | ` that is followed by a `.php`/`.phpt` path is dropped, otherwise the whole text
+  after `-- FAILED: ` is the id. A path-only pattern (`^Model/FooTest\.phpt$`) does not cover a method
+  variant. If ≥1
   identifier was found and every one matches some pattern for that step ⇒ the step does not fail; its
   line gets the note `známe zlyhania: N` and the summary counts it as `známe`, not `ok` (§4.5).
 
@@ -403,18 +408,21 @@ flags in any order; `--files` consumes paths until the next `--` flag.
   `run` (for steps without ext, e.g. unit tests, always `run`). `changedLinesOnly` (`true` | `"stop"`,
   §3) filters like on-edit.
 - Two kinds of skipped step. **Not applicable** (line `– <id>: <reason>`, verdict unaffected): missing
-  `requires`, no changed files for its `ext`, tool output `No files were checked` without any numbered
+  `requires`, no changed files for its `ext`, tool output `No files were checked` without any finding
   line (`nástroj nič neskontroloval (No files were checked)`). **Blocked** — the step should run but could
   not (line `! <id>: <reason>`, verdict at most PARTIAL): container not running or worktree outside its
-  mount, unknown `runtime`, no `run`/`runFiles`, exit 125–127, output without any numbered line that matches `DK_RE_INFRA`
-  (`chyba prostredia, nie kódu (<match>)`). Both count in `<n> skip`.
+  mount, unknown `runtime`, no `run`/`runFiles`, exit 125–127, output without any finding line that matches `DK_RE_INFRA`
+  (`chyba prostredia, nie kódu (<match>)`). A finding line (`DK_RE_FINDING`) is a numbered line (`:<n>`,
+  `on line <n>`) or a Nette Tester `-- FAILED: ` line (Tester prints `file.phpt(<n>)`, so a failing test whose
+  message says `No such file or directory` stays FAIL). Both count in `<n> skip`.
 - Each step: elapsed time, exit code, output (ANSI sequences stripped) appended to the full log file.
   Result PASS/FAIL/skip; knownFailures may turn FAIL into a non-failing step with note. Blocked steps are
   never FAIL.
 - Output (stdout, ≤ 20 lines): `[dev-kit] check <mode>: PASS|FAIL|PARTIAL|SKIP · <n> ok[ · <n> známe] · <n> fail · <n> skip · <s> s`
   (`známe` only when > 0), one line per step `✓ phpstan 2,1 s` / `✗ unit 0,4 s` / `– phpcs: chýba
   vendor/bin/phpcs` / `! unit: príkaz sa nedá spustiť (exit 127)`, then for failing steps up to 8 most
-  relevant output lines each (total cap 20), then `log: <path>`.
+  relevant output lines each (`DK_EXCERPT_RE`: PHPUnit, pytest, Tester `-- FAILED:` and its `Failed:` lines,
+  `file:line` findings, errors; total cap 20), then `log: <path>`.
 - Verdict and exit: some FAIL ⇒ FAIL, 1; else some blocked step ⇒ PARTIAL, 4; else ≥1 `ok` or `známe`
   ⇒ PASS, 0; else (nothing ran) ⇒ SKIP, 4. 3 = config error. Exit 4 = incomplete verification — never
   report it as PASS.
@@ -593,6 +601,10 @@ resolve check findings (`knownFailures`, baseline, `changedLinesOnly`, dropping 
    `devDependencies` plus its config ⇒ step `eslint`/`stylelint` and its extensions in `commitGate.ext`;
    otherwise both are dropped without a question (a missing `node_modules` only keeps the step, `requires`
    skips it until the user installs the dependencies; init never runs `npm install`).
+   Nette Tester (php-nette): executable `vendor/bin/tester` and `*.phpt` files under `tests/` ⇒ step `tester`
+   (`php vendor/bin/tester tests -s -C`) instead of `unit`/`integration` when the project has no PHPUnit;
+   with PHPUnit both, `tester` only over the directory of the `.phpt` tests (Tester runs `*Test.php` too);
+   without Tester the step and the `.phpt` lint key are dropped.
    Placeholders: the skill's table „Zástupné symboly“ lists every `{{name}}` of the stack templates with
    its detection source and what to do when undetected; undetected ⇒ deleted without a question (the line,
    or the smallest part of it that needs the symbol; a version keeps the name; a `devkit.json` step or pair
@@ -634,7 +646,8 @@ resolve check findings (`knownFailures`, baseline, `changedLinesOnly`, dropping 
    update header version. A JSON item with an existing id gets the new template value (with consent) only
    when the project still holds the value of the template version it came from; an item the project
    changed is listed with its difference, never overwritten. A new `eslint`/`stylelint` step is proposed only
-   when the frontend detection of point 1 finds the tool, together with its extensions for `commitGate.ext`.
+   when the frontend detection of point 1 finds the tool, together with its extensions for `commitGate.ext`;
+   a new `tester` step only when point 1 finds Nette Tester, together with `.phpt` for `lint` and `commitGate.ext`.
    A renamed placeholder keeps its old name in the table (`entityGlob` = `{{entityDir}}**`), so the old
    template version is filled from the project too.
 9. Final report stručne, ale úplne (§0): what was created, what to commit, how to undo.
@@ -658,7 +671,11 @@ php-nette/devkit.json            # like §3 example with {{container}}, {{appRoo
                                  # on eslint (stylish output has no path on the finding line); their extensions are in `commitGate.ext`,
                                  # not in the Stop code files (a .js/.css-only turn does not start Stop, §4.6 step 3)
                                  # and init keeps both only with the tool (§6); guards `console-log` (`console.(log|debug)(`) and
-                                 # `inner-html` (assignment incl. `+=`, not `==`/`===`) on .js/.ts are kept always
+                                 # `inner-html` (assignment incl. `+=`, not `==`/`===`) on .js/.ts are kept always;
+                                 # optional step `tester` (Nette Tester, `php vendor/bin/tester tests -s -C`, `requires:
+                                 # vendor/bin/tester`, stop/quick/full) instead of `unit`/`integration` without PHPUnit; `.phpt` has
+                                 # lint `php -l` (a Stop code extension) and is in `commitGate.ext`; guards `debug-php` and `test-skip`
+                                 # (also `Environment::skip(`) cover `.phpt`
 php-nette/settings.json          # permissions.ask (V4: make db-import*, docker stop/restart/rm * (any container), git push*, git checkout*/git switch*, Doctrine commands that change the DB, migration history or files (`*migrations:migrate*` incl. `--dry-run`, `*migrations:diff*`, `*schema:update*`, `*schema-tool:*`, `*dbal:run-sql*`, …; inert in Dibi projects); project-init adds existing Makefile targets that stop/rebuild containers or change the DB/index) + permissions.deny (O: Edit(/vendor/**), Edit(/node_modules/**) …, anchored to the project root)
 php-nette/.worktreeinclude       # V6: vendor/, app/config/config.local.neon, .test-credentials
 php-nette/rules/php-core.md      # paths: **/*.php — PHP 8.x, PSR-12, strict types where project uses them, no die(), no @
@@ -666,7 +683,7 @@ php-nette/rules/nette.md         # paths: app/**, libs/** — presenters, DI, fo
 php-nette/rules/latte-frontend.md# paths: **/*.latte, www/css/**, www/js/** — escaping, {!$} policy, data-bs-*, JS anchors, frontend guards and steps
 php-nette/rules/db-dibi.md       # paths: db/**, **/*Model.php — Dibi 4+ fetch null, params, no begin/commit in models, Phinx
 php-nette/rules/db-doctrine.md   # paths: **/Entity/**, **/Repository/**, migrations/**, app/config/*doctrine*.neon — Doctrine ORM + Migrations in Nette; copied instead of db-dibi.md
-php-nette/rules/tests.md         # paths: tests/** — suites, rollback tests, credentials, verification output
+php-nette/rules/tests.md         # paths: tests/** — suites, rollback tests, credentials, verification output (PHPUnit and Nette Tester)
 php-symfony/…                    # same shape: CLAUDE.md.tmpl, devkit.json, settings.json, .worktreeinclude, rules/{php-core,symfony,twig-frontend,doctrine,api-platform,tests}.md;
                                  # devkit.json has the same frontend steps, guards and `commitGate.ext` extensions as php-nette
 python/…                         # CLAUDE.md.tmpl, devkit.json (pytest, ruff, mypy; host or container; {{bin}} placeholder, _init note key), settings.json, .worktreeinclude, rules/{python-core,tests}.md;
@@ -736,7 +753,9 @@ Pure bash 3.2, no docker/network. Creates temp dirs (`mktemp -d`), sets `DEVKIT_
 stub tools (small shell scripts in the fixture that emulate php -l / phpcs emacs output / phpunit
 failure lines and exit codes), feeds synthetic hook JSON on stdin, asserts exit codes, stdout JSON
 (`jq -e`) and stderr text. Real tool outputs live in `tests/fixtures/real/*.txt` (merged stdout+stderr
-only, CR/ESC bytes preserved) and are replayed by `tests/fixtures/bin/replay <file> <exit>`; secret
+only, CR/ESC bytes preserved) and are replayed by `tests/fixtures/bin/replay <file> <exit>`; the one synthetic
+file there, `tester-failed.txt`, follows the Nette Tester console format from its documentation and
+`ConsolePrinter` (no recorded run, no real data); secret
 samples for the template patterns are `tests/fixtures/secret-samples.txt`. Required cases: see the list
 in the builder prompt. Prints `PASS n/n` and exits non-zero on any failure. Runs < 20 s: cases run in subshells,
 `DK_SELFTEST_JOBS` at a time (default 4; `1` = sequential), results printed in order.

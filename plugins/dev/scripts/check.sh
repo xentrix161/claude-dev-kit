@@ -11,7 +11,9 @@ dk_usage() {
     echo "použitie: check.sh [--quick|--full|--auto|--stop] [--session <id>] [--project <dir>] [--files <rel>…]"
 }
 
-DK_EXCERPT_RE='^[0-9]+\) |^FAILED |^ERROR|:[0-9]+(:|$)|on line [0-9]+|[Ee]rror|[Ee]xception|FAILURES!|^Tests: |[Ff]ailed asserting|^E[[:space:]]'
+DK_EXCERPT_RE='^[0-9]+\) |^FAILED |^ERROR|:[0-9]+(:|$)|on line [0-9]+|[Ee]rror|[Ee]xception|FAILURES!|^Tests: |[Ff]ailed asserting|^E[[:space:]]|^-- FAILED: |^[[:space:]]+Failed: '
+# Riadok nálezu v kóde: číslo riadku alebo test Nette Testeru (ten čísla riadkov s dvojbodkou nemá).
+DK_RE_FINDING=':[0-9]|on line [0-9]|^-- FAILED: '
 
 mode=quick files_arg="" files_set=0 project="" session=""
 while [ $# -gt 0 ]; do
@@ -158,7 +160,9 @@ dk_known_ok() { # <step-id> <outfile> → 0 keď všetky zlyhania sú známe; po
     KNOWN_N=0
     pats=$(printf '%s' "$KNOWN" | awk -F"$DK_US" -v s="$id" '$1 == s { print $2 }')
     [ -n "$pats" ] || return 1
-    ids=$(sed -nE 's/^[0-9]+\) ([^[:space:]]+::[^[:space:]]+).*/\1/p; s/^FAILED ([^[:space:]]+).*/\1/p' "$2" | sort -u)
+    # PHPUnit „N) Trieda::metóda“, pytest „FAILED <id>“, Nette Tester „-- FAILED: [titulok | ]<cesta>[ <argumenty>]“.
+    ids=$(sed -nE 's/^[0-9]+\) ([^[:space:]]+::[^[:space:]]+).*/\1/p; s/^FAILED ([^[:space:]]+).*/\1/p
+        /^-- FAILED: /{ s/^-- FAILED: //; s/^.* \| ([^[:space:]|]+\.phpt?( |$))/\1/; p;}' "$2" | sort -u)
     [ -n "$ids" ] || return 1
     while IFS= read -r x; do
         [ -n "$x" ] || continue
@@ -246,11 +250,11 @@ EOF
     if [ "$rc" -ge 125 ] && [ "$rc" -le 127 ]; then
         dk_block "$id" "príkaz sa nedá spustiť (exit $rc)"; continue
     fi
-    # Zlyhal nástroj alebo docker, nie kód (žiadny riadok s číslom) → BLOCK, Stop na infraštruktúre neblokuje.
-    if ! grep -Eq ':[0-9]|on line [0-9]' "$DK_TMP/step.out" && grep -q 'No files were checked' "$DK_TMP/step.out"; then
+    # Zlyhal nástroj alebo docker, nie kód (žiadny riadok nálezu) → BLOCK, Stop na infraštruktúre neblokuje.
+    if ! grep -Eq "$DK_RE_FINDING" "$DK_TMP/step.out" && grep -q 'No files were checked' "$DK_TMP/step.out"; then
         dk_skip "$id" "nástroj nič neskontroloval (No files were checked)"; continue
     fi
-    if ! grep -Eq ':[0-9]|on line [0-9]' "$DK_TMP/step.out" && grep -Eq "$DK_RE_INFRA" "$DK_TMP/step.out"; then
+    if ! grep -Eq "$DK_RE_FINDING" "$DK_TMP/step.out" && grep -Eq "$DK_RE_INFRA" "$DK_TMP/step.out"; then
         dk_block "$id" "chyba prostredia, nie kódu ($(grep -Eo "$DK_RE_INFRA" "$DK_TMP/step.out" | head -n 1))"; continue
     fi
     src="$DK_TMP/step.out"

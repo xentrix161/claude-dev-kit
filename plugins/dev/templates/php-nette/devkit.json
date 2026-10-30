@@ -5,6 +5,7 @@
     "Doctrine: {{schemaValidateCmd}} = doctrine:schema:validate alebo pri nettrine orm:validate-schema; {{entityDir}} = adresár entít s / na konci (napr. app/Entity/), v pairs glob {{entityDir}}**; {{migrationsDir}} = adresár verziovaných migrácií z migrations_paths v konfigurácii migrácií (nie config), v pairs aj migrations.paths glob {{migrationsDir}}**; ďalšie chránené vstupy migrácií len podľa pravidiel projektu.",
     "Doctrine: fullWhen = entity, repozitáre, adresár migrácií a neon s Doctrine; doctrine-schema porovnáva s lokálnou DB — pri trvalom drifte ho vypusti alebo sa opýtaj.",
     "unit a integration: init vyberie podľa phpunit.xml(.dist) — mená <testsuite> presne; bez rýchlej sady testy so skupinou integration → --exclude-group integration / --group integration; bez pomalých testov krok integration vypusti. V stop nechaj len rýchle kroky.",
+    "Nette Tester (vendor/bin/tester, testy *.phpt v tests/): krok tester namiesto unit a integration, keď projekt nemá PHPUnit; s PHPUnit oba kroky a tester len nad adresárom s .phpt testami (Tester spúšťa aj *Test.php). Pomalé testy Testera v samostatnom adresári → tester nad adresárom rýchlych, krok integration = php vendor/bin/tester <adresár pomalých> -s -C len vo full. -C ponechaj (staršie verzie Testera bez neho spúšťajú PHP bez php.ini). Bez Testera krok tester a kľúč .phpt v lint vypusť.",
     "Frontend: krok eslint a prípony .js, .ts v commitGate.ext ponechaj len keď package.json má eslint (dependencies/devDependencies) a projekt má jeho config; rovnako stylelint s .css, .scss; inak krok aj prípony vypusť bez otázky. runtime host = Node na hostiteľovi; Node len v kontajneri z poľa container → runtime vypusť. eslint bez changedLinesOnly (výstup stylish nemá cestu na riadku nálezu). Guardy console-log a inner-html ponechaj vždy."
   ],
   "version": 1,
@@ -13,7 +14,8 @@
   "appRoot": "{{appRoot}}",
   "lint": {
     ".php": ["php -l {file}", "php vendor/bin/phpcs -q -n --report=emacs --standard=PSR12 --ignore=*/db/migrations/*,*/migrations/* {file}"],
-    ".latte": ["php vendor/bin/latte-lint {file}"]
+    ".latte": ["php vendor/bin/latte-lint {file}"],
+    ".phpt": ["php -l {file}"]
   },
   "lintChangedLinesOnly": true,
   "check": {
@@ -24,6 +26,9 @@
        "ext": [".php"], "modes": ["stop", "quick", "full"], "changedLinesOnly": "stop"},
       {"id": "unit", "requires": "vendor/bin/phpunit",
        "run": "php vendor/bin/phpunit --testsuite unit",
+       "modes": ["stop", "quick", "full"]},
+      {"id": "tester", "requires": "vendor/bin/tester",
+       "run": "php vendor/bin/tester tests -s -C",
        "modes": ["stop", "quick", "full"]},
       {"id": "phpcs", "requires": "vendor/bin/phpcs",
        "runFiles": "php vendor/bin/phpcs -q -n --report=emacs --standard=PSR12 --ignore=*/db/migrations/*,*/migrations/* {files}",
@@ -49,7 +54,7 @@
     "knownFailures": []
   },
   "guards": [
-    {"id": "debug-php", "ext": [".php", ".latte"], "pattern": "(^|[^>:$_[:alnum:]])(dump|dd|bdump|var_dump|print_r)\\(",
+    {"id": "debug-php", "ext": [".php", ".phpt", ".latte"], "pattern": "(^|[^>:$_[:alnum:]])(dump|dd|bdump|var_dump|print_r)\\(",
      "message": "debug výpis v kóde (dump/dd/bdump/var_dump/print_r)"},
     {"id": "debug-latte", "ext": [".latte"], "pattern": "\\{(dump|debugbreak)([[:space:]}]|$)",
      "message": "{dump}/{debugbreak} v šablóne"},
@@ -63,8 +68,8 @@
      "message": "SQL skladané reťazcom — hodnoty len cez parametre (Dibi %s/?, Doctrine :name + setParameter())"},
     {"id": "doctrine-dql-concat", "ext": [".php"], "pattern": "->(where|andWhere|orWhere|having|andHaving|orHaving)\\([^)]*['\"][[:space:]]*\\.[[:space:]]*\\$",
      "message": "podmienka QueryBuildera skladaná reťazcom — hodnoty cez setParameter(), názvy polí len z whitelistu"},
-    {"id": "test-skip", "ext": [".php"], "pattern": "(->|::)mark(TestSkipped|TestIncomplete)\\(",
-     "message": "vypnutý test (markTestSkipped/markTestIncomplete) — len so súhlasom používateľa, nie ako obídenie zlyhania"},
+    {"id": "test-skip", "ext": [".php", ".phpt"], "pattern": "(->|::)mark(TestSkipped|TestIncomplete)\\(|Environment::skip\\(",
+     "message": "vypnutý test (markTestSkipped/markTestIncomplete, Tester Environment::skip) — len so súhlasom používateľa, nie ako obídenie zlyhania"},
     {"id": "console-log", "ext": [".js", ".ts"], "pattern": "console\\.(log|debug)\\(",
      "message": "console.log/console.debug — ladiaci výpis pred commitom zmaž"},
     {"id": "inner-html", "ext": [".js", ".ts"], "pattern": "\\.innerHTML[[:space:]]*\\+?=([^=]|$)",
@@ -86,7 +91,7 @@
   "migrations": {"paths": ["db/migrations/**", "migrations/**"]},
   "testLock": {"ttlHours": 6},
   "stopCheck": true,
-  "commitGate": {"enabled": true, "ext": [".php", ".latte", ".neon", ".xml", ".sql", ".yml", ".yaml", ".js", ".ts", ".css", ".scss"]},
+  "commitGate": {"enabled": true, "ext": [".php", ".phpt", ".latte", ".neon", ".xml", ".sql", ".yml", ".yaml", ".js", ".ts", ".css", ".scss"]},
   "handoffDoc": "docs/handoff.md",
   "disabledRules": []
 }

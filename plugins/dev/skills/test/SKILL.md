@@ -39,13 +39,14 @@ allowed-tools:
 
 Vetvy podľa stacku:
 - **PHPUnit 10+**: atribúty `#[Test]`, `#[DataProvider('…')]`; anotácie len v starších verziách (`vendor/bin/phpunit --version`).
-- **Nette**: služby z DI kontajnera cez base triedu projektu; presenter testy podľa existujúcich (napr. `createPresenter()`); Nette Tester (`*.phpt`) → `vendor/bin/tester <súbor>`.
+- **Nette**: služby z DI kontajnera cez base triedu projektu; presenter testy podľa existujúcich (napr. `createPresenter()`).
+- **Nette Tester** (`*.phpt`, krok `tester`): `require` bootstrapu ako susedné testy, `Assert::same()` (nie voľnejšie `equal()`, ak netreba), `Assert::exception()`; `TestCase` s metódami `test*` a `(new FooTest)->run();` na konci súboru.
 - **Symfony**: `KernelTestCase` (služby), `WebTestCase` (HTTP); izolácia DB mechanizmom, ktorý projekt už používa.
 - **pytest**: fixtures v `conftest.py`, `@pytest.mark.parametrize` pre tabuľku prípadov, `tmp_path`, bez siete.
 
 ## 4. Spustenie len nových testov
 
-- S `.claude/devkit.json`: príkaz kroku `unit`/`integration` z `check.steps[].run`. Pre jeden test nahraď `--testsuite <x>` cestou k testu a pridaj `--filter <metóda>`; pytest `pytest -q <súbor>::<test>`.
+- S `.claude/devkit.json`: príkaz kroku `unit`/`integration` z `check.steps[].run`. Pre jeden test nahraď `--testsuite <x>` cestou k testu a pridaj `--filter <metóda>`; Nette Tester: v príkaze kroku `tester` nahraď `tests` cestou k súboru `.phpt`; pytest `pytest -q <súbor>::<test>`.
 - `container` nastavený → `docker exec -i -w <workdir> <container> sh -c '<príkaz>'`:
   - `workdir` = `appRoot`; vo worktree `appRoot/<cesta worktree voči hlavnému repu>` (hlavné repo: `git rev-parse --path-format=absolute --git-common-dir` bez `/.git`)
   - nikdy `-it` (bez TTY padne)
@@ -83,6 +84,7 @@ Zmena šablón, CSS alebo JS → over ju aj v bežiacej appke vstavaným `/verif
 ## 6. `--coverage`
 
 - PHPUnit: príkaz z §4 + `--coverage-text` (potrebuje Xdebug alebo PCOV; bez nich to povedz a skonči).
+- Nette Tester: príkaz z §4 + `--coverage <súbor>.xml --coverage-src <adresár cieľa>` (Clover XML do súboru, ktorý git ignoruje, napr. pod `temp/`; Xdebug, PCOV alebo phpdbg), nepokryté riadky prečítaj z XML a súbor zmaž.
 - pytest: `pytest --cov=<balík> --cov-report=term-missing <súbor>`.
 - Nahlás len nepokryté riadky cieľa (`súbor:riadok-riadok`); žiadne percentuálne ciele.
 

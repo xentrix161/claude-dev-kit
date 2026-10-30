@@ -40,7 +40,7 @@ bash "${CLAUDE_PLUGIN_ROOT}/scripts/test-lock.sh" unlock --project "${CLAUDE_PRO
 - Najnižšia úroveň, ktorá bug ukáže: unit → integračný (DB) → E2E (len UI). Drž konvencie existujúcich testov (base triedy, umiestnenie, pomenovanie).
 - Názov opisuje bug: `testRejectsEmptyPinInsteadOfCrashing`, pytest `test_rejects_empty_pin`.
 - Spusti len tento test:
-  - príkaz kroku `unit`/`integration` z `check.steps[].run` v `.claude/devkit.json`; `--testsuite <x>` nahraď cestou k testu + `--filter <metóda>`; pytest `pytest -q <súbor>::<test>`
+  - príkaz kroku `unit`/`integration` z `check.steps[].run` v `.claude/devkit.json`; `--testsuite <x>` nahraď cestou k testu + `--filter <metóda>`; Nette Tester: v kroku `tester` nahraď `tests` cestou k `.phpt`; pytest `pytest -q <súbor>::<test>`
   - s `container` → `docker exec -i -w <appRoot> <container> sh -c '<príkaz>'` (vo worktree `appRoot/<cesta voči hlavnému repu>`), nikdy `-it`
   - bez devkit.json → zjavný príkaz projektu (CLAUDE.md, `Makefile`, `vendor/bin/phpunit`, `pytest`)
 - Musí padnúť **na asercii, ktorá popisuje bug** — nie parse error ani chyba setupu. Riadok výsledku si zapamätaj (RED dôkaz).
@@ -55,7 +55,7 @@ bash "${CLAUDE_PLUGIN_ROOT}/scripts/test-lock.sh" lock <cesta/k/Testu.php> --pro
 - Cesta relatívna ku koreňu projektu; zámok vyprší sám (predvolene 6 h).
 - Bez `.claude/devkit.json` hooky nebežia a zámok len informuje — pravidlo needitovať test platí rovnako.
 - Odteraz test needituj — ani cez Bash (`sed`, presmerovanie, `cp`, `git checkout`). Hook edit odmietne.
-- Test nevypínaj ani inde: `markTestSkipped`/`pytest.skip`, vyradenie v `phpunit.xml*`/`conftest.py`, `check.knownFailures`, `disabledRules`.
+- Test nevypínaj ani inde: `markTestSkipped`/`Environment::skip`/`pytest.skip`, vyradenie v `phpunit.xml*`/`conftest.py`, `check.knownFailures`, `disabledRules`.
 - Ukáže sa, že je zlý samotný test → zastav a vysvetli prečo. Odomknúť môže len používateľ (`/dev:fix --unlock`); sám spúšťaš `test-lock.sh unlock` len po zelenej kontrole v §4.
 
 ## 4. Oprava
