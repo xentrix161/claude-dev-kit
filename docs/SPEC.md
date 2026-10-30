@@ -520,6 +520,12 @@ a first line comment `<!-- prevzaté z ECC <path> @ b92f181, upravené -->` afte
 ## 6. `project-init` skill (most complex)
 
 Arguments: none | `--sync` | `--dry-run`.
+Consent is asked in four named phases only, each with one message: (1) plan — the dry-run incl. the exact
+`permissions` block before → after and the local/team choice with its exact `info/exclude` and
+`.worktreeinclude` lines or `.gitignore` diff; (2) write + `check.sh --quick` — nothing new, consent only to
+resolve check findings (`knownFailures`, baseline, `changedLinesOnly`, dropping a step, `--full`);
+(3) conventions, one by one; (4) `CLAUDE.md`/`AGENTS.md`/`CLAUDE.local.md` diff with the move map. At most
+4 questions per init, all in the plan message (an unclear stack is asked first and counts).
 1. Detect: stack (composer.json → nette/symfony; pyproject/requirements → python); for php-nette the DB layer
    from `require` only (`dibi/dibi` → dibi, `doctrine/orm`/`nettrine/orm` → doctrine; several ⇒ show evidence and
    ask) and Doctrine console command names; `AGENTS.md` and whether `CLAUDE.md` imports it (`@AGENTS.md`);
@@ -527,14 +533,24 @@ Arguments: none | `--sync` | `--dry-run`.
    compose files: container_name + mounts → appRoot), tools present in `vendor/bin` / venv, phpstan
    config path, phpunit suites, phpcs ruleset, existing CLAUDE.md size, `.claude/` contents, git remote,
    the gitignored test login file (`{{testCredentialsFile}}`; content never read, none ⇒ its template line is deleted).
+   No compose (or a mount of a subdirectory only) ⇒ `container: ""`, `appRoot: ""`; the plan says that lint
+   and steps run on the host and `appRoot` is unused, and shows each tool checked on the host
+   (`command -v`, `vendor/bin/<tool>`, `.venv/bin/<tool>`); a missing tool drops its step.
+   Placeholders: the skill's table „Zástupné symboly“ lists every `{{name}}` of the stack templates with
+   its detection source and what to do when undetected; undetected ⇒ deleted without a question (the line,
+   or the smallest part of it that needs the symbol; a version keeps the name; a `devkit.json` step or pair
+   that needs it is dropped and listed). Questions only for `{{projectDescription}}`, `{{commitStyle}}`
+   (no usable git history) and `{{container}}` (no compose). `{{dbContainer}}` is text in `CLAUDE.md`, not
+   a `devkit.json` field. Selftest `t_templates_symbols` keeps the table complete.
 2. Dry-run plan shown to the user BEFORE writing anything: files to create/modify, devkit.json draft,
-   which template rules, local-only vs team (commit) choice, layer-B skills offered
-   (`templates/skills/*`). Never overwrite an existing file without explicit consent; show diffs.
+   which template rules, `permissions` block before → after, local-only vs team (commit) choice with its
+   exact lines, layer-B skills offered (`templates/skills/*`). Approving the plan covers new files and the
+   changes it showed exactly; any other existing file is never overwritten without explicit consent (diff).
    Project rules win over the template: conflicts are listed as `template:line ↔ file:line`, a conflicting
    template rule is not copied without consent, and baseline/`changedLinesOnly` are not offered when the
    project rules exclude them.
 3. Verify every check step by running it once (via the same exec logic as check.sh — call
-   `bash "${CLAUDE_PLUGIN_ROOT}/scripts/check.sh" --quick --project .` after writing devkit.json) and
+   `bash "${CLAUDE_PLUGIN_ROOT}/scripts/check.sh" --quick --project "${CLAUDE_PROJECT_DIR}"` after writing devkit.json) and
    record baseline failures as `knownFailures` only with user consent.
 4. Copy template files with a header: markdown → `<!-- dev-kit: <template>/<file> @ <plugin version> -->`
    (YAML-frontmatter files get it right after the frontmatter); `.worktreeinclude` → `# dev-kit:
@@ -546,20 +562,22 @@ Arguments: none | `--sync` | `--dry-run`.
 6. AGENTS.md present ⇒ project content goes to `AGENTS.md` (diff, consent; never split into rules) and
    `CLAUDE.md` = `@AGENTS.md` import + Claude-only parts; a textual mention is replaced by the import; never
    create `CLAUDE.md` without the import (Claude Code reads `AGENTS.md` itself only when no `CLAUDE.md`
-   exists); local mode ⇒ import and Claude-only parts go to `CLAUDE.local.md`.
+   or `CLAUDE.local.md` exists); local mode ⇒ import and Claude-only parts go to `CLAUDE.local.md`.
    CLAUDE.md: propose a skeleton ≤ 120 lines (Projekt, Stack, Príkazy with healthy-output examples
    (V9), Architektúra, Pravidlá, Pasce, `## Compact instructions`) built from the existing CLAUDE.md, moving
    topic sections into `rules/*.md` with `paths:`. Large rewrite only with consent; preserve every
    rule that would cause a regression if lost (list what moved where).
-7. Team vs local: local ⇒ add `.claude/rules/`, `.claude/devkit.json` etc., `.claude/worktrees/`, an
+7. Team vs local (decided in the plan, phase 1): local ⇒ add `.claude/rules/`, `.claude/devkit.json` etc., `CLAUDE.local.md`, `.claude/worktrees/`, an
    untracked `handoffDoc` and `docs/plans/` to `.git/info/exclude` (local mode puts nothing from the kit into git), and `.claude/rules/`, `CLAUDE.local.md`, `REVIEW.md`, `docs/plans/` to `.worktreeinclude` (so
-   new worktrees get the untracked files); team ⇒ leave for commit (do not commit yourself) and propose
+   new worktrees get the untracked files); local mode never creates a new `CLAUDE.md` — the filled skeleton
+   goes to `CLAUDE.local.md`; team ⇒ leave for commit (do not commit yourself) and propose
    `.claude/worktrees/` for `.gitignore`.
 8. `--sync` (P5): for each project file with a `dev-kit:` header (JSON files: by template id/keys),
    compare with current template version; show per-file diff and propose update keeping local edits;
    update header version. A JSON item with an existing id gets the new template value (with consent) only
    when the project still holds the value of the template version it came from; an item the project
-   changed is listed with its difference, never overwritten.
+   changed is listed with its difference, never overwritten. A renamed placeholder keeps its old name in the
+   table (`entityGlob` = `{{entityDir}}**`), so the old template version is filled from the project too.
 9. Final report stručne, ale úplne (§0): what was created, what to commit, how to undo.
 
 ## 7. Templates (`ROOT/templates/`)
@@ -574,7 +592,8 @@ php-nette/CLAUDE.md.tmpl         # skeleton with {{placeholders}}, ≤ 120 lines
 php-nette/devkit.json            # like §3 example with {{container}}, {{appRoot}}, {{phpstanConfig}} placeholders; `_init` notes;
                                  # items with id `doctrine-*` (step doctrine-schema, guard doctrine-dql-concat, pair doctrine-entity-migration) only for Doctrine;
                                  # guards debug-php (+ bdump) and die use the php-symfony patterns: `->exit(`, `::dump(`, `$exit` are not findings;
-                                 # pair model-test `when` = app/models/**, app/model/**, app/Model/** (like fullWhen)
+                                 # pair model-test `when` = app/models/**, app/model/**, app/Model/** (like fullWhen);
+                                 # pair doctrine-entity-migration `when`/`unless` = `{{entityDir}}**` / `{{migrationsDir}}**`
 php-nette/settings.json          # permissions.ask (V4: make db-import*, docker stop/restart/rm * (any container), git push*, git checkout*/git switch*, Doctrine commands that change the DB, migration history or files (`*migrations:migrate*` incl. `--dry-run`, `*migrations:diff*`, `*schema:update*`, `*schema-tool:*`, `*dbal:run-sql*`, …; inert in Dibi projects); project-init adds existing Makefile targets that stop/rebuild containers or change the DB/index) + permissions.deny (O: Edit(/vendor/**), Edit(/node_modules/**) …, anchored to the project root)
 php-nette/.worktreeinclude       # V6: vendor/, app/config/config.local.neon, .test-credentials
 php-nette/rules/php-core.md      # paths: **/*.php — PHP 8.x, PSR-12, strict types where project uses them, no die(), no @
@@ -591,7 +610,12 @@ skills/ecc-design-system/  skills/ecc-api-design/  skills/ecc-inherit-legacy-sty
 ```
 Template content is GENERIC for the stack (no project specifics, no project names, no data).
 All templates use the same placeholder name for the same thing (`{{projectDescription}}`, `{{run}}`, …)
-and the same compaction heading `## Compact instructions`. Deny rules in `settings.json` start with `/`
+and the same compaction heading `## Compact instructions`. A directory placeholder (`{{entityDir}}`,
+`{{repositoryDir}}`, `{{migrationsDir}}`) ends with `/` and is the only name for that directory: a glob in
+`devkit.json` is written as `{{entityDir}}**`. A placeholder named like a `devkit.json` key means that key
+(`{{container}}`, `{{appRoot}}`); python's environment line uses `{{pythonEnv}}`, because `runtime` is reserved
+for the step field. Every placeholder has a row in the project-init table (§6), checked by `t_templates_symbols`.
+Deny rules in `settings.json` start with `/`
 (relative to the settings source = project root, permissions.md). `changedLinesOnly: "stop"` on phpstan
 (php-nette, php-symfony) and mypy (python). Stop mode runs only fast steps: tests without the slow ones
 (php-nette `--testsuite unit`, php-symfony `--exclude-group integration` or the fast `<testsuite>` that

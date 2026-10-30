@@ -1,7 +1,7 @@
 <!--
-Šablóna dev-kit (python). /dev:project-init vyplní {{…}} z repa a z odpovedí používateľa.
+Šablóna dev-kit (python). /dev:project-init vyplní {{…}} podľa tabuľky Zástupné symboly vo svojom SKILL.md.
 {{run}} = prefix príkazov: `.venv/bin/` (venv na hostiteľovi, netreba ho aktivovať), `uv run `,
-alebo `docker exec -w {{appRoot}} {{container}} ` (bez -it). Riadok, ktorý sa nedá vyplniť, zmaž.
+alebo `docker exec -w {{appRoot}} {{container}} ` (bez -it). Nezistený symbol zmaž bez otázky (riadok alebo jeho časť).
 Limit 120 riadkov; tematické detaily patria do .claude/rules/*.md (paths:). Bez počtov testov a časov.
 -->
 # CLAUDE.md — {{projectName}}
@@ -17,7 +17,7 @@ Limit 120 riadkov; tematické detaily patria do .claude/rules/*.md (paths:). Bez
 - Python {{pythonVersion}} · {{framework}}
 - {{database}} · migrácie {{migrationTool}}
 - Závislosti: {{packageManager}} (`pyproject.toml` + lock súbor v gite)
-- Prostredie: {{runtime}}
+- Prostredie: {{pythonEnv}}
 - Kvalita: ruff (lint + formát), mypy, pytest — konfigurácia v `pyproject.toml`
 
 ## Príkazy

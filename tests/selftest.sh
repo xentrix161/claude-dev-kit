@@ -2094,6 +2094,24 @@ t_notebook_edit() {
   want_decision ask "pre-edit" && want_out 'db/migrations/explore.ipynb' "pre-edit"
 }
 
+# ---------------------------------------------------------------- zástupné symboly (B3)
+
+# Každý {{symbol}} šablón stackov má riadok v tabuľke project-init a skill nemenuje symbol, ktorý šablóny nemajú
+t_templates_symbols() {
+  local T="$KIT/plugins/dev/templates" sk="$KIT/plugins/dev/skills/project-init/SKILL.md" used rows named s bad=""
+  [ -f "$sk" ] || { fail "chýba $sk"; return 1; }
+  used=$(grep -rhoE '\{\{[a-zA-Z]+\}\}' "$T/php-nette" "$T/php-symfony" "$T/python" | LC_ALL=C sort -u)
+  rows=$(sed -n '/^## Zástupné symboly/,/^## Pasce/p' "$sk" | awk -F'|' '/^\| `\{\{/ {print $2}' |
+    grep -oE '\{\{[a-zA-Z]+\}\}' | LC_ALL=C sort -u)
+  named=$(grep -oE '\{\{[a-zA-Z]+\}\}' "$sk" | LC_ALL=C sort -u)
+  [ -n "$rows" ] || { fail "SKILL.md bez tabuľky Zástupné symboly"; return 1; }
+  s=$(printf '%s\n' "$used" | LC_ALL=C comm -23 - <(printf '%s\n' "$rows"))
+  [ -z "$s" ] || bad="${bad}bez riadku v tabuľke: $(flat "$s"); "
+  s=$(printf '%s\n' "$named" | LC_ALL=C comm -23 - <(printf '%s\n' "$used"))
+  [ -z "$s" ] || bad="${bad}skill menuje symbol mimo šablón: $(flat "$s"); "
+  [ -z "$bad" ] || fail "$bad"
+}
+
 # ---------------------------------------------------------------- beh
 
 N=0
@@ -2258,6 +2276,7 @@ t "tools/upstream.sh: klon ECC predvolene <kit>/../ECC, ECC_DIR ho prebije" t_up
 t "šablóny php: guardy die, debug-php a dql-concat (->exit(, \$this->dump( nie; die(, exit;, ->where('…' . \$x) áno)" t_templates_php_guards
 t "stop-check: pairs when/unless ako zoznam globov (php-nette model-test)" t_stop_pair_glob_list
 t "NotebookEdit: matcher v hooks.json, notebook_path v on-edit (guard python .ipynb) aj pre-edit" t_notebook_edit
+t "project-init: tabuľka Zástupné symboly pokrýva všetky {{…}} šablón, bez mŕtvych symbolov" t_templates_symbols
 
 wait
 for f in "$RES"/*; do

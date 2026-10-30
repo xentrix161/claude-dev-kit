@@ -1,6 +1,7 @@
 <!--
-Šablóna dev-kit (php-nette). /dev:project-init vyplní {{…}} z repa a z odpovedí používateľa.
-Riadok, ktorý sa nedá vyplniť, zmaž — prázdny placeholder nenechávaj. Strom v Architektúre uprav podľa repa.
+Šablóna dev-kit (php-nette). /dev:project-init vyplní {{…}} podľa tabuľky Zástupné symboly vo svojom SKILL.md;
+nezistený symbol zmaž bez otázky (riadok alebo jeho časť) — prázdny placeholder nenechávaj. Strom v Architektúre uprav podľa repa.
+{{entityDir}}, {{repositoryDir}}, {{migrationsDir}} = adresár s / na konci (napr. app/Entity/).
 Limit 120 riadkov; tematické detaily patria do .claude/rules/*.md (paths:).
 Nepíš sem počty testov, časy behu ani dáta — zastarajú.
 {{run}} = prefix príkazov vrátane medzery na konci: `docker exec {{container}} ` (bez -it; pri inom workdir
@@ -23,7 +24,7 @@ riadky inej vrstvy zmaž.
 ## Stack
 
 - PHP {{phpVersion}} · Nette {{netteVersion}} · Latte {{latteVersion}}
-- Dibi {{dibiVersion}} · {{database}} · migrácie Phinx (`db/migrations/`) <!-- db:dibi -->
+- Dibi {{dibiVersion}} · {{database}} · migrácie Phinx (`{{migrationsDir}}`) <!-- db:dibi -->
 - Doctrine ORM {{ormVersion}} (entity `{{entityDir}}`, repozitáre `{{repositoryDir}}`) · {{database}} · Doctrine Migrations (`{{migrationsDir}}`) <!-- db:doctrine -->
 - Docker: aplikácia `{{container}}` (repo mountnuté na `{{appRoot}}`), databáza `{{dbContainer}}`
 - Kvalita: PHPStan level {{phpstanLevel}} (`{{phpstanConfig}}`), PHPUnit, PHPCS PSR-12, latte-lint

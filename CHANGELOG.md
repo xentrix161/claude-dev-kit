@@ -17,6 +17,8 @@
 - Šablóna `python` `rules/tests.md` a skill `ecc-python-testing`: rýchle testy sú tie z kroku `unit` v `devkit.json`, nie natvrdo zapísaný príkaz.
 - Skill `ecc-mysql-patterns` sa načíta aj pri `**/Entity/**` a `**/Repository/**`; `/dev:review` a agent `ecc-silent-failure-hunter` hovoria „Dibi 4+“.
 - Hooky pred a po edite bežia aj pri `NotebookEdit` (cesta z `notebook_path`): zámok testu, otázka pri commitnutej migrácii, guardy a tajomstvá platia aj pre úpravu bunky notebooku. Šablóna `python` má guardy aj pre `.ipynb`; lint notebookov šablóna nemá (ruff hlási riadky v bunke, filter zmenených riadkov ich nespáruje) — `--sync` navrhne nové `ext` guardov ako zmenu položky.
+- `/dev:project-init` pýta súhlas vo štyroch pomenovaných fázach: plán (dry-run aj s presným blokom `permissions` a voľbou lokálne/tím), zápis s overením `check.sh --quick`, konvencie, `CLAUDE.md`/`AGENTS.md`. Každý zástupný symbol šablón má v skille zdroj detekcie; čo init nezistí, zmaže bez otázky a pýta sa len na popis projektu, štýl commitov (keď ho git log nedá) a kontajner (bez compose). V lokálnom režime nevytvorí `CLAUDE.md`, kostra ide do `CLAUDE.local.md`. Bez compose povie, že kroky bežia na hostiteľovi, a nástroje overí tam.
+- Šablóna `php-nette`: adresár entít a migrácií má jeden symbol `{{entityDir}}` / `{{migrationsDir}}` (adresár s `/` na konci) v `CLAUDE.md.tmpl` aj v `devkit.json` — pair `doctrine-entity-migration` má `{{entityDir}}**` a `{{migrationsDir}}**`, riadok Dibi v Stacku berie adresár migrácií zo `{{migrationsDir}}`. Šablóna `python`: `{{pythonEnv}}` namiesto `{{runtime}}`. `--sync` hodnotu pairu prevezme z projektu; existujúci pair ani `CLAUDE.md` projektu sa nemenia.
 
 ## 0.3.1 — 2026-10-29
 

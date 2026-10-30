@@ -2,7 +2,7 @@
   "_init": [
     "Pokyny pre /dev:project-init — tento kľúč do projektu nezapisuj.",
     "DB vrstva (krok 1): položky s id doctrine-* len pri Doctrine; Dibi projekt ich nedostane.",
-    "Doctrine: {{schemaValidateCmd}} = doctrine:schema:validate alebo pri nettrine orm:validate-schema; {{entityGlob}} = adresár entít (napr. app/Entity/**); {{migrationsGlob}} a migrations.paths = adresár verziovaných migrácií z migrations_paths v konfigurácii migrácií (nie config); ďalšie chránené vstupy migrácií len podľa pravidiel projektu.",
+    "Doctrine: {{schemaValidateCmd}} = doctrine:schema:validate alebo pri nettrine orm:validate-schema; {{entityDir}} = adresár entít s / na konci (napr. app/Entity/), v pairs glob {{entityDir}}**; {{migrationsDir}} = adresár verziovaných migrácií z migrations_paths v konfigurácii migrácií (nie config), v pairs aj migrations.paths glob {{migrationsDir}}**; ďalšie chránené vstupy migrácií len podľa pravidiel projektu.",
     "Doctrine: fullWhen = entity, repozitáre, adresár migrácií a neon s Doctrine; doctrine-schema porovnáva s lokálnou DB — pri trvalom drifte ho vypusti alebo sa opýtaj.",
     "unit a integration: init vyberie podľa phpunit.xml(.dist) — mená <testsuite> presne; bez rýchlej sady testy so skupinou integration → --exclude-group integration / --group integration; bez pomalých testov krok integration vypusti. V stop nechaj len rýchle kroky."
   ],
@@ -62,7 +62,7 @@
   "pairs": [
     {"id": "model-test", "when": ["app/models/**", "app/model/**", "app/Model/**"], "unless": "tests/**",
      "say": "Zmena modelu bez zmeny testu: spusti integračné testy (/dev:check --full) a navrhni test na zmenené správanie."},
-    {"id": "doctrine-entity-migration", "when": "{{entityGlob}}", "unless": "{{migrationsGlob}}",
+    {"id": "doctrine-entity-migration", "when": "{{entityDir}}**", "unless": "{{migrationsDir}}**",
      "say": "Zmena entity bez migrácie: spýtaj sa používateľa, či vygenerovať migráciu (migrations:diff); bez súhlasu ju nevytváraj."}
   ],
   "secrets": {
