@@ -2176,6 +2176,63 @@ t_templates_symbols() {
   [ -z "$s" ] || bad="${bad}skill menuje symbol mimo šablón: $(flat "$s"); "
   [ -z "$bad" ] || fail "$bad"
 }
+# Init bez kroku s run, ktorý pobeží: SKIP nezapíše marker a gate nemá únik → plán dá commitGate.enabled false
+# aj pri krokoch len s runFiles — zúžené ext nepokryje commit, ktorý súbor len maže (project-init krok 2, SPEC §6)
+t_init_gate_no_runnable_step() {
+  local sk="$KIT/plugins/dev/skills/project-init/SKILL.md" c f s
+  LC_ALL=C grep -q '^- \*\*Kontrola bez kroku:\*\*.*len maže.*"commitGate": {"enabled": false, …}` aj pri krokoch s `runFiles`' "$sk" &&
+    LC_ALL=C grep -q 'compose mountuje len podadresár' "$sk" ||
+    { fail "project-init: Kontrola bez kroku bez enabled false pri runFiles alebo bez mountu podadresára v otázke 1"; return 1; }
+  s=$(LC_ALL=C grep 'Kontrola bez kroku (krok 2)' "$sk")
+  case "$s" in *'`commitGate.enabled: false`'*) case "$s" in *zúž*) s="" ;; esac ;; *) s="" ;; esac
+  [ -n "$s" ] || { fail "project-init krok 3.5: SKIP bez návrhu len commitGate.enabled false"; return 1; }
+  for c in '.check.steps = [] | .lint = {}' '.check.steps |= map(select(.id == "lint"))'; do
+    new_case
+    cfg "$c"
+    case "$c" in
+      *select*) f=app/Old.php; g rm -q "$f" ;;
+      *) f=app/Foo.php; add "$f" '$f = 6;'; g add "$f" ;;
+    esac
+    check --auto --project "$REPO"
+    want_rc 4 "$c" && want_out 'quick: SKIP' "$c" || return 1
+    [ ! -e "$PDATA/pass.json" ] && [ ! -e "$PDATA/partial.json" ] || { fail "$c: SKIP zapísal pass.json alebo partial.json"; return 1; }
+    pre_bash 'git commit -m x'
+    want_decision deny "$c" && want_out "$f" "$c" && want_out 'Spusti kontrolu' "$c" && want_not 'Únik' "$c" || return 1
+    case "$c" in
+      *select*)
+        cfg "$c | .commitGate.ext = [\".php\"]"
+        pre_bash 'git commit -m x'
+        want_decision deny "$c | zúžené ext" && want_not 'Únik' "$c | zúžené ext" || return 1
+        cfg "$c | .commitGate.enabled = false"
+        pre_bash 'git commit -m x'
+        want_allow "$c | enabled false" || return 1
+        ;;
+      *)
+        cfg "$c | .commitGate.enabled = false"
+        pre_bash 'git commit -m x'
+        want_allow_cfgnote "$c | enabled false" || return 1
+        ;;
+    esac
+  done
+}
+# Init: migrácie Doctrine aj z nettrine/migrations (%appDir%); nástroj bez kroku zmizne z CLAUDE.md (SPEC §6)
+t_templates_init_doctrine_tools() {
+  local T="$KIT/plugins/dev/templates" sk="$KIT/plugins/dev/skills/project-init/SKILL.md" s w
+  s=$(LC_ALL=C grep '^| migrácie Doctrine (php-nette) |' "$sk")
+  for w in migrations_paths 'Nettrine\Migrations\DI\MigrationsExtension' 'nettrine.migrations:' 'directories:' 'directory:' \
+    '`%appDir%` = adresár s `Bootstrap.php`' 'Version<14 číslic>.php' 'pair `doctrine-entity-migration` vypusti'; do
+    case "$s" in *"$w"*) ;; *) fail "project-init: riadok migrácie Doctrine bez '$w'"; return 1 ;; esac
+  done
+  jq -e '[._init[] | select(test("^Doctrine: ") and test("nettrine.migrations") and test("directories") and test("%appDir%"))] | length == 1' \
+    "$T/php-nette/devkit.json" >/dev/null 2>&1 || { fail "_init php-nette bez pokynu nettrine/migrations"; return 1; }
+  sed -n '2,/^---$/p' "$T/php-nette/rules/db-doctrine.md" | LC_ALL=C grep -qF '"**/migrations/**"' ||
+    { fail "db-doctrine.md paths: bez **/migrations/**"; return 1; }
+  LC_ALL=C grep -q '^- \*\*Nástroje bez kroku:\*\*' "$sk" || { fail "project-init: chýba pravidlo Nástroje bez kroku"; return 1; }
+  for s in php-nette python; do
+    sed -n '1,/^-->$/p' "$T/$s/CLAUDE.md.tmpl" | LC_ALL=C grep -q '^Nástroj, ktorého krok.*init vypustil, zmaž aj bez symbolu' ||
+      { fail "$s/CLAUDE.md.tmpl: úvodný komentár bez pokynu pre nástroj bez kroku"; return 1; }
+  done
+}
 
 # ---------------------------------------------------------------- runtime host | container (B4)
 
@@ -2991,6 +3048,8 @@ t "šablóny php: guardy die, debug-php a dql-concat (->exit(, \$this->dump( nie
 t "stop-check: pairs when/unless ako zoznam globov (php-nette model-test)" t_stop_pair_glob_list
 t "NotebookEdit: matcher v hooks.json, notebook_path v on-edit (guard python .ipynb) aj pre-edit" t_notebook_edit
 t "project-init: tabuľka Zástupné symboly pokrýva všetky {{…}} šablón, bez mŕtvych symbolov" t_templates_symbols
+t "project-init: bez kroku s run SKIP bez markerov a gate bez úniku (aj git rm pri runFiles a zúženom ext) → commitGate.enabled false" t_init_gate_no_runnable_step
+t "project-init: migrácie Doctrine z nettrine/migrations (%appDir%), db-doctrine **/migrations/**, nástroj bez kroku z CLAUDE.md" t_templates_init_doctrine_tools
 t "runtime host pri nastavenom container: krok, Stop aj lint na hoste, docker vždy zlyhá; karta bez stavu kontajnera" t_runtime_host
 t "runtime: container bez kontajnera = host, neznáma hodnota → ! krok / lint do errors.log, lint ako reťazec či objekt" t_runtime_values
 t "šablóny php: guardy console-log a inner-html (console.error, innerHTML ===, .css nie)" t_templates_frontend_guards

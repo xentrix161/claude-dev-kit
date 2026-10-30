@@ -681,7 +681,16 @@ resolve check findings (`knownFailures`, baseline, `changedLinesOnly`, dropping 
    the gitignored test login file (`{{testCredentialsFile}}`; content never read, none ⇒ its template line is deleted).
    No compose (or a mount of a subdirectory only) ⇒ `container: ""`, `appRoot: ""`; the plan says that lint
    and steps run on the host and `appRoot` is unused, and shows each tool checked on the host
-   (`command -v`, `vendor/bin/<tool>`, `.venv/bin/<tool>`); a missing tool drops its step.
+   (`command -v`, `vendor/bin/<tool>`, `.venv/bin/<tool>`); a missing tool drops its step. Question 1 also
+   covers compose that mounts only a subdirectory (the kit cannot run steps there from the repo root: host, or
+   the user changes the mount to the repo root).
+   No step with `run` and mode `quick` whose tool init found ⇒ `/dev:check` ends SKIP (exit 4, neither
+   `pass.json` nor `partial.json`) and the commit gate blocks such a commit with no escape — every commit with
+   no steps; with `runFiles`-only steps every commit without an existing file of their extensions, a commit
+   that only deletes files included (steps get existing files only, the gate counts deleted ones too). The plan
+   says so, its `devkit.json` draft has `commitGate.enabled: false` also with `runFiles`-only steps (a narrowed
+   `commitGate.ext` does not cover deletion; secrets, guards, lint and Stop keep running) and question 1 offers
+   a container or host tools instead (an answer that brings such a step back sets `enabled: true`).
    Frontend (php-nette, php-symfony): `package.json` with `eslint`/`stylelint` in `dependencies` or
    `devDependencies` plus its config ⇒ step `eslint`/`stylelint` and its extensions in `commitGate.ext`;
    otherwise both are dropped without a question (a missing `node_modules` only keeps the step, `requires`
@@ -705,10 +714,20 @@ resolve check findings (`knownFailures`, baseline, `changedLinesOnly`, dropping 
    (Phinx loads it with `include`: project autoload, possibly a DB connection); a value built from a
    variable, function, constant or `getenv` is undetected ⇒ question 4 with a candidate (the directory of
    `<14 digits>_*.php` files). Without Phinx the template's `migrations.paths` stays.
+   Doctrine migrations (php-nette, config read, never run): `migrations_paths` (namespace ⇒ path) of Doctrine
+   Migrations (`migrations.php`, `.yml`, `.xml`, `.json` in the root or the `--configuration` file); for
+   nettrine/migrations the neon section that `extensions:` registers as `Nettrine\Migrations\DI\MigrationsExtension`
+   (usually `nettrine.migrations`) with `directories:` (namespace ⇒ path; older `directory:`), where `%appDir%` =
+   the directory of `Bootstrap.php` (usually `app/`), `%rootDir%` = the project root, `%wwwDir%` = the directory
+   of `index.php` (another parameter ⇒ undetected); without a config the directory of `Version<14 digits>.php`
+   files ⇒ `migrations.paths` = `<path>/**` for every path, `{{migrationsDir}}` = the first. Undetected ⇒ pair
+   `doctrine-entity-migration` is dropped and the plan says the template's `migrations.paths` stays.
    Placeholders: the skill's table „Zástupné symboly“ lists every `{{name}}` of the stack templates with
    its detection source and what to do when undetected; undetected ⇒ deleted without a question (the line,
    or the smallest part of it that needs the symbol; a version keeps the name; a `devkit.json` step or pair
-   that needs it is dropped and listed). Questions only for `{{projectDescription}}`, `{{commitStyle}}`
+   that needs it is dropped and listed). A tool whose step or lint init dropped loses its lines and mentions in
+   `CLAUDE.md.tmpl` the same way, placeholder or not (Príkazy row, Kvalita/Stack, Overovanie práce sentence).
+   Questions only for `{{projectDescription}}`, `{{commitStyle}}`
    (no usable git history), `{{container}}` (no compose) and `{{migrationsDir}}` when a Phinx config exists
    but `paths.migrations` cannot be read without running it. `{{dbContainer}}` is text in `CLAUDE.md`, not
    a `devkit.json` field. Selftest `t_templates_symbols` keeps the table complete.
@@ -724,7 +743,9 @@ resolve check findings (`knownFailures`, baseline, `changedLinesOnly`, dropping 
    project rules exclude them.
 3. Verify every check step by running it once (via the same exec logic as check.sh — call
    `bash "${CLAUDE_PLUGIN_ROOT}/scripts/check.sh" --quick --project "${CLAUDE_PROJECT_DIR}"` after writing devkit.json) and
-   record baseline failures as `knownFailures` only with user consent.
+   record baseline failures as `knownFailures` only with user consent. SKIP with the commit gate on and no
+   `quick` step with `run` that runs ⇒ the same proposal as in point 1 (`commitGate.enabled: false`, also with
+   `runFiles`-only steps), consent of phase 2.
 4. Copy template files with a header: markdown → `<!-- dev-kit: <template>/<file> @ <plugin version> -->`
    (YAML-frontmatter files get it right after the frontmatter); `.worktreeinclude` → `# dev-kit:
    <template>/<file> @ <plugin version>`; JSON (`devkit.json`, `settings.json`) → no header (`--sync`
@@ -752,7 +773,7 @@ resolve check findings (`knownFailures`, baseline, `changedLinesOnly`, dropping 
    changed is listed with its difference, never overwritten. A new `eslint`/`stylelint` step is proposed only
    when the frontend detection of point 1 finds the tool, together with its extensions for `commitGate.ext`;
    a new `tester` step only when point 1 finds Nette Tester, together with `.phpt` for `lint` and `commitGate.ext`;
-   Phinx paths of point 1 that `migrations.paths` does not cover are proposed as `<path>/**` (outside `db/`
+   Phinx or Doctrine migration paths of point 1 that `migrations.paths` does not cover are proposed as `<path>/**` (outside `db/`
    and `migrations/` also for `fullWhen`); a new `audit` step follows the detection of point 1 and is written
    only after consent to sending the package list.
    A renamed placeholder keeps its old name in the table (`entityGlob` = `{{entityDir}}**`), so the old
@@ -792,7 +813,7 @@ php-nette/rules/php-core.md      # paths: **/*.php — PHP 8.x, PSR-12, strict t
 php-nette/rules/nette.md         # paths: app/**, libs/** — presenters, DI, forms CSRF, ACL isAllowed
 php-nette/rules/latte-frontend.md# paths: **/*.latte, www/css/**, www/js/** — escaping, {!$} policy, data-bs-*, JS anchors, frontend guards and steps
 php-nette/rules/db-dibi.md       # paths: db/**, **/*Model.php, phinx.{php,json,yaml,yml} — Dibi 4+ fetch null, params, no begin/commit in models, Phinx (directory from `paths.migrations`)
-php-nette/rules/db-doctrine.md   # paths: **/Entity/**, **/Repository/**, migrations/**, app/config/*doctrine*.neon — Doctrine ORM + Migrations in Nette; copied instead of db-dibi.md
+php-nette/rules/db-doctrine.md   # paths: **/Entity/**, **/Repository/**, **/migrations/**, app/config/*doctrine*.neon — Doctrine ORM + Migrations in Nette; copied instead of db-dibi.md
 php-nette/rules/tests.md         # paths: tests/** — suites, rollback tests, credentials, verification output (PHPUnit and Nette Tester)
 php-symfony/…                    # same shape: CLAUDE.md.tmpl, devkit.json, settings.json, .worktreeinclude, rules/{php-core,symfony,twig-frontend,doctrine,api-platform,tests}.md;
                                  # devkit.json has the same frontend steps, guards, `commitGate.ext` extensions and `audit` step as php-nette

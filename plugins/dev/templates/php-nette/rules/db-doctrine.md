@@ -3,7 +3,7 @@ paths:
   - "**/Entity/**"
   - "**/Repository/**"
   - "**/*Repository.php"
-  - "migrations/**"
+  - "**/migrations/**"
   - "app/config/*doctrine*.neon"
 ---
 

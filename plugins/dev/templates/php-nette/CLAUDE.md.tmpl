@@ -17,6 +17,8 @@ a integračných testov nahraď riadkami krokov tester/integration (`{{run}}php 
 zdravý výstup `OK (N tests, S seconds)`), v Overovaní práce markTestSkipped() → Environment::skip(); PHPUnit aj Tester → oboje.
 Phinx (db:dibi, project-init krok 1): config mimo koreňa → príkaz migrácií s `-c <config>`; Dibi bez Phinx → zo Stacku
 zmaž „ · migrácie Phinx (…)“, riadok migrácií v Príkazoch a slovo Phinx v pravidle 5.
+Nástroj, ktorého krok alebo lint init vypustil, zmaž aj bez symbolu: PHPStan (v Kvalite, riadok v Príkazoch, veta o baseline),
+PHPUnit, PHPCS a latte-lint (v Kvalite, ich riadky v Príkazoch), bez kroku integration vetu za „—“ pri /dev:check --auto.
 -->
 # CLAUDE.md — {{projectName}}
 
