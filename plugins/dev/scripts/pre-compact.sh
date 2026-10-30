@@ -69,7 +69,9 @@ EOF
     fi
 
     [ -n "$facts" ] || return 0
-    printf '[dev-kit] stav session pred kompakciou (fakty pre súhrn):\n%s' "$facts" | head -n 10
+    # Cez --arg, nie jq -R z rúry: jq 1.7 tam rozbije viacbajtový znak na hranici bloku čítania.
+    out=$(printf '[dev-kit] stav session pred kompakciou (fakty pre súhrn):\n%s' "$facts" | head -n 10)
+    jq -nr --arg t "$out" "$DK_JQ_CAP"'$t | dk_cap'
     return 0
 }
 

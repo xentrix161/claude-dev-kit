@@ -2,7 +2,7 @@
 name: ecc-pr-test-analyzer
 description: "Posúdi, či testy zmeny pokrývajú zmenené správanie: chýbajúce hraničné a chybové prípady, slabé asercie, test, ktorý nemôže zlyhať, zrkadlová štruktúra. PHPUnit/pytest, read-only."
 tools: Read, Grep, Glob, Bash
-disallowedTools: Edit, Write, MultiEdit
+disallowedTools: Edit, Write, NotebookEdit
 model: sonnet
 maxTurns: 30
 ---

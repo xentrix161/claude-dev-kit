@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# SessionStart: jeden JSON objekt — additionalContext = úvodná karta (≤ 10 riadkov, kontext pre Clauda),
+# SessionStart: jeden JSON objekt — additionalContext = úvodná karta (≤ 10 riadkov, fakty pre Clauda, nie pokyny),
 # systemMessage = len upozornenia pre používateľa (plain stdout by používateľ nevidel).
 # Bez hooku: session-card.sh --record-handoff <cesta> <názov> [--project P] → last-handoff.json (/dev:handoff).
 . "$(dirname "$0")/lib.sh" || exit 0
@@ -37,9 +37,9 @@ dk_record_handoff() {
 
 dk_emit() { # <karta> <upozornenia>
     [ -n "$1$2" ] || return 0
-    jq -nc --arg c "$1" --arg w "$2" \
-        '(if $c == "" then {} else {hookSpecificOutput: {hookEventName: "SessionStart", additionalContext: $c}} end)
-         + (if $w == "" then {} else {systemMessage: $w} end)'
+    jq -nc --arg c "$1" --arg w "$2" "$DK_JQ_CAP"'
+        (if $c == "" then {} else {hookSpecificOutput: {hookEventName: "SessionStart", additionalContext: ($c | dk_cap)}} end)
+         + (if $w == "" then {} else {systemMessage: ($w | dk_cap)} end)'
 }
 
 # Verzia Claude Code staršia ako DK_MIN_CC → riadok upozornenia; `claude --version` najviac raz za deň.
@@ -149,10 +149,10 @@ EOF
             case "$DK_STACK" in
                 python*)
                     [ -d "$m/.venv" ] && [ ! -e "$DK_PROJECT/.venv" ] && \
-                        w="worktree nemá .venv/ → vytvor nový venv (uv sync alebo python3 -m venv .venv && .venv/bin/pip install -e '.[dev]')"
+                        w="worktree nemá .venv/ → nový venv: uv sync alebo python3 -m venv .venv && .venv/bin/pip install -e '.[dev]'"
                     ;;
                 *)
-                    [ -d "$m/vendor" ] && [ ! -e "$DK_PROJECT/vendor" ] && w="worktree nemá vendor/ → doplň .worktreeinclude alebo composer install"
+                    [ -d "$m/vendor" ] && [ ! -e "$DK_PROJECT/vendor" ] && w="worktree nemá vendor/ → rieši ho .worktreeinclude alebo composer install"
                     ;;
             esac
         fi
@@ -179,11 +179,11 @@ EOF
         extra="${extra}zamknutý test: $(printf '%s' "$DK_LOCK_FILES" | grep -v '^$' | tr '\n' ' ' | sed 's/ $//; s/ /, /g') (do $(dk_fmt_time "$DK_LOCK_UNTIL"))$DK_NL"
     fi
     if w=$(dk_cc_old "$today"); then extra="$extra$w$DK_NL"; warn="$warn[dev-kit] $w$DK_NL"; fi
-    # Dôvera k devkit.json (R3): len upozorní, hooky bežia ďalej.
+    # Dôvera k devkit.json (R3): len upozorní, hooky bežia ďalej. Karta fakt, výzva len pre používateľa.
     if dk_cfg_trust; then
-        w="devkit.json sa zmenil od poslednej session: $(dk_plural "$(printf '%s' "$DK_CFG_CMDS" | grep -c .)" príkaz príkazy príkazov) (lint/kroky) — skontroluj diff"
+        w="devkit.json sa zmenil od poslednej session: $(dk_plural "$(printf '%s' "$DK_CFG_CMDS" | grep -c .)" príkaz príkazy príkazov) (lint/kroky)"
         extra="$extra$w$DK_NL"
-        warn="$warn[dev-kit] $w$DK_NL"
+        warn="$warn[dev-kit] $w — skontroluj diff$DK_NL"
     fi
 
     local st branch n first rest nextra room

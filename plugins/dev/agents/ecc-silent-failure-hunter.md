@@ -2,7 +2,7 @@
 name: ecc-silent-failure-hunter
 description: "Hľadá tiché zlyhania v zmene (PHP Nette/Symfony, Python): prehltnuté výnimky, prázdny catch, operátor @, tiché fallbacky, stratená príčina chyby, neoverený null z fetch()/find(). Read-only."
 tools: Read, Grep, Glob, Bash
-disallowedTools: Edit, Write, MultiEdit
+disallowedTools: Edit, Write, NotebookEdit
 model: inherit
 maxTurns: 30
 ---

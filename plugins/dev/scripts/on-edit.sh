@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# PostToolUse (Edit|Write|MultiEdit|NotebookEdit): lint podľa prípony + guardy a tajomstvá v pridaných riadkoch. Nález → stderr + exit 2.
+# PostToolUse (Edit|Write|NotebookEdit): lint podľa prípony + guardy a tajomstvá v pridaných riadkoch. Nález → stderr + exit 2.
 # Zmenený devkit.json → stdout {"systemMessage"} raz za session.
 . "$(dirname "$0")/lib.sh" || exit 0
 DK_HOOK=on-edit

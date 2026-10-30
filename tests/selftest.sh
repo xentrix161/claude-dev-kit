@@ -143,7 +143,8 @@ run() {
   ERR=$(cat "$CASE/err")
   IN=/dev/null
   RUNDIR=""
-  if [ -n "$ICONV" ] && [ -z "$BADUTF" ] && ! iconv -f UTF-8 -t UTF-8 "$CASE/out" "$CASE/err" >/dev/null 2>&1; then
+  # Výstup iconv do súboru: macOS iconv s výstupom do /dev/null hlási pri dlhom platnom UTF-8 chybu (ENOTTY).
+  if [ -n "$ICONV" ] && [ -z "$BADUTF" ] && ! iconv -f UTF-8 -t UTF-8 "$CASE/out" "$CASE/err" > "$CASE/utf8" 2>&1; then
     BADUTF="$name.sh: $(bad_line "$CASE/out" "$CASE/err")"
   fi
 }
@@ -686,7 +687,8 @@ t_stop_partial_once() {
   session_files app/Foo.php
   stop_check
   want_rc 0 "1. Stop" && want_no_block "1. Stop" \
-    && want_json '.hookSpecificOutput.additionalContext | contains("[partial]") and contains("! tests")' "1. Stop" || return 1
+    && want_json '.hookSpecificOutput.additionalContext | contains("[partial] tieto kroky sa nedali spustiť, nie sú overené:")
+      and contains("! tests")' "1. Stop" || return 1
   want_jfile "$PDATA/sessions/$SID.stop.json" '.result == "PARTIAL"' || return 1
   local calls
   calls=$(unit_calls)
@@ -1618,7 +1620,7 @@ t_stop_removed_test_method() {
   session_files tests/FooTest.php
   stop_check
   want_rc 0 "1. Stop" && want_json '(.decision // "") != "block"
-    and (.hookSpecificOutput.additionalContext | contains("[testRemoved] tests/FooTest.php: zmazaná test metóda testB"))' "1. Stop" || return 1
+    and (.hookSpecificOutput.additionalContext | contains("[testRemoved] tests/FooTest.php: zmazaná test metóda testB — zámer s používateľom nie je overený"))' "1. Stop" || return 1
   want_not 'testA' "1. Stop" || return 1
   want_logged stop-check testRemoved warn || return 1
   stop_check true
@@ -1668,7 +1670,8 @@ t_card_worktree_venv() {
   wt_add "$wt" || return 1
   mkdir -p "$REPO/.venv" "$REPO/vendor"
   card "$wt"
-  want_rc 0 && want_out 'worktree nemá .venv/' && want_not 'worktree nemá vendor/' || return 1
+  want_rc 0 && want_out "worktree nemá .venv/ → nový venv: uv sync alebo python3 -m venv .venv" &&
+    want_not 'worktree nemá vendor/' || return 1
   case "$SYSMSG" in *'worktree nemá .venv/'*) ;; *) fail "systemMessage bez .venv/: $(flat "$RAW")" ;; esac
 }
 t_card_cc_version() {
@@ -1694,8 +1697,9 @@ t_cfg_trust() {
   want_rc 0 "check.sh po zmene" || return 1
   card
   want_rc 0 "zmena run" &&
-    want_out 'devkit.json sa zmenil od poslednej session: 1 príkaz (lint/kroky) — skontroluj diff' "zmena run" || return 1
-  case "$SYSMSG" in *'[dev-kit] devkit.json sa zmenil od poslednej session: 1 príkaz'*) ;;
+    want_out 'devkit.json sa zmenil od poslednej session: 1 príkaz (lint/kroky)' "zmena run" &&
+    want_not 'skontroluj' "zmena run (karta je fakt, výzva len v systemMessage)" || return 1
+  case "$SYSMSG" in *'[dev-kit] devkit.json sa zmenil od poslednej session: 1 príkaz (lint/kroky) — skontroluj diff'*) ;;
     *) fail "zmena run: systemMessage $(flat "$RAW")"; return 1 ;; esac
   card
   want_rc 0 "2. štart bez zmeny" && want_not 'sa zmenil' "2. štart bez zmeny" || return 1
@@ -1801,7 +1805,7 @@ t_stop_check_not_run() {
     printf '#!/usr/bin/env bash\necho "[dev-kit] atrapa check.sh"\nexit %s\n' "$c" > "$S/check.sh"
     stop_check
     want_rc 0 "exit $c" && want_no_block "exit $c" \
-      && want_json ".hookSpecificOutput.additionalContext | contains(\"kontrola sa nedala spustiť (exit $c)\") and contains(\"errors.log\")" "exit $c" \
+      && want_json ".hookSpecificOutput.additionalContext | contains(\"kontrola sa nedala spustiť (exit $c), dôvod je v \") and contains(\"errors.log\")" "exit $c" \
       || return 1
     grep -q "check.sh --stop exit $c" "$DATA/errors.log" 2>/dev/null || { fail "errors.log bez exit $c"; return 1; }
   done
@@ -2016,7 +2020,7 @@ t_stop_removed_test_file() {
   rm "$REPO/tests/FooTest.php"
   stop_check
   want_rc 0 "1. Stop" && want_json '(.decision // "") != "block"
-    and (.hookSpecificOutput.additionalContext | contains("[testRemoved] tests/FooTest.php: zmazaný testovací súbor — over s používateľom"))' \
+    and (.hookSpecificOutput.additionalContext | contains("[testRemoved] tests/FooTest.php: zmazaný testovací súbor — zámer s používateľom nie je overený"))' \
     "1. Stop" || return 1
   want_logged stop-check testRemoved warn || return 1
   stop_check true
@@ -2774,6 +2778,53 @@ t_pre_compact_facts() {
     want_not 'zamknutý test' "zámok po ttlHours" && want_not 'handoff' "handoff starší ako 24 h"
 }
 
+# B13: matcher súborových nástrojov bez legacy MultiEdit (tools-reference ho nemá) a žiadny handler s poľom if —
+# if berie jedno pravidlo bez negácie a na udalostiach mimo nástrojov (Stop, PreCompact) by hook nebežal (SPEC §0).
+t_hooks_tools_no_if() {
+  local hj="$KIT/plugins/dev/hooks/hooks.json" a
+  jq -e '[.hooks.PreToolUse[], .hooks.PostToolUse[] | select(.hooks[0].command | test("pre-edit|on-edit")) | .matcher]
+    == ["Edit|Write|NotebookEdit", "Edit|Write|NotebookEdit"]' "$hj" >/dev/null 2>&1 ||
+    { fail "hooks.json: matcher pre-edit a on-edit má byť Edit|Write|NotebookEdit"; return 1; }
+  jq -e '[.hooks[][] | .hooks[] | has("if")] | any | not' "$hj" >/dev/null 2>&1 ||
+    { fail "hooks.json: handler s poľom if"; return 1; }
+  for a in "$KIT"/plugins/dev/agents/*.md; do
+    sed -n '2,/^---$/p' "$a" | grep -qx 'disallowedTools: Edit, Write, NotebookEdit' ||
+      { fail "${a##*/}: disallowedTools má byť Edit, Write, NotebookEdit"; return 1; }
+  done
+  ! grep -rq 'MultiEdit' "$KIT/plugins/dev" 2>/dev/null || fail "MultiEdit v $(grep -rl 'MultiEdit' "$KIT/plugins/dev" | head -1)"
+}
+# B13: additionalContext karty a Stopu aj stdout PreCompact najviac 9 000 jednotiek UTF-16, potom „…“;
+# dk_cap ráta znak mimo BMP za 2 (jednotková časť priamo v jq), pre-compact bez U+FFFD (jq -R z rúry).
+cap_ok() { # <text> <popis>
+  jq -ne --arg t "$1" '$t | startswith("[dev-kit]") and endswith("…")
+    and (explode | map(if . > 65535 then 2 else 1 end) | add) <= 9000' >/dev/null 2>&1 ||
+    fail "$2: text nad 9 000 alebo bez „…“ ($(printf '%s' "$1" | wc -c | tr -d ' ') B)$(ctx)"
+}
+t_hook_text_cap() {
+  new_case
+  local long bad
+  bad=$(bash -c '. "$1" >/dev/null 2>&1 || { echo "lib.sh sa nedá načítať"; exit 0; }
+    jq -nr "$DK_JQ_CAP"'"'"'
+      ([range(5000)] | map("ab\ud83d\uded2") | add | dk_cap | explode | map(if . > 65535 then 2 else 1 end) | add) as $a
+      | ("x" * 9000 | dk_cap | length) as $b | ("x" * 9001 | dk_cap) as $c
+      | if $a <= 9000 and $b == 9000 and ($c | length) == 9000 and ($c | endswith("…")) and ("krátky" | dk_cap) == "krátky"
+        then empty else "dk_cap: emoji \($a), 9000 → \($b), 9001 → \($c | length)" end'"'"'
+  ' _ "$S/lib.sh" 2>&1)
+  [ -z "$bad" ] || { fail "$bad"; return 1; }
+  long=$(awk 'BEGIN { for (i = 0; i < 2000; i++) printf "Košík a DPH " }')
+  mkdir -p "$PDATA"
+  printf '{"time": %s, "title": "%s", "path": "docs/handoff.md"}\n' "$(now)" "$long" > "$PDATA/last-handoff.json"
+  card
+  want_rc 0 "karta" && cap_ok "$OUT" "karta" || return 1
+  pre_compact
+  want_rc 0 "pre-compact" && cap_ok "$OUT" "pre-compact" && want_not '�' "pre-compact" || return 1
+  cfg --arg s "$long" '.pairs = [{"id": "dlhy", "when": "docs/**", "say": $s}]'
+  session_files docs/handoff.md
+  stop_check
+  want_rc 0 "Stop" && want_no_block "Stop" || return 1
+  cap_ok "$(printf '%s' "$OUT" | jq -r '.hookSpecificOutput.additionalContext // empty')" "Stop"
+}
+
 # ---------------------------------------------------------------- beh
 
 N=0
@@ -2956,6 +3007,8 @@ t "check.sh --config: projekt bez devkit.json, neplatný JSON, chýbajúca hodno
 t "eval suite: prompt.md a gradery, fixture shop zo scaffold.sh (PARTIAL, commit gate, zámok testu, diff), make eval mimo check" t_evals_suite
 t "pre-compact: hooks.json PreCompact; bez devkit.json, bez jq, s neplatným configom a bez stavu session exit 0 bez výstupu" t_pre_compact_silent
 t "pre-compact: plain text (nie JSON) — súbory session (8 + ďalšie), Stop len tejto session, pass.json, zámok a handoff < 24 h" t_pre_compact_facts
+t "hooks.json: Edit|Write|NotebookEdit bez MultiEdit, žiadny handler s if; agenti bez MultiEdit" t_hooks_tools_no_if
+t "karta, Stop a pre-compact: text pre Clauda najviac 9 000 znakov UTF-16 s „…“ (dlhý handoff a say)" t_hook_text_cap
 
 wait
 for f in "$RES"/*; do

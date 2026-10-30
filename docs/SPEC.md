@@ -12,9 +12,32 @@ version is only in `plugins/dev/.claude-plugin/plugin.json`, changes per version
 - ECC source (read-only): a clone in `ECC_DIR` (default `<KIT>/../ECC`, §9) pinned at commit `b92f181`
   (2026-10-11), MIT.
 - Claude Code docs (current for v2.1.308): `hooks.md`, `hooks-guide.md`, `plugins-reference.md`,
-  `skills.md`, `sub-agents.md`, `settings.md`, `permissions.md`, `worktrees.md`, `plugin-evals.md`,
-  `statusline.md`, `memory.md`, `plugins-loading.md`.
+  `skills.md`, `sub-agents.md`, `settings.md`, `permissions.md`, `tools-reference.md`, `worktrees.md`,
+  `plugin-evals.md`, `statusline.md`, `memory.md`, `plugins-loading.md`.
   When unsure about a frontmatter key, hook field or JSON output shape: check these docs, do not guess.
+- Assumptions about Claude Code the kit relies on (verified 2026-10-30 in code.claude.com/docs, CLI 2.1.308;
+  re-check when a doc changes and fix the code, not this list):
+  1. A plugin's `settings.json` (or `settings` in `plugin.json`) applies only `agent` and `subagentStatusLine`,
+     other keys incl. `permissions` are dropped (`plugins-reference.md`) ⇒ permission templates stay in the
+     project's `.claude/settings.json` (§6, §7).
+  2. Plugin subagents ignore the `hooks`, `mcpServers` and `permissionMode` frontmatter (`sub-agents.md`) ⇒
+     kit agents use none of them; read-only comes from `tools`/`disallowedTools` and `agentReadOnly` (§4.3, §8).
+  3. Stop accepts `hookSpecificOutput.additionalContext` as non-error feedback; the conversation continues
+     under the same loop protections as `decision: "block"` (`hooks.md`, Stop decision control) ⇒ §4.6.
+  4. A handler's `if` holds exactly one permission rule (no `&&`, `||`, list; a `!` rule carves only out of
+     earlier rules of a deny/ask list) and is evaluated only on `PreToolUse`, `PostToolUse`,
+     `PostToolUseFailure`, `PermissionRequest`, `PermissionDenied`; on any other event (Stop, SessionStart,
+     PreCompact) a handler with `if` never runs (`hooks.md`, Common fields) ⇒ no `if` in hooks.json (§4).
+  5. `MultiEdit` is not a current tool (absent from `tools-reference.md`, "legacy" in `permissions.md`);
+     file edits come as `Edit`, `Write`, `NotebookEdit`, and an `Edit(path)` rule covers all three ⇒
+     matchers `Edit|Write|NotebookEdit`, agents `disallowedTools: Edit, Write, NotebookEdit`.
+  6. `CLAUDE_PLUGIN_DATA` is exported to hook commands (and MCP/LSP processes) and substituted inline in
+     plugin skill and agent Markdown, but is not in the environment of Bash tool commands
+     (`plugins-reference.md`, Environment variables) ⇒ data dir `DEVKIT_DATA` / `$HOME/.claude/dev-kit` (§2).
+  7. `additionalContext`, `systemMessage` and plain stdout of a hook are capped at 10 000 characters each;
+     longer text is replaced by a file path and a 2 000-character preview, and `additionalContext` should be
+     facts, not imperative instructions (`hooks.md`, JSON output and Add context for Claude) ⇒ `dk_cap`
+     (§4) and factual card, reminder and PreCompact lines (§4.6, §4.7, §4.10).
 - Language: everything a human or Claude reads at runtime (hook messages, skill bodies, agent prompts,
   README, templates) is **Slovak with full diacritics**. Code identifiers, commands and paths stay as is.
 - Style of user-facing output „stručne, ale úplne“ (the user's global response-style rule, restated here):
@@ -212,10 +235,10 @@ Semantics:
   "hooks": {
     "SessionStart": [{"matcher": "startup|resume|clear|compact", "hooks": [{"type": "command", "command": "bash \"${CLAUDE_PLUGIN_ROOT}/scripts/session-card.sh\"", "timeout": 10}]}],
     "PreToolUse": [
-      {"matcher": "Edit|Write|MultiEdit|NotebookEdit", "hooks": [{"type": "command", "command": "bash \"${CLAUDE_PLUGIN_ROOT}/scripts/pre-edit.sh\"", "timeout": 10}]},
+      {"matcher": "Edit|Write|NotebookEdit", "hooks": [{"type": "command", "command": "bash \"${CLAUDE_PLUGIN_ROOT}/scripts/pre-edit.sh\"", "timeout": 10}]},
       {"matcher": "Bash", "hooks": [{"type": "command", "command": "bash \"${CLAUDE_PLUGIN_ROOT}/scripts/pre-bash.sh\"", "timeout": 30}]}
     ],
-    "PostToolUse": [{"matcher": "Edit|Write|MultiEdit|NotebookEdit", "hooks": [{"type": "command", "command": "bash \"${CLAUDE_PLUGIN_ROOT}/scripts/on-edit.sh\"", "timeout": 60}]}],
+    "PostToolUse": [{"matcher": "Edit|Write|NotebookEdit", "hooks": [{"type": "command", "command": "bash \"${CLAUDE_PLUGIN_ROOT}/scripts/on-edit.sh\"", "timeout": 60}]}],
     "Stop": [{"hooks": [{"type": "command", "command": "bash \"${CLAUDE_PLUGIN_ROOT}/scripts/stop-check.sh\"", "timeout": 600}]}],
     "PreCompact": [{"hooks": [{"type": "command", "command": "bash \"${CLAUDE_PLUGIN_ROOT}/scripts/pre-compact.sh\"", "timeout": 10}]}]
   }
@@ -228,6 +251,14 @@ fields used: `session_id`, `cwd`, `hook_event_name`, `tool_name`, `tool_input.fi
 Project dir = `$CLAUDE_PROJECT_DIR`, fallback `.cwd` from input, fallback `pwd`. A cwd inside a linked
 worktree of the same repo wins over `--project`/`CLAUDE_PROJECT_DIR` (scripts called from skills and
 hooks); `--project` of another repo is honoured. Skills keep passing `--project "${CLAUDE_PROJECT_DIR}"` and need no worktree workarounds.
+No handler has an `if` field: one permission rule without negation cannot express a filter that is safe for
+every project (pre-edit guards any path — `agentReadOnly`, `forbidFiles`, locks — and on-edit scans every
+file for secrets, while the `lint` map is per project), and on Stop, SessionStart or PreCompact a handler with
+`if` would never run (§0 assumption 4). Text for Claude and the user — `additionalContext`, `systemMessage`
+of session-card and stop-check, the PreCompact stdout — goes through jq `dk_cap` (`DK_JQ_CAP`, §4.1): at most
+9 000 UTF-16 code units (a character outside the BMP counts 2), a longer text is cut and ends with `…`. Text
+reaches jq via `--arg`, never `jq -R` from a pipe (jq 1.7 breaks a multibyte character at a read-chunk
+boundary into U+FFFD).
 
 ### 4.1 `lib.sh` (sourced by all scripts)
 Functions (names fixed, other scripts depend on them):
@@ -264,7 +295,7 @@ block|deny|ask|warn|pass|skip, file, ms), `dk_err <msg>` (append to errors.log; 
 last 500 lines), `dk_now` (epoch seconds), `dk_ms` (best-effort ms: `perl -MTime::HiRes` if available else
 seconds*1000), `dk_mask <match>` (always `****`, no character of the value;
 returns 1 for a placeholder value; shared by on-edit and pre-bash), `dk_secret_scan <rel> <added-spec> <patterns>` (one `line<US>masked value`
-per added line that matches; used by on-edit), `dk_data_dir` (creates `$DK_DATA` with mode 700, §2). Shared values: `DK_RE_GITPFX`, `DK_RE_COMMIT`, `DK_RE_ADD` (§4.4), `DK_RE_INFRA`
+per added line that matches; used by on-edit), `dk_data_dir` (creates `$DK_DATA` with mode 700, §2). Shared values: `DK_JQ_CAP` (jq `def dk_cap`, §4), `DK_RE_GITPFX`, `DK_RE_COMMIT`, `DK_RE_ADD` (§4.4), `DK_RE_INFRA`
 (infrastructure errors incl. network errors of package registries, §4.5), `DK_MIN_CC` (minimum Claude Code version, §4.7).
 
 ### 4.2 `on-edit.sh` — PostToolUse (edit/write)
@@ -473,7 +504,9 @@ flags in any order; `--files` consumes paths until the next `--` flag.
      `git diff --name-only <.head> HEAD` (only when `.head` holds a commit different from HEAD), so a
      test committed in the same turn still counts.
    - Removed tests (rule `testRemoved`): a test method/function removed in a session file (diff vs HEAD,
-     e.g. `function test…` in PHP, `def test_…` in Python) ⇒ reminder naming file and test.
+     e.g. `function test…` in PHP, `def test_…` in Python) ⇒ reminder naming file and test,
+     `[testRemoved] <file>: zmazaná test metóda <name> — zámer s používateľom nie je overený`; a removed
+     committed test file ⇒ `[testRemoved] <file>: zmazaný testovací súbor — zámer s používateľom nie je overený`.
 3. Session code files = session files with extension in any `lint` key or in the `ext` of a step whose
    `modes` contain `stop` (absent `modes` = quick/full). A file checked only by quick/full steps (the
    templates' `eslint`/`stylelint` extensions `.js`, `.ts`, `.css`, `.scss`) does not start the check, and
@@ -497,9 +530,10 @@ flags in any order; `--files` consumes paths until the next `--` flag.
      says what failed and that it must be fixed before the turn ends, lists failing lines, guard findings
      (`[guard:<id>]`), reminders (`[pair:<id>]`, `[testRemoved]`) and `log: <path>`.
    - Reminders only ⇒ `{"hookSpecificOutput":{"hookEventName":"Stop","additionalContext":"<reminders>"}}`
-     (non-error feedback, no hook error shown to the user).
+     (non-error feedback, no hook error shown to the user). The kit's reminder texts are facts, not
+     instructions (§0 assumption 7); a pair's `say` is project text and passes as written. Capped by `dk_cap`.
    - Check PARTIAL (exit 4, verdict PARTIAL) ⇒ never block; add reminder `[partial] tieto kroky sa nedali
-     spustiť — netvrď, že sú overené:` followed by up to 5 `!` lines.
+     spustiť, nie sú overené:` followed by up to 5 `!` lines.
    - Track consecutive failures for the same failure hash in the session's `stop.json` (`fails`), so the same
      failure blocks at most 2× (`blok 1/2`, `blok 2/2`); when it reaches 3 (the 3× cap) ⇒ do not block, instead `{"systemMessage":"[dev-kit] kontrola stále padá (3×) — blokovanie vypnuté pre tento stav, pozri <log>; vypnutie: disabledRules stopCheck"}`
      plus `hookSpecificOutput.additionalContext` when there are reminders.
@@ -510,13 +544,14 @@ flags in any order; `--files` consumes paths until the next `--` flag.
    - `stop_hook_active` true is allowed (we cap ourselves).
 6. Container down / blocked step / nothing ran ⇒ never block on infrastructure; reminders still go out as in step 5.
    `check.sh` exit outside 0/1/4 (3 = config or arguments, 2 or ≥ 5 = the script itself failed) ⇒ no block,
-   `errors.log` entry, decision `skip` (never `pass`) and reminder `[check] kontrola sa nedala spustiť (exit N)
-   — pozri <DK_DATA>/errors.log`.
+   `errors.log` entry, decision `skip` (never `pass`) and reminder `[check] kontrola sa nedala spustiť (exit N),
+   dôvod je v <DK_DATA>/errors.log`.
 
 ### 4.7 `session-card.sh` — SessionStart (one JSON object on stdout, card ≤ 10 lines, < 1 s)
 - stdout = one JSON object: `hookSpecificOutput.additionalContext` (`hookEventName` `SessionStart`) =
-  the card (context for Claude); top-level `systemMessage` = user-facing warnings only (jq, docker,
-  container down, maintenance, worktree, Claude Code version, devkit.json change), omitted when there are none.
+  the card (context for Claude, facts without imperatives, §0 assumption 7); top-level `systemMessage` =
+  user-facing warnings only (jq, docker, container down, maintenance, worktree, Claude Code version,
+  devkit.json change), omitted when there are none. Both go through `dk_cap` (§4).
 - No jq ⇒ print a static JSON object (built without jq) whose message says `[dev-kit] chýba jq → hooky
   kitu nebežia (brew install jq)`, exit 0.
 - No config: if P has composer.json|pyproject.toml|package.json and `card-hint.<today>` absent ⇒ hint
@@ -530,8 +565,8 @@ flags in any order; `--files` consumes paths until the next `--` flag.
   2. `kontroly: /dev:check (quick) · /dev:check --full · /dev:commit`
   3. `git: <branch> · <N> zmenených súborov` + up to 3 lines of `git status --short`
   4. last handoff if < 24 h: `posledný handoff: <title> (pred <h> h) → <path>`
-  5. worktree without `vendor/` while MAIN has it ⇒ `worktree nemá vendor/ → doplň .worktreeinclude alebo composer install`;
-     stack python: worktree without `.venv/` while MAIN has it ⇒ `worktree nemá .venv/ → vytvor nový venv (…)`
+  5. worktree without `vendor/` while MAIN has it ⇒ `worktree nemá vendor/ → rieši ho .worktreeinclude alebo composer install`;
+     stack python: worktree without `.venv/` while MAIN has it ⇒ `worktree nemá .venv/ → nový venv: uv sync alebo …`
   6. maintenance, only when `<kit>/tools/upstream.sh` exists, `<kit>` = `$DK_SCRIPTS/../../..` resolved
      physically (`cd -P … && pwd`), i.e. the plugin runs in place from a kit checkout; a marketplace
      install never shows it:
@@ -543,8 +578,8 @@ flags in any order; `--files` consumes paths until the next `--` flag.
      day (result cached in `$DK_DATA`)
   9. devkit.json changed since the snapshot (`dk_cfg_trust` without `note`, §4.1; any source, the card
      neither reads nor writes `.cfgnote`) ⇒ `devkit.json sa zmenil od poslednej session: <N> príkaz|príkazy|príkazov
-     (lint/kroky) — skontroluj diff`, N = new or changed commands (0 when only other keys changed); also a
-     `systemMessage` warning. The next start without a change prints nothing.
+     (lint/kroky)`, N = new or changed commands (0 when only other keys changed); the `systemMessage` warning
+     adds ` — skontroluj diff` for the user. The next start without a change prints nothing.
 - Subcommand outside the hook (used by `/dev:handoff`): `session-card.sh --record-handoff <path> <title>
   [--project P]` (P defaults to `pwd`, stdin is not read) writes `last-handoff.json`
   `{"time":<epoch>,"title":"…","path":"…"}` for card line 4; an absolute path inside P is stored relative,
@@ -582,8 +617,8 @@ hook. Exit 0.
   - `- posledný PASS /dev:check: quick|full, <time>` — `pass.json` (§4.5)
   - `- zamknutý test (/dev:fix): <files> (do <time>)` — an active lock (`dk_lock_read`, ttl `testLock.ttlHours`)
   - `- posledný handoff: <title>, <time> → <path>` — `last-handoff.json` younger than 24 h (card line 4, §4.7)
-  `<time>` = local `dd.mm. HH:MM` (the summary may be read on another day). Reads only, writes no marker,
-  exit 0 always.
+  `<time>` = local `dd.mm. HH:MM` (the summary may be read on another day). The text goes through `dk_cap`
+  (`jq --arg`, §4). Reads only, writes no marker, exit 0 always.
 
 ## 5. Skills (`ROOT/skills/<name>/SKILL.md`)
 
@@ -790,7 +825,7 @@ user's global `CLAUDE.md` rules. Each rule file ≤ 60 lines, with a `## Pasce` 
 ## 8. Agents (`ROOT/agents/*.md`)
 
 From ECC `agents/<name>.md`, renamed `ecc-<name>`, Slovak, trimmed. Frontmatter: `name`, `description`
-(≤ 200 chars), `tools: Read, Grep, Glob, Bash`, `disallowedTools: Edit, Write, MultiEdit`, `model`
+(≤ 200 chars), `tools: Read, Grep, Glob, Bash`, `disallowedTools: Edit, Write, NotebookEdit`, `model`
 (`sonnet` for pr-test-analyzer and a11y-architect; `inherit` for silent-failure-hunter and
 performance-optimizer), `maxTurns: 30`. No `memory` (it would enable Write/Edit and create
 `.claude/agent-memory-local/` in projects); agents stay read-only, and silent-failure-hunter and

@@ -2,7 +2,7 @@
 name: ecc-a11y-architect
 description: "Audit prístupnosti WCAG 2.2 AA pre serverom renderované šablóny (Latte/Twig), formuláre, CSS a JS. Read-only, vráti číslované nálezy s číslom kritéria WCAG."
 tools: Read, Grep, Glob, Bash
-disallowedTools: Edit, Write, MultiEdit
+disallowedTools: Edit, Write, NotebookEdit
 model: sonnet
 maxTurns: 30
 ---

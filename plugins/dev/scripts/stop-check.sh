@@ -4,11 +4,12 @@
 . "$(dirname "$0")/lib.sh" || exit 0
 DK_HOOK=stop-check
 
-# Pripomienky bez chyby: additionalContext (prepis ich ukáže ako Stop hook feedback, nie ako chybu hooku).
+# Pripomienky bez chyby: additionalContext (prepis ich ukáže ako Stop hook feedback, nie ako chybu hooku);
+# texty kitu sú fakty, nie pokyny (SPEC §4.6).
 dk_remind() {
     [ -n "$1" ] || return 0
     jq -nc --arg c "[dev-kit] pripomienka pred koncom ťahu:$DK_NL$(printf '%s' "$1" | head -n 19)" \
-        '{hookSpecificOutput: {hookEventName: "Stop", additionalContext: $c}}'
+        "$DK_JQ_CAP"'{hookSpecificOutput: {hookEventName: "Stop", additionalContext: ($c | dk_cap)}}'
 }
 
 # Stav mimo súborov session, ktorý mení výsledok kontroly: devkit.json, HEAD a bloby zmenených súborov.
@@ -89,7 +90,7 @@ EOF
                     dk_git cat-file -e "HEAD:./$f" 2>/dev/null || continue
                     key="testRemoved:$f:-"
                     [ -f "$done_f" ] && grep -Fxq -- "$key" "$done_f" 2>/dev/null && continue
-                    rem="$rem- [testRemoved] $f: zmazaný testovací súbor — over s používateľom, či je to zámer$DK_NL"
+                    rem="$rem- [testRemoved] $f: zmazaný testovací súbor — zámer s používateľom nie je overený$DK_NL"
                     printf '%s\n' "$key" 2>/dev/null >> "$done_f"
                     dk_log stop-check testRemoved warn "$f"
                     continue
@@ -104,7 +105,7 @@ EOF
                     case "$DK_NL$add_n$DK_NL" in *"$DK_NL$name$DK_NL"*) continue ;; esac
                     key="testRemoved:$f:$name"
                     [ -f "$done_f" ] && grep -Fxq -- "$key" "$done_f" 2>/dev/null && continue
-                    rem="$rem- [testRemoved] $f: zmazaná test metóda $name — over s používateľom, či je to zámer$DK_NL"
+                    rem="$rem- [testRemoved] $f: zmazaná test metóda $name — zámer s používateľom nie je overený$DK_NL"
                     printf '%s\n' "$key" 2>/dev/null >> "$done_f"
                     dk_log stop-check testRemoved warn "$f"
                 done <<EOF2
@@ -161,11 +162,11 @@ EOF
             *)
                 broken=1
                 dk_err "check.sh --stop exit $crc: $(printf '%s' "$cout" | head -n 1)"
-                rem="$rem- [check] kontrola sa nedala spustiť (exit $crc) — pozri $DK_DATA/errors.log$DK_NL"
+                rem="$rem- [check] kontrola sa nedala spustiť (exit $crc), dôvod je v $DK_DATA/errors.log$DK_NL"
                 ;;
         esac
         if [ "$crc" = 4 ] && printf '%s\n' "$cout" | head -n 1 | grep -q ': PARTIAL'; then
-            rem="$rem- [partial] tieto kroky sa nedali spustiť — netvrď, že sú overené:$DK_NL$(printf '%s\n' "$cout" | grep '^! ' | head -n 5 | sed 's/^/  /')$DK_NL"
+            rem="$rem- [partial] tieto kroky sa nedali spustiť, nie sú overené:$DK_NL$(printf '%s\n' "$cout" | grep '^! ' | head -n 5 | sed 's/^/  /')$DK_NL"
         fi
 
         # 3. Guardy (súbory mohli byť zmenené aj cez Bash).
@@ -220,9 +221,9 @@ EOF
             local sm="[dev-kit] kontrola stále padá (3×) — blokovanie vypnuté pre tento stav, pozri ${logp:-$DK_PDATA/logs}; vypnutie: disabledRules stopCheck"
             if [ -n "$rem" ]; then
                 jq -nc --arg s "$sm" --arg r "[dev-kit] pripomienka pred koncom ťahu:$DK_NL$(printf '%s' "$rem" | head -n 19)" \
-                    '{systemMessage: $s, hookSpecificOutput: {hookEventName: "Stop", additionalContext: $r}}'
+                    "$DK_JQ_CAP"'{systemMessage: ($s | dk_cap), hookSpecificOutput: {hookEventName: "Stop", additionalContext: ($r | dk_cap)}}'
             else
-                jq -nc --arg s "$sm" '{systemMessage: $s}'
+                jq -nc --arg s "$sm" "$DK_JQ_CAP"'{systemMessage: ($s | dk_cap)}'
             fi
             return 0
         fi

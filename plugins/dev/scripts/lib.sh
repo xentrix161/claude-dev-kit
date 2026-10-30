@@ -25,6 +25,11 @@ DK_JQ_CMDS='def rt: if type == "object" and .runtime != null then " (\(.runtime|
     | (select(.run != null) | "krok \($id) run\(rt): \(.run|s)"),
       (select(.runFiles != null) | "krok \($id) runFiles\(rt): \(.runFiles|s)"))
 ] | unique'
+# Text hooku pre Clauda (additionalContext, systemMessage, plain stdout) ≤ 9 000 jednotiek UTF-16, potom „…“ —
+# Claude Code text nad 10 000 znakov nahradí cestou k súboru a začiatkom (SPEC §4).
+DK_JQ_CAP='def dk_cap: if length <= 4500 then . else
+  [foreach explode[] as $c (0; . + (if $c > 65535 then 2 else 1 end))] as $u
+  | if $u[-1] <= 9000 then . else .[0:($u | map(select(. < 9000)) | length)] + "…" end end;'
 
 # Začiatok príkazu (oddeľovač, obal, env priradenia) + git s globálnymi prepínačmi (SPEC §4.4).
 # Obsahujú '/', sed s nimi používa oddeľovač \001.
