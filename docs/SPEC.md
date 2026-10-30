@@ -47,6 +47,7 @@ KIT/
     skills/    <command skills> <reference skills>   (see §5)
     agents/    ecc-silent-failure-hunter.md ecc-pr-test-analyzer.md ecc-a11y-architect.md ecc-performance-optimizer.md
     templates/ common/ php-nette/ php-symfony/ python/ skills/   (see §7)
+    evals/     <case>/ (prompt.md case.yaml scaffold.sh graders/)  fixtures/   (see §9, make eval)
     LICENSES/ECC-MIT.txt
     PROVENANCE.md
   tests/selftest.sh  tests/fixtures/…   # deterministic, no docker, no network
@@ -791,7 +792,38 @@ summary line. Verify frontmatter keys in `sub-agents.md`.
 - `CHANGELOG.md`: `## 0.1.0 — 2026-10-27` initial.
 - `Makefile`: `check` (= `claude plugin validate --strict plugins/dev` + `claude plugin validate
   --strict .` + `selftest` + `details` when installed), `selftest`, `upstream`, `release
-  VERSION=x.y.z` (bump plugin.json, remind CHANGELOG, `claude plugin tag --dry-run plugins/dev`).
+  VERSION=x.y.z` (bump plugin.json, remind CHANGELOG, `claude plugin tag --dry-run plugins/dev`), `eval`
+  (= `claude plugin eval plugins/dev --ablation with-without --scaffold --allow-tools Bash Edit Write
+  $(EVAL_ARGS)`; not part of `check` — every agent run and every `llm` judge call costs tokens).
+- `plugins/dev/evals/` — eval suite of the command skills for `claude plugin eval` (docs `plugin-evals.md`).
+  A case = `<case>/prompt.md` (frontmatter: `description`, `expected_outcome`, `max_turns`,
+  `timeout_seconds`, `allowed_tools`; body: the `/dev:*` command, expanded by `claude -p`), `case.yaml`
+  (`schema_version: "1.1"`, `name`, `context.scaffold_script: scaffold.sh`), `scaffold.sh` (must live in
+  the case dir; calls `../fixtures/scaffold.sh` with its variant) and `graders/*.md` (one grader per file,
+  options in frontmatter, `llm` criteria in the body). The command skills are `disable-model-invocation`,
+  so no `tool_used: Skill`; graders on kit mechanics (`check.sh`, `test-lock.sh`, their order) are
+  `arm: with-only`:
+  | case | prompt | graded |
+  |---|---|---|
+  | `check-partial` | `/dev:check` | `check.sh` ran; reply has `PARTIAL`, no `check <mode>: PASS`; no `docker (compose) start/restart/run/up`; llm: step `integration` named, container start only proposed |
+  | `commit-no-attribution` | `/dev:commit` with the approval given in the argument | `.git/COMMIT_EDITMSG` is one line `[#12] <type>: …` (number from branch `feature/12-pocet-poloziek`) without `Co-Authored-By`/`Generated with`; no `git push`, `--no-verify`, `--amend`, `core.hooksPath`; `check.sh` before `git commit`; llm: hash + message reported |
+  | `review-format` | `/dev:review` | `git diff`/`status` ran; line `<🔴🟡🔵> N. lib/orders.sh:<line> — …` and `X critical, Y warning, Z suggestions`; no Edit; llm: `eval` injection in `orders_export` and the skipped last line in `orders_sum` found |
+  | `fix-locked-test` | `/dev:fix <bug>` | `tests/run.sh` before the `lib/price.sh` Edit, `test-lock.sh lock` before it, `check.sh --auto` after it; the pre-edit deny text of the locked test is absent from the trace; llm on `lib/price.sh`: rounds to the nearest cent; llm: cause, test, RED → GREEN |
+
+  Fixture `fixtures/` (synthetic, e-shop domain, no real data): `shop/` (bash library with `lib/`,
+  `tests/run.sh`, `.claude/devkit.json` with `container: ""` and step `unit`), `config/container.json`
+  (step `integration` in container `devkit-eval-shop`, which never runs) and `changes/<name>/` (overlay
+  left uncommitted). `fixtures/scaffold.sh [--config <c>] [--branch <b>] [--change <ch>]` copies
+  `shop/` into the empty workspace, `git init` with a repo-local identity, commits `[#11] …`, applies the
+  overlay and links `$HOME/.claude/dev-kit` (the run's own HOME) to `<workspace>/.git/dev-kit-data`: the
+  granted Bash runs in the sandbox (writes only to the workspace and its temp dir) and only an
+  allowlist plus `EVAL_*` variables reach the run (no `DEVKIT_DATA`), so this link is how `check.sh` and
+  `test-lock.sh` (Bash tool) and the hooks (outside the sandbox) share `pass.json`, `test-lock.json` and
+  `partial.json`. No `prompt.md` or `case.yaml` anywhere under `fixtures/` (it would load as a case).
+  Results go to `evals/results/` (gitignored). `--max-cost-usd 0` loads and checks every case and grader
+  without starting a run (exit 2, partial). Selftest `t_evals_suite` checks the file shape, the four
+  scaffold variants against `check.sh`, the commit gate and `pre-edit.sh`, and the grader strings that
+  depend on kit output.
 - `.github/workflows/check.yml` (GitHub Actions, on push to `main` and on pull requests, `permissions:
   contents: read`): matrix `ubuntu-latest` (bash 5, GNU tools) and `macos-latest` (`/bin/bash` 3.2 put
   first on `PATH`, BSD tools, GNU make 3.81); steps: checkout without persisted credentials, `jq` via

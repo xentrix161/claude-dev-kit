@@ -2600,6 +2600,114 @@ t_check_config_edges() {
   want_rc 0 "prázdne DEVKIT_CONFIG" && want_not 'config:' && want_jfile "$PDATA/pass.json" '.mode == "quick"'
 }
 
+# Eval suite (plugins/dev/evals, SPEC §9): tvar prípadov a graderov, fixture zo scaffold.sh prípadu a väzby
+# graderov na výstupy kitu. Beh evalu (claude plugin eval) selftest nespúšťa.
+EV="$KIT/plugins/dev/evals"
+ev_keys() { # <súbor .md> — kľúče frontmatter na prvej úrovni
+  awk 'NR == 1 { if ($0 != "---") exit; next } $0 == "---" { exit } /^[a-z_]+:/ { sub(/:.*/, ""); print }' "$1"
+}
+ev_body() { awk 'n >= 2 && NF { print } $0 == "---" { n++ }' "$1"; }
+ev_pattern() { sed -n "s/^pattern: '\\(.*\\)'\$/\\1/p" "$1"; }
+# ev_scaffold <prípad> — pracovný priestor W = $CASE/w-<prípad> s vlastným HOME ako jeden beh evalu
+ev_scaffold() {
+  W="$CASE/w-$1"
+  export HOME="$CASE/home-$1" CLAUDE_PROJECT_DIR="$CASE/w-$1"
+  REPO=$W
+  mkdir -p "$W" "$HOME"
+  (cd "$W" && bash "$EV/$1/scaffold.sh") > "$CASE/scaffold.out" 2>&1 ||
+    { fail "$1: scaffold.sh zlyhal: $(flat "$(cat "$CASE/scaffold.out")")"; return 1; }
+  [ -L "$HOME/.claude/dev-kit" ] && [ "$HOME/.claude/dev-kit" -ef "$W/.git/dev-kit-data" ] ||
+    fail "$1: \$HOME/.claude/dev-kit nevedie do .git/dev-kit-data"
+}
+t_evals_suite() {
+  new_case nocfg
+  DOCKER_OK=1
+  unset DEVKIT_DATA
+  local c f g k n=0 ty allowed
+  for c in "$EV"/*/; do
+    c=${c%/}
+    case "${c##*/}" in fixtures|mocks|results) continue ;; esac
+    n=$((n + 1))
+    for f in prompt.md case.yaml scaffold.sh; do
+      [ -f "$c/$f" ] || { fail "${c##*/}: chýba $f"; return 1; }
+    done
+    LC_ALL=C grep -qx 'schema_version: "1.1"' "$c/case.yaml" && LC_ALL=C grep -qx "name: ${c##*/}" "$c/case.yaml" &&
+      LC_ALL=C grep -qx '  scaffold_script: scaffold.sh' "$c/case.yaml" ||
+      { fail "${c##*/}/case.yaml: schema_version \"1.1\", name a context.scaffold_script"; return 1; }
+    for k in $(ev_keys "$c/prompt.md"); do
+      case " schema_version name description tags plugins runs expected_outcome model max_turns timeout_seconds allowed_tools append_system_prompt env " in
+        *" $k "*) ;;
+        *) fail "${c##*/}/prompt.md: neznámy kľúč $k"; return 1 ;;
+      esac
+    done
+    [ -n "$(ev_body "$c/prompt.md")" ] || { fail "${c##*/}/prompt.md: prázdny prompt"; return 1; }
+    set -- "$c"/graders/*.md
+    [ -f "$1" ] || { fail "${c##*/}: žiadny grader"; return 1; }
+    for g in "$@"; do
+      ty=$(sed -n 's/^type: //p' "$g")
+      case "$ty" in
+        regex) allowed="pattern flags match target"; [ -n "$(ev_pattern "$g")" ] || { fail "${g#$EV/}: chýba pattern"; return 1; } ;;
+        tool_used) allowed="tool input_match min max" ;;
+        tool_order) allowed="before after" ;;
+        file_exists) allowed="path exists" ;;
+        llm) allowed="focus"; [ -n "$(ev_body "$g")" ] || { fail "${g#$EV/}: llm bez kritérií"; return 1; } ;;
+        *) fail "${g#$EV/}: type '$ty'"; return 1 ;;
+      esac
+      for k in $(ev_keys "$g"); do
+        case " type weight arm $allowed " in *" $k "*) ;; *) fail "${g#$EV/}: kľúč $k nepatrí k $ty"; return 1 ;; esac
+      done
+    done
+  done
+  [ "$n" -ge 4 ] || { fail "evals: $n prípadov, čakal som 4"; return 1; }
+  [ -z "$(find "$EV/fixtures" -name prompt.md -o -name case.yaml)" ] ||
+    { fail "evals/fixtures: prompt.md alebo case.yaml by sa načítal ako prípad"; return 1; }
+  LC_ALL=C grep -q '^eval:' "$KIT/Makefile" && ! LC_ALL=C grep -Eq '^check:.* eval( |$)' "$KIT/Makefile" ||
+    { fail "Makefile: cieľ eval mimo make check"; return 1; }
+  LC_ALL=C grep -qF 'scripts/test-lock.sh" lock' "$KIT/plugins/dev/skills/fix/SKILL.md" &&
+    LC_ALL=C grep -qF 'scripts/check.sh" --auto' "$KIT/plugins/dev/skills/fix/SKILL.md" ||
+    { fail "fix/SKILL.md: príkazy nesedia s gradermi fix-locked-test (test-lock.sh\" lock, check.sh\" --auto)"; return 1; }
+
+  ev_scaffold check-partial || return 1
+  check --quick --project "$W"
+  want_rc 4 check-partial && want_out 'check quick: PARTIAL · 1 ok' && want_out '! integration: kontajner devkit-eval-shop nebeží' &&
+    want_out "$(ev_pattern "$EV/check-partial/graders/verdict-partial.md")" || return 1
+  ls "$W"/.git/dev-kit-data/projects/*/partial.json >/dev/null 2>&1 || { fail "check-partial: partial.json mimo .git/dev-kit-data"; return 1; }
+
+  ev_scaffold commit-no-attribution || return 1
+  [ "$(git -C "$W" branch --show-current)" = feature/12-pocet-poloziek ] &&
+    [ "$(git -C "$W" status --porcelain | tr '\n' '|')" = ' M lib/cart.sh| M tests/test_cart.sh|' ] ||
+    { fail "commit-no-attribution: vetva alebo zmeny: $(flat "$(git -C "$W" status --porcelain -b)")"; return 1; }
+  check --auto --project "$W" --files lib/cart.sh tests/test_cart.sh
+  want_rc 0 commit-no-attribution || return 1
+  printf '%s\n' "$OUT" | LC_ALL=C grep -Eq "$(ev_pattern "$EV/check-partial/graders/no-pass-claim.md")" ||
+    { fail "no-pass-claim nechytí verdikt PASS z check.sh$(ctx)"; return 1; }
+  g add lib/cart.sh tests/test_cart.sh
+  pre_bash 'git commit -m "[#12] feat: cart_item_count v košíku"'
+  want_rc 0 "commit gate po PASS" && want_no_stdout "commit gate po PASS" || return 1
+  git -C "$W" commit -qm '[#12] feat: cart_item_count v košíku' &&
+    LC_ALL=C grep -Eq '^\[#12\] feat: [^[:space:]]' "$W/.git/COMMIT_EDITMSG" ||
+    { fail "commit-no-attribution: .git/COMMIT_EDITMSG"; return 1; }
+
+  ev_scaffold fix-locked-test || return 1
+  [ -z "$(git -C "$W" status --porcelain)" ] || { fail "fix-locked-test: necommitnuté zmeny po scaffold"; return 1; }
+  printf '%s\n' 'assert_eq 239 "$(price_with_vat 199)" "price_with_vat 199"' >> "$W/tests/test_price.sh"
+  check --quick --project "$W"
+  want_rc 1 "fix-locked-test: repro" && want_out "not ok - price_with_vat 199: čakal som '239', dostal som '238'" || return 1
+  run test-lock lock tests/test_price.sh --project "$W"
+  want_out 'test zamknutý: tests/test_price.sh' || return 1
+  pre_edit tests/test_price.sh
+  want_decision deny "fix-locked-test: zámok" &&
+    want_out "$(ev_pattern "$EV/fix-locked-test/graders/test-untouched.md")" "fix-locked-test: test-untouched" || return 1
+  sed 's|net \* (100 + VAT_PERCENT) / 100|(net * (100 + VAT_PERCENT) + 50) / 100|' "$W/lib/price.sh" > "$CASE/price.sh" &&
+    mv "$CASE/price.sh" "$W/lib/price.sh"
+  check --auto --project "$W"
+  want_rc 0 "fix-locked-test: oprava" || return 1
+
+  ev_scaffold review-format || return 1
+  [ "$(git -C "$W" diff --name-only)" = lib/orders.sh ] && git -C "$W" diff | LC_ALL=C grep -qF '+    eval "grep' ||
+    fail "review-format: diff lib/orders.sh s eval"
+}
+
 # ---------------------------------------------------------------- beh
 
 N=0
@@ -2779,6 +2887,7 @@ t "check.sh: audit — abandoned ostáva FAIL, Ignore reason a blok bez id, tabu
 t "šablóny: krok audit len vo full so súhlasom v pláne initu; review a production-audit odkazujú na krok" t_templates_audit
 t "check.sh --config / DEVKIT_CONFIG: kópia s container \"\" beží na hoste, bez pass.json a partial.json, Stop berie config projektu" t_check_config
 t "check.sh --config: projekt bez devkit.json, neplatný JSON, chýbajúca hodnota, ten istý súbor a prázdne DEVKIT_CONFIG → markery" t_check_config_edges
+t "eval suite: prompt.md a gradery, fixture shop zo scaffold.sh (PARTIAL, commit gate, zámok testu, diff), make eval mimo check" t_evals_suite
 
 wait
 for f in "$RES"/*; do

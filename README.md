@@ -131,6 +131,10 @@ make check                                        # validate --strict, selftest,
 - **Hlučné pravidlo:** oprav vzor alebo prah v šablóne kitu, pridaj prípad do `tests/selftest.sh` a v projektoch spusti `/dev:project-init --sync`.
 - **Claude Code:** po `claude update` spusti `make check`. Ak novú funkciu Claude Code zvládne sám, príslušný kus kitu zruš.
 - **ECC:** raz mesačne `make upstream` (karta to pripomenie po 30 dňoch, len keď plugin beží z pracovnej kópie kitu) vypíše zmenené prevzaté kusy. Zmeny preber ručne a posuň pin v `plugins/dev/PROVENANCE.md`. Klon ECC hľadá v `ECC_DIR`, predvolene `<KIT>/../ECC` (vedľa pracovnej kópie kitu).
+- **Eval suite:** pred vydaním a po zmene skillov `check`, `commit`, `review` alebo `fix` spusti `make eval`. Štyri prípady v `plugins/dev/evals/` bežia nad syntetickým projektom v dočasnom adresári, každý 3× s kitom a 3× bez neho, Bash v sandboxe. Každý beh agenta aj sudca `llm` graderov stojí tokeny, preto eval nie je v `make check`.
+  - Tabuľka: `WITH` je skóre s kitom (cieľ 1.00), `W/OUT` ten istý prompt bez kitu, `Δ` rozdiel. Príkazy `/dev:*` bez kitu neexistujú, takže bez neho prejdú len gradery typu „niečo sa nestalo“ (žiadny push, žiadne PASS). O výsledku preto rozhoduje `WITH`; `Δ` blízko nuly znamená, že prípad netestuje kit a treba ho sprísniť.
+  - Prípad pod prahom (`--threshold`, predvolene 1.0) skončí `make` chybou. Padnuté gradery s vysvetlením ukáže `plugins/dev/evals/results/<čas>/report.html`, rovnaké dáta pre skripty sú v `aggregate-result.json`.
+  - Voľby cez `EVAL_ARGS`, napr. ladenie jedného prípadu `EVAL_ARGS="--case check-partial --runs 1 --ablation none"`, súbežnosť `-j 4`, pevný model `--model …`. Pri podozrivom FAIL `llm` gradera zopakuj so silnejším sudcom `--judge-model sonnet`. Report sa predvolene zverejní ako súkromný artifact na claude.ai, `--no-publish` ho nechá len lokálne. `EVAL_ARGS="--max-cost-usd 0"` len načíta a skontroluje súbory suite, nespustí ani jeden beh.
 
 ### Vydanie
 

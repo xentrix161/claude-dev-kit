@@ -6,8 +6,9 @@ PLUGIN = plugins/dev
 MANIFEST = $(PLUGIN)/.claude-plugin/plugin.json
 BUDGET ?= 3000
 VERSION ?=
+EVAL_ARGS ?=
 
-.PHONY: help check validate selftest details upstream release
+.PHONY: help check validate selftest details upstream release eval
 
 help:
 	@echo "make check                   validate --strict (plugin + marketplace) + selftest + details"
@@ -15,6 +16,7 @@ help:
 	@echo "make selftest                tests/selftest.sh (bez dockeru a siete)"
 	@echo "make details                 inventár a always-on tokeny pracovnej kópie (limit $(BUDGET))"
 	@echo "make upstream                zmeny prevzatých kusov ECC voči origin/main (P3)"
+	@echo "make eval [EVAL_ARGS=…]      eval suite príkazov /dev:* (claude plugin eval, stojí tokeny; nie je v make check)"
 	@echo "make release VERSION=x.y.z   verzia v plugin.json + validate + tag dry-run"
 
 check: validate selftest details
@@ -31,6 +33,10 @@ selftest:
 # Pracovná kópia cez --plugin-dir: funguje aj bez inštalácie a ukazuje práve upravený stav.
 details:
 	@CLAUDE="$(CLAUDE)" BUDGET="$(BUDGET)" bash tools/details.sh $(PLUGIN)
+
+# Eval suite plugins/dev/evals: model aj sudca stoja tokeny, preto nie je v check (README, Údržba).
+eval:
+	$(CLAUDE) plugin eval $(PLUGIN) --ablation with-without --scaffold --allow-tools Bash Edit Write $(EVAL_ARGS)
 
 upstream:
 	@bash tools/upstream.sh

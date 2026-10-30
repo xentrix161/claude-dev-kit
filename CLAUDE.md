@@ -25,10 +25,12 @@ Spúšťaj z koreňa repa.
 | jeden prípad | `bash tests/selftest.sh <podreťazec názvu>` | `PASS N/N` |
 | manifesty a frontmatter | `make validate` | `✔ Validation passed` (2×) |
 | rozpočet kontextu | `make details` | `[dev-kit] always-on ~N tok. ≤ 3000 …` |
+| eval suite (pred vydaním) | `make eval` | tabuľka `WITH · W/OUT · Δ`, `WITH` 1.00 |
 | vydanie | `make release VERSION=x.y.z` | postup v `README.md`, sekcia Vydanie |
 
 - `FAIL N/M`, `not ok - …` alebo chyba validate = nie je hotovo.
 - `SKIP` ani `PARTIAL` v `/dev:check` nie je PASS — povedz to výslovne.
+- `make eval` stojí tokeny — spúšťaj ho len na pokyn používateľa.
 
 ## Overovanie práce
 
@@ -47,6 +49,7 @@ plugins/dev/scripts/              lib.sh (spoločné funkcie) + skript na každ�
 plugins/dev/skills/               príkazy /dev:* a referenčné skilly
 plugins/dev/agents/               read-only agenti
 plugins/dev/templates/            šablóny projektov (<stack>/, common/, skills/ = vrstva B)
+plugins/dev/evals/                eval suite príkazov /dev:* nad syntetickým projektom (make eval)
 plugins/dev/PROVENANCE.md         kusy prevzaté z ECC s pinom
 tests/selftest.sh                 kontrakty skriptov, každý prípad vo vlastnom git repe
 tools/                            details.sh (rozpočet), upstream.sh (ECC)

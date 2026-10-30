@@ -1,0 +1,23 @@
+{
+  "version": 1,
+  "stack": "shell",
+  "container": "",
+  "lint": {
+    ".sh": ["bash -n {file}"]
+  },
+  "lintChangedLinesOnly": false,
+  "check": {
+    "steps": [
+      {"id": "unit", "run": "bash tests/run.sh", "ext": [".sh"], "modes": ["stop", "quick", "full"]}
+    ]
+  },
+  "guards": [],
+  "pairs": [
+    {"id": "lib-test", "when": "lib/**", "unless": "tests/**",
+     "say": "Zmena knižnice bez zmeny testov: navrhni používateľovi test, nepridávaj ho sám."}
+  ],
+  "secrets": {"allow": [], "forbidFiles": []},
+  "stopCheck": true,
+  "commitGate": {"enabled": true, "ext": [".sh"]},
+  "disabledRules": []
+}
