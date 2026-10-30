@@ -2186,6 +2186,119 @@ t_runtime_values() {
   [ "$(unit_calls)" = 1 ] || fail "neznámy runtime: unit bežal"
 }
 
+# ---------------------------------------------------------------- frontend lint (B5)
+
+# Guardy console-log a inner-html šablón php-nette a php-symfony cez on-edit: console.error, porovnanie
+# innerHTML (==, ===) ani textContent nie sú nález; .css s rovnakým textom nie.
+t_templates_frontend_guards() {
+  local stack want got
+  for stack in php-nette php-symfony; do
+    new_case
+    cfg --slurpfile t "$KIT/plugins/dev/templates/$stack/devkit.json" '.guards = $t[0].guards' || return 1
+    put www/js/app.js '// app'
+    g add -A && g commit -qm js || { fail "fixture: commit js"; return 1; }
+    add www/js/app.js "$(printf '%s\n' 'console.log(x);' 'console.error(x);' 'el.innerHTML = html;' 'el.innerHTML += row;' \
+      "if (el.innerHTML === '') {}" 'if (el.innerHTML == x) {}' 'el.textContent = text;' 'logger.debug(x);' \
+      'el.innerHTML=html;' 'console.debug(x)')"
+    on_edit www/js/app.js
+    want_rc 2 "$stack .js" || return 1
+    want="www/js/app.js:10 guard:inner-html|www/js/app.js:11 guard:console-log|www/js/app.js:2 guard:console-log|www/js/app.js:4 guard:inner-html|www/js/app.js:5 guard:inner-html|"
+    got=$(printf '%s\n' "$ERR" | LC_ALL=C sed -n 's/^\(www\/js\/app\.js:[0-9]*\) — .*\[\(guard:[a-z-]*\)\]$/\1 \2/p' |
+      LC_ALL=C sort | LC_ALL=C tr '\n' '|')
+    [ "$got" = "$want" ] || { fail "$stack: nálezy '$got', čakal som '$want'$(ctx)"; return 1; }
+    put assets/app.ts 'console.debug(1);'
+    on_edit assets/app.ts
+    want_rc 2 "$stack .ts" && want_err 'assets/app.ts:1 — ' "$stack .ts" && want_err '[guard:console-log]' "$stack .ts" || return 1
+    put www/css/app.css '/* console.log(x); el.innerHTML = x; */'
+    on_edit www/css/app.css
+    want_rc 0 "$stack .css" || return 1
+  done
+}
+# Kroky eslint a stylelint šablóny: rovnaké v php-nette aj php-symfony, bežia na hoste (docker vždy zlyhá),
+# dostanú len zmenené súbory svojich prípon; nález eslint → FAIL; bez node_modules → – chýba (SPEC §7)
+t_templates_frontend_steps() {
+  local T="$KIT/plugins/dev/templates" s
+  s=$(jq -rn --slurpfile n "$T/php-nette/devkit.json" --slurpfile y "$T/php-symfony/devkit.json" '
+    def fe: {steps: [.check.steps[] | select(.id == "eslint" or .id == "stylelint")],
+      guards: [.guards[] | select(.id == "console-log" or .id == "inner-html")],
+      gate: [.commitGate.ext[] | select(IN(".js", ".ts", ".css", ".scss"))]};
+    ($n[0] | fe) as $a | ($y[0] | fe) as $b
+    | if $a != $b then "php-nette a php-symfony sa líšia"
+      elif ($a.steps | length) != 2 or ($a.guards | length) != 2 or ($a.gate | length) != 4 then "chýba krok, guard alebo prípona: \($a | tojson)"
+      elif any($a.steps[]; .runtime != "host" or (.requires | startswith("node_modules/.bin/") | not)) then "krok bez runtime host alebo requires node_modules/.bin/"
+      else empty end' 2>&1)
+  [ -z "$s" ] || { fail "šablóny: $s"; return 1; }
+  new_case
+  DOCKER_OK=1
+  docker_always_fails || return 1
+  cfg --slurpfile t "$T/php-nette/devkit.json" \
+    '.container = "app-php" | .check.steps = [$t[0].check.steps[] | select(.id == "eslint" or .id == "stylelint")]' || return 1
+  printf 'node_modules/\n' >> "$REPO/.git/info/exclude"
+  mkdir -p "$REPO/node_modules/.bin"
+  cat > "$REPO/node_modules/.bin/eslint" <<'EOF'
+#!/bin/sh
+# atrapa: argumenty do .marks/<nástroj>.calls, LINTERR → nález vo formáte stylish
+mkdir -p .marks
+printf '%s\n' "$*" >> ".marks/${0##*/}.calls"
+r=0
+for f in "$@"; do
+  case "$f" in -*) continue ;; esac
+  n=$(grep -n LINTERR "$f" | head -n 1 | cut -d: -f1)
+  [ -z "$n" ] || { printf '%s\n  %s:1  error  stub LINTERR  stub/rule\n' "$PWD/$f" "$n"; r=1; }
+done
+exit $r
+EOF
+  cp "$REPO/node_modules/.bin/eslint" "$REPO/node_modules/.bin/stylelint" &&
+    chmod +x "$REPO/node_modules/.bin/eslint" "$REPO/node_modules/.bin/stylelint" || { fail "fixture: atrapy node_modules"; return 1; }
+  put www/js/app.js 'var a = 1;'
+  put assets/app.ts 'let b = 2;'
+  put www/css/app.css 'a { color: red; }'
+  put assets/app.scss '$c: 1;'
+  add app/Foo.php '$x = 1;'
+  check --quick --project "$REPO"
+  want_rc 0 "quick" && want_out '✓ eslint' "quick" && want_out '✓ stylelint' "quick" || return 1
+  s=$(cat "$REPO/.marks/eslint.calls" 2>&1)
+  [ "$s" = "assets/app.ts www/js/app.js" ] || { fail "eslint argumenty: '$(flat "$s")'"; return 1; }
+  s=$(cat "$REPO/.marks/stylelint.calls" 2>&1)
+  [ "$s" = "--allow-empty-input --formatter unix assets/app.scss www/css/app.css" ] || { fail "stylelint argumenty: '$(flat "$s")'"; return 1; }
+  [ ! -s "$CASE/docker.calls" ] || { fail "host kroky volali docker: $(flat "$(docker_calls)")"; return 1; }
+  add www/js/app.js 'x(); // LINTERR'
+  check --quick --project "$REPO"
+  want_rc 1 "nález" && want_out '✗ eslint' "nález" && want_out '✓ stylelint' "nález" && want_out 'stub LINTERR' "nález" || return 1
+  rm -rf "$REPO/node_modules"
+  check --quick --project "$REPO"
+  want_rc 4 "bez node_modules" && want_out '– eslint: chýba node_modules/.bin/eslint' "bez node_modules" \
+    && want_out '– stylelint: chýba node_modules/.bin/stylelint' "bez node_modules"
+}
+
+# Prípona len z kroku quick/full (ako stylelint v šablónach) Stop nespustí; commit gate ju ráta ďalej
+# (kódové prípony = lint ∪ ext všetkých krokov). Súbor .php v session spustí Stop ako doteraz (SPEC §4.6 bod 3).
+t_stop_ext_quick_full_only() {
+  new_case
+  cfg '.check.steps += [{"id": "css", "requires": "bin/fake-ok", "runFiles": "sh bin/fake-ok css {files}",
+    "ext": [".css"], "modes": ["quick", "full"]}] | del(.commitGate.ext)'
+  fail_unit 'Tests\X::testY'
+  put www/css/app.css 'a { color: red; }'
+  on_edit www/css/app.css
+  want_allow "on-edit .css" || return 1
+  stop_check
+  want_rc 0 "Stop len .css" && want_silent "Stop len .css" || return 1
+  [ "$(unit_calls)" = 0 ] || { fail "Stop len .css spustil kontrolu (unit $(unit_calls)×)"; return 1; }
+  ! ls "$PDATA"/logs/check-stop-* >/dev/null 2>&1 || { fail "Stop len .css spustil check.sh --stop"; return 1; }
+  [ ! -f "$PDATA/sessions/$SID.stop.json" ] || { fail "Stop len .css zapísal stop.json"; return 1; }
+  g add www/css/app.css
+  pre_bash 'git commit -m "css"'
+  want_decision deny "commit gate .css bez PASS" && want_out 'www/css/app.css' "commit gate .css bez PASS" || return 1
+  check --quick --project "$REPO"
+  want_rc 1 "quick" && want_out '✓ css' "quick" || return 1
+  add app/Foo.php '$p = 1;'
+  on_edit app/Foo.php
+  want_allow "on-edit .php" || return 1
+  stop_check
+  want_rc 0 "Stop s .php" && want_json '.decision == "block" and (.reason | contains("unit"))' "Stop s .php" || return 1
+  [ "$(unit_calls)" = 2 ] || fail "Stop s .php: unit $(unit_calls)×, čakal som 2 (quick + Stop)"
+}
+
 # ---------------------------------------------------------------- beh
 
 N=0
@@ -2353,6 +2466,9 @@ t "NotebookEdit: matcher v hooks.json, notebook_path v on-edit (guard python .ip
 t "project-init: tabuľka Zástupné symboly pokrýva všetky {{…}} šablón, bez mŕtvych symbolov" t_templates_symbols
 t "runtime host pri nastavenom container: krok, Stop aj lint na hoste, docker vždy zlyhá; karta bez stavu kontajnera" t_runtime_host
 t "runtime: container bez kontajnera = host, neznáma hodnota → ! krok / lint do errors.log, lint ako reťazec či objekt" t_runtime_values
+t "šablóny php: guardy console-log a inner-html (console.error, innerHTML ===, .css nie)" t_templates_frontend_guards
+t "šablóny php: kroky eslint a stylelint na hoste, len ich prípony, nález → FAIL, bez node_modules → chýba" t_templates_frontend_steps
+t "stop-check: prípona len z kroku quick/full (.css) Stop nespustí, commit gate ju ráta; .php → kontrola beží" t_stop_ext_quick_full_only
 
 wait
 for f in "$RES"/*; do

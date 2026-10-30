@@ -14,7 +14,8 @@ DK_JQ_DEFS='def s: if . == null then "" elif type == "string" then gsub("[\n\r\u
 def gl: if type == "array" then map(s) | join("\u001e") else s end;
 def base: "C\u001f\(.container|s)", "A\u001f\(.appRoot|s)", "K\u001f\(.stack|s)",
   ((.disabledRules // []) | .[] | "D\u001f\(.|s)"),
-  "X\u001f\([(.lint // {} | keys[]), ((.check.steps // [])[] | (.ext // [])[])] | unique | join(","))";'
+  "X\u001f\([(.lint // {} | keys[]), ((.check.steps // [])[] | (.ext // [])[])] | unique | join(","))",
+  "Y\u001f\([(.lint // {} | keys[]), ((.check.steps // [])[] | select(any((.modes // ["quick","full"])[]?; . == "stop")) | (.ext // [])[])] | unique | join(","))";'
 
 # Začiatok príkazu (oddeľovač, obal, env priradenia) + git s globálnymi prepínačmi (SPEC §4.4).
 # Obsahujú '/', sed s nimi používa oddeľovač \001.
@@ -177,7 +178,7 @@ dk_set_project() {
     fi
     DK_DISABLED_LOADED=""
     DK_CONTAINER_STATE=""
-    DK_BASE_LOADED="" DK_CONTAINER="" DK_APPROOT="" DK_STACK="" DK_CODE_EXTS=""
+    DK_BASE_LOADED="" DK_CONTAINER="" DK_APPROOT="" DK_STACK="" DK_CODE_EXTS="" DK_STOP_EXTS=""
     return 0
 }
 
@@ -241,7 +242,7 @@ dk_cfg_read() {
         dk_err "neplatný alebo nečitateľný $DK_CFG"
         return 1
     }
-    DK_CONTAINER="" DK_APPROOT="" DK_STACK="" DK_DISABLED="" DK_CODE_EXTS=""
+    DK_CONTAINER="" DK_APPROOT="" DK_STACK="" DK_DISABLED="" DK_CODE_EXTS="" DK_STOP_EXTS=""
     DK_DISABLED_LOADED=1 DK_BASE_LOADED=1
     while IFS=$DK_US read -r tag a; do
         case "$tag" in
@@ -250,6 +251,7 @@ dk_cfg_read() {
             K) DK_STACK=$a ;;
             D) DK_DISABLED="$DK_DISABLED$a$DK_NL" ;;
             X) DK_CODE_EXTS=$a ;;
+            Y) DK_STOP_EXTS=$a ;;
         esac
     done <<EOF
 $DK_CFG_OUT
@@ -286,12 +288,16 @@ dk_ext() {
     esac
 }
 
-dk_is_code() { # <rel> — prípona je v lint kľúčoch alebo v ext niektorého kroku
-    local e
+# <rel> [stop] — prípona je v lint kľúčoch alebo v ext niektorého kroku; „stop“ berie ext len krokov
+# s mode stop, takže súbory, ktoré kontrolujú len kroky quick/full, Stop nespustia (SPEC §4.6).
+dk_is_code() {
+    local e x
     e=$(dk_ext "$1")
     [ -n "$e" ] || return 1
     dk_base
-    case ",$DK_CODE_EXTS," in *",$e,"*) return 0 ;; esac
+    x=$DK_CODE_EXTS
+    [ "${2:-}" = stop ] && x=$DK_STOP_EXTS
+    case ",$x," in *",$e,"*) return 0 ;; esac
     return 1
 }
 
@@ -551,13 +557,13 @@ dk_session_committed() {
     return 0
 }
 
-# Existujúce súbory session s príponou kódu.
+# Existujúce súbory session s príponou kódu pre Stop (dk_is_code … stop).
 dk_session_code_files() {
     local sf f
     sf=$(dk_session_file)
     [ -f "$sf" ] || return 0
     while IFS= read -r f; do
-        [ -n "$f" ] && [ -f "$DK_PROJECT/$f" ] && dk_is_code "$f" && printf '%s\n' "$f"
+        [ -n "$f" ] && [ -f "$DK_PROJECT/$f" ] && dk_is_code "$f" stop && printf '%s\n' "$f"
     done < "$sf"
     return 0
 }

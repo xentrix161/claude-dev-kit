@@ -13,6 +13,7 @@ paths:
 - Texty cez `|trans` / `{% trans %}` a `translations/`, ak projekt prekladá.
 - Formuláre cez `form_start`/`form_row`/`form_end` (CSRF token, label, chyby); ručný `<form>` potrebuje `csrf_token()` sám.
 - Bez `{{ dump() }}` a `{% dump %}` v commitnutých šablónach.
+- `console.log`/`console.debug` a priradenie do `innerHTML` v `.js`/`.ts` hook hlási (guardy `console-log`, `inner-html`); text vkladaj cez `textContent`.
 - Logika patrí do controllera alebo Twig extension, nie do šablóny (žiadne dotazy ani zložité výpočty).
 - AssetMapper: balíky cez `importmap:require`; `assets/vendor/` je stiahnutý vendor — needituje sa.
 - Nové CSS cez existujúce tokeny projektu (CSS premenné), nie magické čísla; nový `!important` len s dôvodom.
@@ -22,6 +23,7 @@ paths:
 ## Overenie
 
 - `bin/console lint:twig templates` → `[OK] All … Twig files contain valid syntax.` (po edite `.twig` beží na súbor sám).
+- Má projekt eslint či stylelint, `/dev:check` ich púšťa nad zmenenými `.js`/`.ts`, resp. `.css`/`.scss` (kroky `eslint`, `stylelint`).
 - Vizuálna zmena: hard reload v prehliadači a preklik dotknutej stránky alebo formulára.
 
 ## Pasce

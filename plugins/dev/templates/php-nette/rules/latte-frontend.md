@@ -19,6 +19,8 @@ paths:
 - Bootstrap 5 používa `data-bs-*` (`data-bs-toggle`, `data-bs-target`); BS4 zápis `data-toggle` ticho nefunguje. Verziu over v layoute.
 - Nenačítavaj dve verzie Bootstrapu ani jQuery naraz — pluginy sa bijú.
 - Poradie `<script>` v layoute nemeň (`defer`, presun na koniec `body`) bez overenia — inicializácie závisia od poradia.
+- `console.log`/`console.debug` a priradenie do `innerHTML` v `.js`/`.ts` hook hlási (guardy `console-log`, `inner-html`); text vkladaj cez `textContent`.
+- Má projekt eslint či stylelint, `/dev:check` ich púšťa nad zmenenými `.js`/`.ts`, resp. `.css`/`.scss` (kroky `eslint`, `stylelint`).
 
 ## JS kotvy
 

@@ -104,7 +104,7 @@ fi
 dk_tmpdir
 if [ "$mode" = stop ]; then
     if [ "$files_set" = 1 ]; then
-        HF=$(printf '%s' "$EXIST" | while IFS= read -r f; do [ -n "$f" ] && dk_is_code "$f" && printf '%s\n' "$f"; done)
+        HF=$(printf '%s' "$EXIST" | while IFS= read -r f; do [ -n "$f" ] && dk_is_code "$f" stop && printf '%s\n' "$f"; done)
     else
         HF=$(dk_session_code_files)
     fi
@@ -132,15 +132,16 @@ dk_env_check() { # kontajner + workdir raz pre všetky kroky
     return 0
 }
 
-dk_files_for() { # <ext-csv> → existujúce súbory s danou príponou (prázdne csv = kódové, dk_is_code)
-    local f e
+dk_files_for() { # <ext-csv> → existujúce súbory s danou príponou (prázdne csv = kódové, v stop kódové pre Stop)
+    local f e sc=""
+    [ "$mode" = stop ] && sc=stop
     while IFS= read -r f; do
         [ -n "$f" ] || continue
         if [ -n "$1" ]; then
             e=$(dk_ext "$f")
             case ",$1," in *",$e,"*) ;; *) continue ;; esac
         else
-            dk_is_code "$f" || continue
+            dk_is_code "$f" $sc || continue
         fi
         printf '%s\n' "$f"
     done <<EOF

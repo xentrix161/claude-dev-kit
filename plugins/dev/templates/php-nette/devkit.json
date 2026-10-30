@@ -4,7 +4,8 @@
     "DB vrstva (krok 1): položky s id doctrine-* len pri Doctrine; Dibi projekt ich nedostane.",
     "Doctrine: {{schemaValidateCmd}} = doctrine:schema:validate alebo pri nettrine orm:validate-schema; {{entityDir}} = adresár entít s / na konci (napr. app/Entity/), v pairs glob {{entityDir}}**; {{migrationsDir}} = adresár verziovaných migrácií z migrations_paths v konfigurácii migrácií (nie config), v pairs aj migrations.paths glob {{migrationsDir}}**; ďalšie chránené vstupy migrácií len podľa pravidiel projektu.",
     "Doctrine: fullWhen = entity, repozitáre, adresár migrácií a neon s Doctrine; doctrine-schema porovnáva s lokálnou DB — pri trvalom drifte ho vypusti alebo sa opýtaj.",
-    "unit a integration: init vyberie podľa phpunit.xml(.dist) — mená <testsuite> presne; bez rýchlej sady testy so skupinou integration → --exclude-group integration / --group integration; bez pomalých testov krok integration vypusti. V stop nechaj len rýchle kroky."
+    "unit a integration: init vyberie podľa phpunit.xml(.dist) — mená <testsuite> presne; bez rýchlej sady testy so skupinou integration → --exclude-group integration / --group integration; bez pomalých testov krok integration vypusti. V stop nechaj len rýchle kroky.",
+    "Frontend: krok eslint a prípony .js, .ts v commitGate.ext ponechaj len keď package.json má eslint (dependencies/devDependencies) a projekt má jeho config; rovnako stylelint s .css, .scss; inak krok aj prípony vypusť bez otázky. runtime host = Node na hostiteľovi; Node len v kontajneri z poľa container → runtime vypusť. eslint bez changedLinesOnly (výstup stylish nemá cestu na riadku nálezu). Guardy console-log a inner-html ponechaj vždy."
   ],
   "version": 1,
   "stack": "php-nette",
@@ -30,6 +31,12 @@
       {"id": "latte", "requires": "vendor/bin/latte-lint",
        "runFiles": "r=0; for f in {files}; do php vendor/bin/latte-lint \"$f\" || r=1; done; exit $r",
        "ext": [".latte"], "modes": ["quick", "full"]},
+      {"id": "eslint", "requires": "node_modules/.bin/eslint", "runtime": "host",
+       "runFiles": "node_modules/.bin/eslint {files}",
+       "ext": [".js", ".ts"], "modes": ["quick", "full"]},
+      {"id": "stylelint", "requires": "node_modules/.bin/stylelint", "runtime": "host",
+       "runFiles": "node_modules/.bin/stylelint --allow-empty-input --formatter unix {files}",
+       "ext": [".css", ".scss"], "modes": ["quick", "full"]},
       {"id": "integration", "requires": "vendor/bin/phpunit",
        "run": "php vendor/bin/phpunit --testsuite integration",
        "modes": ["full"]},
@@ -57,7 +64,11 @@
     {"id": "doctrine-dql-concat", "ext": [".php"], "pattern": "->(where|andWhere|orWhere|having|andHaving|orHaving)\\([^)]*['\"][[:space:]]*\\.[[:space:]]*\\$",
      "message": "podmienka QueryBuildera skladaná reťazcom — hodnoty cez setParameter(), názvy polí len z whitelistu"},
     {"id": "test-skip", "ext": [".php"], "pattern": "(->|::)mark(TestSkipped|TestIncomplete)\\(",
-     "message": "vypnutý test (markTestSkipped/markTestIncomplete) — len so súhlasom používateľa, nie ako obídenie zlyhania"}
+     "message": "vypnutý test (markTestSkipped/markTestIncomplete) — len so súhlasom používateľa, nie ako obídenie zlyhania"},
+    {"id": "console-log", "ext": [".js", ".ts"], "pattern": "console\\.(log|debug)\\(",
+     "message": "console.log/console.debug — ladiaci výpis pred commitom zmaž"},
+    {"id": "inner-html", "ext": [".js", ".ts"], "pattern": "\\.innerHTML[[:space:]]*\\+?=([^=]|$)",
+     "message": "priradenie do innerHTML vloží HTML bez escapovania (XSS) — text cez textContent, HTML len prečistené"}
   ],
   "pairs": [
     {"id": "model-test", "when": ["app/models/**", "app/model/**", "app/Model/**"], "unless": "tests/**",
@@ -75,7 +86,7 @@
   "migrations": {"paths": ["db/migrations/**", "migrations/**"]},
   "testLock": {"ttlHours": 6},
   "stopCheck": true,
-  "commitGate": {"enabled": true, "ext": [".php", ".latte", ".neon", ".xml", ".sql", ".yml", ".yaml"]},
+  "commitGate": {"enabled": true, "ext": [".php", ".latte", ".neon", ".xml", ".sql", ".yml", ".yaml", ".js", ".ts", ".css", ".scss"]},
   "handoffDoc": "docs/handoff.md",
   "disabledRules": []
 }

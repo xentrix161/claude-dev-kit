@@ -26,8 +26,8 @@ Po novej verzii kitu obnovíš skopírované šablóny príkazom `/dev:project-i
 
 | Kedy | Čo sa stane |
 |---|---|
-| po každom edite | Lint a guardy na debug výpis, `die()`, `{!$var}`, `@` a SQL skladané reťazcom. Pridané riadky prehľadá aj na tajomstvá. Claude nález opraví hneď. |
-| na konci ťahu | Testy a analýza nad súbormi, ktoré Claude v session zmenil. Kým padajú, Claude nemôže skončiť; rovnaké zlyhanie zablokuje koniec ťahu najviac 2×, pri treťom už len upozorní. |
+| po každom edite | Lint a guardy na debug výpis (aj `console.log`), `die()`, `{!$var}`, `@`, SQL skladané reťazcom a priradenie do `innerHTML`. Pridané riadky prehľadá aj na tajomstvá. Claude nález opraví hneď. |
+| na konci ťahu | Testy a analýza nad kódom, ktorý Claude v session zmenil; súbory, ktoré kontrolujú len kroky `/dev:check` (napr. `.js`, `.css`), ich nespustia. Kým padajú, Claude nemôže skončiť; rovnaké zlyhanie zablokuje koniec ťahu najviac 2×, pri treťom už len upozorní. |
 | pred commitom | Commit prejde len s PASS z `/dev:check` pre presne ten obsah. Tajomstvá a lokálne configy (`config.local.neon`, `.env`) neprejdú. |
 | pred editom | Pred zmenou už commitnutej migrácie sa Claude spýta. Počas `/dev:fix` je test zamknutý, takže Claude opraví kód, nie test. |
 | pri štarte session | Karta so stackom, stavom kontajnera, gitom a posledným handoffom. |

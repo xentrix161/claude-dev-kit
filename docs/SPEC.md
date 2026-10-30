@@ -218,8 +218,9 @@ it; `check.sh` sets `DK_NO_CONTAINER_CACHE`, so it always asks and only writes t
 `git diff -U0 HEAD --`; untracked file ⇒ all lines; file new in index ⇒ all lines), `dk_blobs <rel>…`
 (`rel<TAB>blob` sorted by path; missing or unreadable file = `-`; when the batch `git hash-object
 --stdin-paths` fails, files are hashed one by one and each unreadable one is logged via `dk_err`; a symlink
-with a code extension (`dk_is_code`) is left out — git commits its link target, not the content hashed
-here), `dk_hash_files <rel>…` (combined content hash over `dk_blobs`), `dk_log <hook> <rule> <decision>
+with a code extension (`dk_is_code`: `lint` keys ∪ every step's `ext`) is left out — git commits its link
+target, not the content hashed here), `dk_is_code <rel> [stop]` (`stop` ⇒ only the Stop code extensions,
+§4.6 step 3), `dk_hash_files <rel>…` (combined content hash over `dk_blobs`), `dk_log <hook> <rule> <decision>
 [file] [ms]` (append one JSON line: ts, project, session, hook, rule, decision ∈
 block|deny|ask|warn|pass|skip, file, ms), `dk_err <msg>` (append to errors.log; over 1 MB the log keeps its
 last 500 lines), `dk_now` (epoch seconds), `dk_ms` (best-effort ms: `perl -MTime::HiRes` if available else
@@ -371,7 +372,8 @@ flags in any order; `--files` consumes paths until the next `--` flag.
   container step (effective runtime, §3) the container checks (with reason); a `runtime: host` step
   skips them and calls neither `docker` nor `dk_workdir`; if `run` exists
   and mode ≠ stop ⇒ run whole; else if `runFiles` exists ⇒ files filtered by `ext` (none ⇒ SKIP
-  `žiadne zmenené súbory`; a step without `ext` gets only code files, `dk_is_code`), substitute
+  `žiadne zmenené súbory`; a step without `ext` gets only code files, `dk_is_code`, in stop mode only the
+  Stop code files of §4.6 step 3), substitute
   `{files}`; in stop mode prefer `runFiles` when files exist, else
   `run` (for steps without ext, e.g. unit tests, always `run`). `changedLinesOnly` (`true` | `"stop"`,
   §3) filters like on-edit.
@@ -397,7 +399,7 @@ flags in any order; `--files` consumes paths until the next `--` flag.
   for the commit gate (§4.4): `ok` = steps `ok` + `známe` (what would still PASS with the blocked steps
   disabled), `steps` = ids of all blocked steps, `lines` = the first ≤ 5 `!` lines for display; any other
   quick/full verdict removes it, stop mode leaves it alone. Stop mode on PASS or PARTIAL writes `sessions/<session_id>.stop.json` (`{"hash":
-  <dk_hash_files of session files>, "time":…, "fails":0, "result":"PASS|PARTIAL"}`); the FAIL shape is
+  <dk_hash_files of the session code files, §4.6 step 3>, "time":…, "fails":0, "result":"PASS|PARTIAL"}`); the FAIL shape is
   written by `stop-check.sh` (§4.6 step 5). Markers are written
   via a per-process temp file and `mv`.
 - Prune logs to the newest 20 per project.
@@ -412,7 +414,13 @@ flags in any order; `--files` consumes paths until the next `--` flag.
      test committed in the same turn still counts.
    - Removed tests (rule `testRemoved`): a test method/function removed in a session file (diff vs HEAD,
      e.g. `function test…` in PHP, `def test_…` in Python) ⇒ reminder naming file and test.
-3. Session code files = session files with extension in any `lint` key or any step `ext`. Shortcuts that
+3. Session code files = session files with extension in any `lint` key or in the `ext` of a step whose
+   `modes` contain `stop` (absent `modes` = quick/full). A file checked only by quick/full steps (the
+   templates' `eslint`/`stylelint` extensions `.js`, `.ts`, `.css`, `.scss`) does not start the check, and
+   the guard scan of step 4 skips it (on-edit still scans it); the commit gate (§4.4) and `dk_blobs` still
+   count every step's `ext`. Known limitation: a project's own quick/full-only step for an extension
+   outside `lint` (e.g. `.twig` without a lint entry) does not trigger Stop either — add a `lint` entry or
+   `stop` to the step's `modes`. `check.sh --stop` hashes and passes to steps without `ext` the same set. Shortcuts that
    skip the check (reminders from step 2 are still emitted): no code files; hash (`dk_hash_files`) equal
    to `hash` in the session's `stop.json` with last result PASS or PARTIAL; the same failing hash already
    reached the 3× cap. State is per session, so another session's result never resets this one's counter.
@@ -552,6 +560,10 @@ resolve check findings (`knownFailures`, baseline, `changedLinesOnly`, dropping 
    No compose (or a mount of a subdirectory only) ⇒ `container: ""`, `appRoot: ""`; the plan says that lint
    and steps run on the host and `appRoot` is unused, and shows each tool checked on the host
    (`command -v`, `vendor/bin/<tool>`, `.venv/bin/<tool>`); a missing tool drops its step.
+   Frontend (php-nette, php-symfony): `package.json` with `eslint`/`stylelint` in `dependencies` or
+   `devDependencies` plus its config ⇒ step `eslint`/`stylelint` and its extensions in `commitGate.ext`;
+   otherwise both are dropped without a question (a missing `node_modules` only keeps the step, `requires`
+   skips it until the user installs the dependencies; init never runs `npm install`).
    Placeholders: the skill's table „Zástupné symboly“ lists every `{{name}}` of the stack templates with
    its detection source and what to do when undetected; undetected ⇒ deleted without a question (the line,
    or the smallest part of it that needs the symbol; a version keeps the name; a `devkit.json` step or pair
@@ -592,8 +604,10 @@ resolve check findings (`knownFailures`, baseline, `changedLinesOnly`, dropping 
    compare with current template version; show per-file diff and propose update keeping local edits;
    update header version. A JSON item with an existing id gets the new template value (with consent) only
    when the project still holds the value of the template version it came from; an item the project
-   changed is listed with its difference, never overwritten. A renamed placeholder keeps its old name in the
-   table (`entityGlob` = `{{entityDir}}**`), so the old template version is filled from the project too.
+   changed is listed with its difference, never overwritten. A new `eslint`/`stylelint` step is proposed only
+   when the frontend detection of point 1 finds the tool, together with its extensions for `commitGate.ext`.
+   A renamed placeholder keeps its old name in the table (`entityGlob` = `{{entityDir}}**`), so the old
+   template version is filled from the project too.
 9. Final report stručne, ale úplne (§0): what was created, what to commit, how to undo.
 
 ## 7. Templates (`ROOT/templates/`)
@@ -609,16 +623,23 @@ php-nette/devkit.json            # like §3 example with {{container}}, {{appRoo
                                  # items with id `doctrine-*` (step doctrine-schema, guard doctrine-dql-concat, pair doctrine-entity-migration) only for Doctrine;
                                  # guards debug-php (+ bdump) and die use the php-symfony patterns: `->exit(`, `::dump(`, `$exit` are not findings;
                                  # pair model-test `when` = app/models/**, app/model/**, app/Model/** (like fullWhen);
-                                 # pair doctrine-entity-migration `when`/`unless` = `{{entityDir}}**` / `{{migrationsDir}}**`
+                                 # pair doctrine-entity-migration `when`/`unless` = `{{entityDir}}**` / `{{migrationsDir}}**`;
+                                 # optional frontend steps `eslint` (.js, .ts) and `stylelint` (.css, .scss; `--allow-empty-input
+                                 # --formatter unix`): `runtime: host`, `requires: node_modules/.bin/<tool>`, quick/full, no changedLinesOnly
+                                 # on eslint (stylish output has no path on the finding line); their extensions are in `commitGate.ext`,
+                                 # not in the Stop code files (a .js/.css-only turn does not start Stop, §4.6 step 3)
+                                 # and init keeps both only with the tool (§6); guards `console-log` (`console.(log|debug)(`) and
+                                 # `inner-html` (assignment incl. `+=`, not `==`/`===`) on .js/.ts are kept always
 php-nette/settings.json          # permissions.ask (V4: make db-import*, docker stop/restart/rm * (any container), git push*, git checkout*/git switch*, Doctrine commands that change the DB, migration history or files (`*migrations:migrate*` incl. `--dry-run`, `*migrations:diff*`, `*schema:update*`, `*schema-tool:*`, `*dbal:run-sql*`, …; inert in Dibi projects); project-init adds existing Makefile targets that stop/rebuild containers or change the DB/index) + permissions.deny (O: Edit(/vendor/**), Edit(/node_modules/**) …, anchored to the project root)
 php-nette/.worktreeinclude       # V6: vendor/, app/config/config.local.neon, .test-credentials
 php-nette/rules/php-core.md      # paths: **/*.php — PHP 8.x, PSR-12, strict types where project uses them, no die(), no @
 php-nette/rules/nette.md         # paths: app/**, libs/** — presenters, DI, forms CSRF, ACL isAllowed
-php-nette/rules/latte-frontend.md# paths: **/*.latte, www/css/**, www/js/** — escaping, {!$} policy, data-bs-*, JS anchors
+php-nette/rules/latte-frontend.md# paths: **/*.latte, www/css/**, www/js/** — escaping, {!$} policy, data-bs-*, JS anchors, frontend guards and steps
 php-nette/rules/db-dibi.md       # paths: db/**, **/*Model.php — Dibi 4+ fetch null, params, no begin/commit in models, Phinx
 php-nette/rules/db-doctrine.md   # paths: **/Entity/**, **/Repository/**, migrations/**, app/config/*doctrine*.neon — Doctrine ORM + Migrations in Nette; copied instead of db-dibi.md
 php-nette/rules/tests.md         # paths: tests/** — suites, rollback tests, credentials, verification output
-php-symfony/…                    # same shape: CLAUDE.md.tmpl, devkit.json, settings.json, .worktreeinclude, rules/{php-core,symfony,twig-frontend,doctrine,api-platform,tests}.md
+php-symfony/…                    # same shape: CLAUDE.md.tmpl, devkit.json, settings.json, .worktreeinclude, rules/{php-core,symfony,twig-frontend,doctrine,api-platform,tests}.md;
+                                 # devkit.json has the same frontend steps, guards and `commitGate.ext` extensions as php-nette
 python/…                         # CLAUDE.md.tmpl, devkit.json (pytest, ruff, mypy; host or container; {{bin}} placeholder, _init note key), settings.json, .worktreeinclude, rules/{python-core,tests}.md;
                                  # guards also cover `.ipynb` (cell source lines in the notebook JSON, NotebookEdit); no `.ipynb` lint —
                                  # ruff reports notebook findings as `cell N:<line>`, which the changed-lines filter (§4.2) cannot map

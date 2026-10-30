@@ -4,7 +4,8 @@
     "lint a kroky vypusti pre chýbajúce balíky: .twig + lint-twig (symfony/twig-bundle), .yaml/.yml + lint-yaml (symfony/yaml), doctrine-schema (doctrine/doctrine-bundle), php-cs-fixer.",
     "phpunit a integration: init vyberie podľa phpunit.xml(.dist) — rýchla a pomalá <testsuite> (napr. unit, integration) → --testsuite <rýchla> v phpunit a --testsuite <pomalá> v integration; inak testy so skupinou integration → --exclude-group integration / --group integration; bez pomalých testov krok integration vypusti. V stop nechaj len rýchle kroky.",
     "doctrine-schema: lokálna DB trvalo mimo sync (drift indexov) → pridaj --skip-sync, inak commit gate pri zmene entít neprejde.",
-    "fullWhen: config/doctrine/** ponechaj len pri XML/YAML mapovaní."
+    "fullWhen: config/doctrine/** ponechaj len pri XML/YAML mapovaní.",
+    "Frontend: krok eslint a prípony .js, .ts v commitGate.ext ponechaj len keď package.json má eslint (dependencies/devDependencies) a projekt má jeho config; rovnako stylelint s .css, .scss; inak krok aj prípony vypusť bez otázky (AssetMapper bez package.json ich nemá). runtime host = Node na hostiteľovi; Node len v kontajneri z poľa container → runtime vypusť. eslint bez changedLinesOnly (výstup stylish nemá cestu na riadku nálezu). Guardy console-log a inner-html ponechaj vždy."
   ],
   "version": 1,
   "stack": "php-symfony",
@@ -30,6 +31,8 @@
       {"id": "lint-container", "requires": "bin/console", "run": "php bin/console lint:container", "modes": ["quick", "full"]},
       {"id": "lint-yaml", "requires": "vendor/symfony/yaml/composer.json", "run": "php bin/console lint:yaml config --parse-tags", "modes": ["quick", "full"]},
       {"id": "lint-twig", "requires": "vendor/symfony/twig-bundle/composer.json", "run": "php bin/console lint:twig templates", "modes": ["quick", "full"]},
+      {"id": "eslint", "requires": "node_modules/.bin/eslint", "runtime": "host", "runFiles": "node_modules/.bin/eslint {files}", "ext": [".js", ".ts"], "modes": ["quick", "full"]},
+      {"id": "stylelint", "requires": "node_modules/.bin/stylelint", "runtime": "host", "runFiles": "node_modules/.bin/stylelint --allow-empty-input --formatter unix {files}", "ext": [".css", ".scss"], "modes": ["quick", "full"]},
       {"id": "integration", "requires": "vendor/bin/phpunit", "run": "php vendor/bin/phpunit --group integration", "modes": ["full"]},
       {"id": "doctrine-schema", "requires": "vendor/doctrine/doctrine-bundle/composer.json", "run": "php bin/console doctrine:schema:validate", "modes": ["full"]}
     ],
@@ -44,7 +47,9 @@
     {"id": "error-suppress", "ext": [".php"], "pattern": "^[[:space:]]*(@|([^*[:space:]/#]|/[^*/])(.*[^[:alnum:]_])?@)\\$?[a-zA-Z_]+\\(", "message": "potlačenie chyby operátorom @"},
     {"id": "sql-concat", "ext": [".php"], "pattern": "(SELECT|UPDATE|DELETE|INSERT)[^;]*['\"][[:space:]]*\\.[[:space:]]*\\$", "message": "SQL/DQL skladané reťazcom — použi parametre"},
     {"id": "dql-concat", "ext": [".php"], "pattern": "->(where|andWhere|orWhere|having|andHaving|orHaving)\\([^)]*['\"][[:space:]]*\\.[[:space:]]*\\$", "message": "podmienka QueryBuildera skladaná reťazcom — hodnoty cez setParameter(), názvy polí len z whitelistu"},
-    {"id": "test-skip", "ext": [".php"], "pattern": "(->|::)mark(TestSkipped|TestIncomplete)\\(", "message": "vypnutý test (markTestSkipped/markTestIncomplete) — len so súhlasom používateľa, nie ako obídenie zlyhania"}
+    {"id": "test-skip", "ext": [".php"], "pattern": "(->|::)mark(TestSkipped|TestIncomplete)\\(", "message": "vypnutý test (markTestSkipped/markTestIncomplete) — len so súhlasom používateľa, nie ako obídenie zlyhania"},
+    {"id": "console-log", "ext": [".js", ".ts"], "pattern": "console\\.(log|debug)\\(", "message": "console.log/console.debug — ladiaci výpis pred commitom zmaž"},
+    {"id": "inner-html", "ext": [".js", ".ts"], "pattern": "\\.innerHTML[[:space:]]*\\+?=([^=]|$)", "message": "priradenie do innerHTML vloží HTML bez escapovania (XSS) — text cez textContent, HTML len prečistené"}
   ],
   "pairs": [
     {"id": "entity-migration", "when": "src/Entity/**", "unless": "migrations/**",
@@ -64,7 +69,7 @@
   "migrations": {"paths": ["migrations/**"]},
   "testLock": {"ttlHours": 6},
   "stopCheck": true,
-  "commitGate": {"enabled": true, "ext": [".php", ".twig", ".yaml", ".yml", ".xml", ".neon", ".sql"]},
+  "commitGate": {"enabled": true, "ext": [".php", ".twig", ".yaml", ".yml", ".xml", ".neon", ".sql", ".js", ".ts", ".css", ".scss"]},
   "handoffDoc": "docs/handoff.md",
   "disabledRules": []
 }
