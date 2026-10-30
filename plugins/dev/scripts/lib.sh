@@ -16,6 +16,15 @@ def base: "C\u001f\(.container|s)", "A\u001f\(.appRoot|s)", "K\u001f\(.stack|s)"
   ((.disabledRules // []) | .[] | "D\u001f\(.|s)"),
   "X\u001f\([(.lint // {} | keys[]), ((.check.steps // [])[] | (.ext // [])[])] | unique | join(","))",
   "Y\u001f\([(.lint // {} | keys[]), ((.check.steps // [])[] | select(any((.modes // ["quick","full"])[]?; . == "stop")) | (.ext // [])[])] | unique | join(","))";'
+# Príkazy, ktoré hooky spúšťajú (lint, run, runFiles) — snímka dk_cfg_trust; zmena runtime = iný príkaz.
+DK_JQ_CMDS='def rt: if type == "object" and .runtime != null then " (\(.runtime|s))" else "" end;
+[ ((.lint // {}) | if type == "object" then to_entries[] else empty end | .key as $e
+    | .value | if type == "array" then .[] else . end
+    | if type == "object" then "lint \($e|s)\(rt): \(.run|s)" else "lint \($e|s): \(.|s)" end),
+  ((.check.steps // []) | if type == "array" then .[] else empty end | select(type == "object") | (.id|s) as $id
+    | (select(.run != null) | "krok \($id) run\(rt): \(.run|s)"),
+      (select(.runFiles != null) | "krok \($id) runFiles\(rt): \(.runFiles|s)"))
+] | unique'
 
 # Začiatok príkazu (oddeľovač, obal, env priradenia) + git s globálnymi prepínačmi (SPEC §4.4).
 # Obsahujú '/', sed s nimi používa oddeľovač \001.
@@ -268,6 +277,48 @@ dk_base() {
     dk_cfg_read empty
     DK_CFG_OUT=$keep
     return 0
+}
+
+# Dôvera k devkit.json (R3, SPEC §4.1): hash configu oproti config.hash, príkazy oproti config.cmds.json.
+# Bez snímky ju len založí. Zmena ⇒ 0, DK_CFG_CMDS = nové či zmenené príkazy, snímka sa prepíše; nikdy nebráni.
+# [note] = on-edit, pre-bash: so značkou sessions/<id>.cfgnote neporovnáva, takže zmenu po hláške ukáže až karta.
+dk_cfg_trust() {
+    DK_CFG_CHANGED="" DK_CFG_CMDS=""
+    [ -n "${DK_CFG:-}" ] && [ "${DK_HAS_JQ:-0}" = 1 ] || return 1
+    local mark="$DK_PDATA/sessions/$DK_SESSION.cfgnote" h old new prev
+    [ "${1:-}" = note ] && [ -f "$mark" ] && return 1
+    h=$(git hash-object --no-filters -- "$DK_CFG" 2>/dev/null)
+    [ -n "$h" ] || return 1
+    old=""
+    [ -f "$DK_PDATA/config.hash" ] && old=$(head -n 1 "$DK_PDATA/config.hash" 2>/dev/null)
+    [ "$h" != "$old" ] || return 1
+    new=$(jq -c "$DK_JQ_DEFS $DK_JQ_CMDS" "$DK_CFG" 2>/dev/null)
+    [ -n "$new" ] || return 1
+    if [ -n "$old" ]; then
+        prev=$(jq -c 'if type == "array" then . else [] end' "$DK_PDATA/config.cmds.json" 2>/dev/null)
+        DK_CFG_CMDS=$(jq -rn --argjson n "$new" --argjson o "${prev:-[]}" '($n - $o)[]' 2>/dev/null)
+        DK_CFG_CHANGED=1
+    fi
+    mkdir -p "$DK_PDATA/sessions" 2>/dev/null
+    { printf '%s\n' "$new" > "$DK_PDATA/config.cmds.json.$$" && mv "$DK_PDATA/config.cmds.json.$$" "$DK_PDATA/config.cmds.json" &&
+        printf '%s\n' "$h" > "$DK_PDATA/config.hash.$$" && mv "$DK_PDATA/config.hash.$$" "$DK_PDATA/config.hash"; } 2>/dev/null ||
+        { rm -f "$DK_PDATA/config.cmds.json.$$" "$DK_PDATA/config.hash.$$" 2>/dev/null; dk_err "snímka devkit.json sa nezapísala do $DK_PDATA"; }
+    [ -n "$DK_CFG_CHANGED" ] || return 1
+    [ "${1:-}" != note ] || : 2>/dev/null > "$mark"
+    return 0
+}
+
+# Hláška on-edit a pre-bash po dk_cfg_trust (najviac 5 príkazov).
+dk_cfg_note() {
+    local n list
+    n=$(printf '%s' "$DK_CFG_CMDS" | grep -c .)
+    if [ "$n" = 0 ]; then
+        printf '[dev-kit] devkit.json sa zmenil — príkazy: žiadny nový ani zmenený'
+        return 0
+    fi
+    list=$(printf '%s\n' "$DK_CFG_CMDS" | grep -v '^$' | head -n 5 | awk 'NR > 1 { printf " · " } { printf "%s", $0 }')
+    [ "$n" -le 5 ] || list="$list · … ďalšie: $((n - 5))"
+    printf '[dev-kit] devkit.json sa zmenil — príkazy: %s' "$list"
 }
 
 dk_rule_on() {

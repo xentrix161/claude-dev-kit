@@ -71,16 +71,20 @@ $DK_DATA/projects/<phash>/pass.json               # commit-gate PASS marker
 $DK_DATA/projects/<phash>/partial.json            # last quick/full check ended PARTIAL (§4.5), explained by the commit gate (§4.4)
 $DK_DATA/projects/<phash>/test-lock.json          # V3
 $DK_DATA/projects/<phash>/container.state         # "<epoch> <running|down> <container>", dk_container_ok cache (30 s)
+$DK_DATA/projects/<phash>/config.hash             # blob hash of the devkit.json last seen by the card, on-edit or pre-bash (dk_cfg_trust, §4.1)
+$DK_DATA/projects/<phash>/config.cmds.json        # its commands as a sorted JSON array of labelled strings (DK_JQ_CMDS, §4.1)
 $DK_DATA/projects/<phash>/sessions/<session_id>.files   # files edited in that session (repo-relative, one per line)
 $DK_DATA/projects/<phash>/sessions/<session_id>.head    # HEAD at the session's first .files write (empty without HEAD)
 $DK_DATA/projects/<phash>/sessions/<session_id>.stop.json   # last stop-check state of that session
+$DK_DATA/projects/<phash>/sessions/<session_id>.cfgnote     # on-edit or pre-bash reported a devkit.json change in that session
 $DK_DATA/projects/<phash>/pairs-<session_id>.done # Stop reminders already given (pairs, testRemoved)
 $DK_DATA/projects/<phash>/logs/check-<mode>-<epoch>.log  # full check output (keep last 20)
 $DK_DATA/projects/<phash>/card-hint.<YYYYMMDD>    # "no devkit.json" hint shown today
 $DK_DATA/projects/<phash>/last-handoff.json       # {"time":…, "title":"…", "path":"…"}
 $DK_DATA/cc-version.<YYYYMMDD>                    # `claude --version` cached for the day (§4.7)
 ```
-`<phash>` = first 12 chars of `printf %s "<project dir>" | git hash-object --stdin`.
+`<phash>` = first 12 chars of `printf %s "<project dir>" | git hash-object --stdin`. On `startup` the card
+deletes `sessions/*.files|.head|.stop.json|.cfgnote` and `pairs-*.done` older than 14 days (§4.7).
 
 ## 3. Project config `.claude/devkit.json` (schema v1)
 
@@ -148,6 +152,10 @@ Semantics:
   copy with `container: ""` runs everything on the host). Any other value ⇒ the step is blocked
   `! <id>: neznámy runtime "<x>" (host|container)` (§4.5); a lint command is skipped (`errors.log`,
   decision `skip`). `{file}`/`{files}` are relative to P in both runtimes.
+- Trust (R3): hooks run the `lint` and `check.steps[]` commands as written. A change of the file is reported,
+  never blocked: the card once after the change (§4.7 item 9), on-edit and pre-bash once per session (§4.2,
+  §4.4); the first sight of a config is trusted silently (`dk_cfg_trust`, §4.1). An allowlist of commands
+  is out of scope.
 - Path mapping (V6 worktrees): MAIN = main repo root (`git rev-parse --path-format=absolute
   --git-common-dir` → strip trailing `/.git`). The container mounts MAIN at `appRoot`. Container workdir
   for a project dir P = `appRoot + "/" + relpath(P, MAIN)` (just `appRoot` when P == MAIN). Container
@@ -207,6 +215,17 @@ Functions (names fixed, other scripts depend on them):
 `dk_init` (reads stdin into `DK_INPUT` when stdin is not a tty; sets `DK_PROJECT`, `DK_DATA`, `DK_PDATA`
 (per-project data dir, created), `DK_CFG` (path or empty), `DK_SESSION`), `dk_in <jq-filter>` (query
 DK_INPUT), `dk_cfg <jq-filter> [default]`, `dk_rule_on <rule-id>` (false when listed in disabledRules),
+`dk_cfg_trust [note]` (R3: `git hash-object --no-filters` of `DK_CFG` vs `config.hash` (§2); on a difference the
+config's commands (`DK_JQ_CMDS`: each `lint` command as `lint <ext>[ (<runtime>)]: <cmd>`, each step's `run` and
+`runFiles` as `krok <id> run|runFiles[ (<runtime>)]: <cmd>`) are compared with `config.cmds.json`,
+`DK_CFG_CMDS` = the commands that are new or changed (one per line; removed ones are not listed),
+`DK_CFG_CHANGED=1`, both files are rewritten and it returns 0; no `config.hash` yet ⇒ writes the snapshot
+silently and returns 1; JSON jq cannot read ⇒ 1 without writing. `note` (on-edit, pre-bash): an existing
+`sessions/<id>.cfgnote` ⇒ 1 without comparing, so a later change in that session waits in the snapshot for the
+next card; a reported change creates the marker. Only session-card, on-edit and pre-bash call it — check.sh,
+stop-check and skills run changed commands without consuming the change), `dk_cfg_note` (one line
+`[dev-kit] devkit.json sa zmenil — príkazy: <a> · <b>` from `DK_CFG_CMDS`, at most 5 then `· … ďalšie: K`;
+none ⇒ `príkazy: žiadny nový ani zmenený`),
 `dk_main_root`, `dk_rel <abs-path>` (relative to DK_PROJECT; empty if outside), `dk_workdir`
 (container workdir, empty+message if outside mount), `dk_exec <cmd> [runtime]` (runs in container or host,
 returns exit code, merges stderr into stdout; runtime `host` ⇒ host even when `container` is set),
@@ -233,6 +252,9 @@ per added line that matches; used by on-edit), `dk_data_dir` (creates `$DK_DATA`
 1. No config / no jq / file outside project ⇒ exit 0.
 2. Append rel path to `sessions/<session_id>.files` (dedupe); the first write also stores
    `git rev-parse HEAD` in `sessions/<session_id>.head` (empty file when the repo has no HEAD).
+   devkit.json changed (`dk_cfg_trust note`, §4.1) ⇒ stdout `{"systemMessage": "<dk_cfg_note>"}` once per
+   session, with exit 0 and with exit 2 alike (Claude Code reads JSON fields on exit 2 too, the block message
+   stays stderr); stderr on exit 0 would reach nobody. Lint and guards run as usual.
 3. Lint (`lint` map by extension, rule `lint:<ext>`): a container command (effective runtime, §3) only
    when `dk_container_ok` (state cached 30 s, §4.1) and the workdir resolves, otherwise it is skipped
    silently; a `runtime: host` command always runs on the host. Run each command
@@ -347,7 +369,10 @@ target, which never equals the content `check.sh` hashed, so the gate would deny
    What the gate proves: the content of every committed code file passed `check.sh` in the working tree
    (together with the other uncommitted changes present at that time) — not that the resulting commit tree
    passes. A commit hidden in `sh -c '…'` / `bash -c '…'` is not recognised (§4.4 Known limitations).
-3. Deny ⇒ JSON `permissionDecision":"deny"` with reason, exit 0. Allow ⇒ exit 0 silently. Log;
+3. Deny ⇒ JSON `permissionDecision":"deny"` with reason, exit 0. Allow ⇒ exit 0 silently. Exception (R3):
+   when the commit's repo has a config, `dk_cfg_trust note` (§4.1) reports its change once per session — the
+   deny JSON gets a top-level `systemMessage` (`dk_cfg_note`), an allow prints `{"systemMessage": …}` alone
+   (no decision, the normal permission flow continues); the gate and the secrets check are unchanged. Log;
    `commitGate` entries carry a content key (hash of the to-be-committed code blobs) so `/dev:stats` can
    group attempts on the same content (§4.9).
 Never block `git commit --amend --no-edit` differently — same rules apply. Do not attempt to
@@ -456,7 +481,7 @@ flags in any order; `--files` consumes paths until the next `--` flag.
 ### 4.7 `session-card.sh` — SessionStart (one JSON object on stdout, card ≤ 10 lines, < 1 s)
 - stdout = one JSON object: `hookSpecificOutput.additionalContext` (`hookEventName` `SessionStart`) =
   the card (context for Claude); top-level `systemMessage` = user-facing warnings only (jq, docker,
-  container down, maintenance, worktree, Claude Code version), omitted when there are none.
+  container down, maintenance, worktree, Claude Code version, devkit.json change), omitted when there are none.
 - No jq ⇒ print a static JSON object (built without jq) whose message says `[dev-kit] chýba jq → hooky
   kitu nebežia (brew install jq)`, exit 0.
 - No config: if P has composer.json|pyproject.toml|package.json and `card-hint.<today>` absent ⇒ hint
@@ -481,6 +506,10 @@ flags in any order; `--files` consumes paths until the next `--` flag.
   7. test lock active ⇒ `zamknutý test: <files> (do <time>)`
   8. Claude Code version older than `DK_MIN_CC` ⇒ warning line; the version check runs at most once a
      day (result cached in `$DK_DATA`)
+  9. devkit.json changed since the snapshot (`dk_cfg_trust` without `note`, §4.1; any source, the card
+     neither reads nor writes `.cfgnote`) ⇒ `devkit.json sa zmenil od poslednej session: <N> príkaz|príkazy|príkazov
+     (lint/kroky) — skontroluj diff`, N = new or changed commands (0 when only other keys changed); also a
+     `systemMessage` warning. The next start without a change prints nothing.
 - Subcommand outside the hook (used by `/dev:handoff`): `session-card.sh --record-handoff <path> <title>
   [--project P]` (P defaults to `pwd`, stdin is not read) writes `last-handoff.json`
   `{"time":<epoch>,"title":"…","path":"…"}` for card line 4; an absolute path inside P is stored relative,

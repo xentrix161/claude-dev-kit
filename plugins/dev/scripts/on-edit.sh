@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 # PostToolUse (Edit|Write|MultiEdit|NotebookEdit): lint podľa prípony + guardy a tajomstvá v pridaných riadkoch. Nález → stderr + exit 2.
+# Zmenený devkit.json → stdout {"systemMessage"} raz za session.
 . "$(dirname "$0")/lib.sh" || exit 0
 DK_HOOK=on-edit
 
@@ -8,6 +9,8 @@ dk_main() {
     [ "$DK_HAS_JQ" = 1 ] || return 0
     [ -n "$DK_CFG" ] || return 0
     [ -n "$DK_FILE" ] || return 0
+    # Zmena devkit.json (R3): systemMessage raz za session, lint ani guardy nezastaví.
+    dk_cfg_trust note && DK_CFG_NOTE=$(dk_cfg_note)
     local t0 rel ext tag a b c d lints="" guards="" only=false added="" addedset=0 pats="" allow="" forbid=""
     local findings="" rules="" n=0 more=0 cmd out rc kept q map esc
     t0=$(dk_ms)
@@ -147,8 +150,11 @@ EOF
     return 2
 }
 
+DK_CFG_NOTE=""
 dk_main
 rc=$?
+# JSON pri exit 2 Claude Code tiež číta; blok ostáva zo stderr (SPEC §4.2).
+[ -z "$DK_CFG_NOTE" ] || jq -nc --arg s "$DK_CFG_NOTE" '{systemMessage: $s}'
 case "$rc" in
     0|2) exit "$rc" ;;
     *) dk_err "on-edit: neočakávaný návratový kód $rc"; exit 0 ;;

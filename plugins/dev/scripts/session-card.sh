@@ -179,6 +179,12 @@ EOF
         extra="${extra}zamknutý test: $(printf '%s' "$DK_LOCK_FILES" | grep -v '^$' | tr '\n' ' ' | sed 's/ $//; s/ /, /g') (do $(dk_fmt_time "$DK_LOCK_UNTIL"))$DK_NL"
     fi
     if w=$(dk_cc_old "$today"); then extra="$extra$w$DK_NL"; warn="$warn[dev-kit] $w$DK_NL"; fi
+    # Dôvera k devkit.json (R3): len upozorní, hooky bežia ďalej.
+    if dk_cfg_trust; then
+        w="devkit.json sa zmenil od poslednej session: $(dk_plural "$(printf '%s' "$DK_CFG_CMDS" | grep -c .)" príkaz príkazy príkazov) (lint/kroky) — skontroluj diff"
+        extra="$extra$w$DK_NL"
+        warn="$warn[dev-kit] $w$DK_NL"
+    fi
 
     local st branch n first rest nextra room
     st=$(dk_git status --short --branch 2>/dev/null)
@@ -212,7 +218,7 @@ EOF
 
     # Údržba dát kitu: staré zoznamy session, veľký log rozhodnutí.
     if [ "${DK_SOURCE:-startup}" = startup ]; then
-        find "$DK_PDATA/sessions" \( -name '*.files' -o -name '*.head' -o -name '*.stop.json' \) -mtime +14 -exec rm -f {} + 2>/dev/null
+        find "$DK_PDATA/sessions" \( -name '*.files' -o -name '*.head' -o -name '*.stop.json' -o -name '*.cfgnote' \) -mtime +14 -exec rm -f {} + 2>/dev/null
         find "$DK_PDATA" -maxdepth 1 -name 'pairs-*.done' -mtime +14 -exec rm -f {} + 2>/dev/null
         if [ -f "$DK_DATA/decisions.jsonl" ] && [ "$(wc -c < "$DK_DATA/decisions.jsonl" | tr -d ' ')" -gt 10485760 ]; then
             mv "$DK_DATA/decisions.jsonl" "$DK_DATA/decisions.jsonl.1" 2>/dev/null

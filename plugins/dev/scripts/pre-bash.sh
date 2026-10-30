@@ -8,8 +8,10 @@ DK_HOOK=pre-bash
 DK_RE_CD='(^|[;&|({!]|&&|\|\||(^|[[:space:]])(then|do|else))[[:space:]]*cd[[:space:]]+(-[LP]+[[:space:]]+)*(--[[:space:]]+)?("[^"]*"|'"'"'[^'"'"']*'"'"'|[^;&|[:space:]]+)'
 
 dk_deny() {
-    jq -nc --arg r "$1" \
-        '{hookSpecificOutput: {hookEventName: "PreToolUse", permissionDecision: "deny", permissionDecisionReason: $r}}'
+    jq -nc --arg r "$1" --arg s "${DK_CFG_NOTE:-}" \
+        '{hookSpecificOutput: {hookEventName: "PreToolUse", permissionDecision: "deny", permissionDecisionReason: $r}}
+         + (if $s == "" then {} else {systemMessage: $s} end)'
+    DK_CFG_NOTE=""
 }
 
 dk_strip_quotes() {
@@ -224,6 +226,8 @@ EOF
     fi
     dk_set_project "$base" ""
     [ -n "$DK_CFG" ] || return 0
+    # Zmena devkit.json repa commitu (R3): systemMessage raz za session, gate ani kontrola tajomstiev sa nemenia.
+    dk_cfg_trust note && DK_CFG_NOTE=$(dk_cfg_note)
 
     local tag a b enabled=true gext="" fullw="" pats="" allow="" forbid=""
     dk_cfg_read '"E\u001f\(if (.commitGate|type) == "boolean" then .commitGate elif .commitGate.enabled == false then false else true end | s)",
@@ -571,7 +575,10 @@ EOF
     return 0
 }
 
+DK_CFG_NOTE=""
 dk_main
 rc=$?
 [ "$rc" = 0 ] || dk_err "pre-bash: neočakávaný návratový kód $rc"
+# Bez rozhodnutia: len systemMessage, povolenie ide bežnou cestou.
+[ -z "$DK_CFG_NOTE" ] || jq -nc --arg s "$DK_CFG_NOTE" '{systemMessage: $s}'
 exit 0

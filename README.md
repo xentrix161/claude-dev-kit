@@ -22,6 +22,8 @@ Projekt bez `.claude/devkit.json` kit nechá na pokoji: hooky v ňom nič nerobi
 
 Po novej verzii kitu obnovíš skopírované šablóny príkazom `/dev:project-init --sync`.
 
+Hooky spúšťajú príkazy z `.claude/devkit.json` (lint, kroky kontroly) tak, ako sú zapísané. Keď sa súbor zmení, napríklad po `git pull` v tímovom režime, úvodná karta a prvý edit alebo commit v session na to upozornia aj s novými príkazmi. Kit ich nezablokuje, zmenu skontroluj sám.
+
 ## Čo robí sám
 
 | Kedy | Čo sa stane |
@@ -30,7 +32,7 @@ Po novej verzii kitu obnovíš skopírované šablóny príkazom `/dev:project-i
 | na konci ťahu | Testy a analýza nad kódom, ktorý Claude v session zmenil; súbory, ktoré kontrolujú len kroky `/dev:check` (napr. `.js`, `.css`), ich nespustia. Kým padajú, Claude nemôže skončiť; rovnaké zlyhanie zablokuje koniec ťahu najviac 2×, pri treťom už len upozorní. |
 | pred commitom | Commit prejde len s PASS z `/dev:check` pre presne ten obsah. Tajomstvá a lokálne configy (`config.local.neon`, `.env`) neprejdú. |
 | pred editom | Pred zmenou už commitnutej migrácie sa Claude spýta. Počas `/dev:fix` je test zamknutý, takže Claude opraví kód, nie test. |
-| pri štarte session | Karta so stackom, stavom kontajnera, gitom a posledným handoffom. |
+| pri štarte session | Karta so stackom, stavom kontajnera, gitom, posledným handoffom a zmenou `devkit.json` od poslednej session. |
 
 Nebežiaci kontajner ani chýbajúci nástroj nič nezablokujú, kontrola sa len preskočí. Commit kódu bez PASS však commit gate odmietne. Po kontrole s výsledkom PARTIAL vypíše kroky, ktoré neprebehli, a ponúkne únik: odstrániť príčinu (napríklad spustiť kontajner), alebo dočasne vypnúť cez `disabledRules` kroky, ktoré sa nedali spustiť — a keď neprebehol žiadny krok, celý `commitGate` (kontrola tajomstiev beží ďalej).
 

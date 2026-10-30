@@ -261,6 +261,13 @@ want_decision() {
     and (.hookSpecificOutput.permissionDecisionReason | contains("[dev-kit]"))' "$1")" "${2:-}"
 }
 want_allow() { want_rc 0 "${1:-}" && want_silent "${1:-}" && want_no_errors "${1:-}"; }
+# allow po zmene devkit.json v tej istej session: bez rozhodnutia, len systemMessage zmeny (R3, SPEC §4.4)
+want_allow_cfgnote() {
+  want_rc 0 "${1:-}" && want_json '(keys == ["systemMessage"])
+    and (.systemMessage | startswith("[dev-kit] devkit.json sa zmenil — príkazy: "))' "${1:-}" || return 1
+  [ -z "$ERR" ] || { fail "${1:+$1: }stderr: $(flat "$ERR")"; return 1; }
+  want_no_errors "${1:-}"
+}
 # Stop bez bloku: prázdny stdout alebo JSON bez decision "block" (systemMessage je dovolený).
 want_no_block() {
   [ -z "$OUT" ] && return 0
@@ -632,7 +639,7 @@ t_bash_commit_partial_explained() {
       and (split("\n") | last | startswith("Spusti kontrolu: bash"))' || return 1
   cfg '.container = "app-php" | .disabledRules = ["commitGate"]'
   pre_bash 'git commit -m "x"'
-  want_allow "únik disabledRules commitGate" || return 1
+  want_allow_cfgnote "únik disabledRules commitGate" || return 1
   no_docker_exec
 }
 t_bash_commit_partial_one_ok() {
@@ -657,7 +664,7 @@ t_bash_commit_partial_one_ok() {
   want_rc 0 "únik disabledRules step:tests → PASS" || return 1
   [ ! -f "$PDATA/partial.json" ] || { fail "partial.json ostal po PASS"; return 1; }
   pre_bash 'git commit -m "x"'
-  want_allow "commit po PASS"
+  want_allow_cfgnote "commit po PASS"
 }
 t_bash_commit_partial_all_ids() {
   new_case
@@ -1674,6 +1681,60 @@ t_card_cc_version() {
   card
   want_out 'Claude Code 2.0.9' "verzia sa kontroluje raz za deň (cache)"
 }
+# R3: zmena devkit.json → karta raz, on-edit a pre-bash raz za session (systemMessage); hooky bežia ďalej
+t_cfg_trust() {
+  new_case
+  printf '{"lastUpstreamCheck": %s}\n' "$(now)" > "$DATA/maintenance.json"
+  card
+  want_rc 0 "1. štart" && want_not 'sa zmenil' "1. štart (snímka sa len založí)" || return 1
+  want_file "$PDATA/config.hash" "1. štart" &&
+    want_jfile "$PDATA/config.cmds.json" 'index("krok unit run: sh bin/fake-phpunit") != null' || return 1
+  cfg '.check.steps |= map(if .id == "unit" then .run = "sh bin/fake-phpunit --v2" else . end)'
+  check --quick --project "$REPO"
+  want_rc 0 "check.sh po zmene" || return 1
+  card
+  want_rc 0 "zmena run" &&
+    want_out 'devkit.json sa zmenil od poslednej session: 1 príkaz (lint/kroky) — skontroluj diff' "zmena run" || return 1
+  case "$SYSMSG" in *'[dev-kit] devkit.json sa zmenil od poslednej session: 1 príkaz'*) ;;
+    *) fail "zmena run: systemMessage $(flat "$RAW")"; return 1 ;; esac
+  card
+  want_rc 0 "2. štart bez zmeny" && want_not 'sa zmenil' "2. štart bez zmeny" || return 1
+  [ -z "$SYSMSG" ] || { fail "2. štart bez zmeny: systemMessage $(flat "$SYSMSG")"; return 1; }
+
+  local c='.check.steps |= map(if .id == "unit" then .run = "sh bin/fake-phpunit --v2" else . end)'
+  cfg "$c"' | .lint[".php"] = ["sh bin/fake-lint {file} # v2", {"run": "sh bin/fake-ok lint2", "runtime": "host"}]'
+  add app/Foo.php '$a = 1; // LINTERR'
+  on_edit app/Foo.php
+  want_rc 2 "on-edit po zmene" && want_err 'app/Foo.php:4' "on-edit po zmene (nový lint beží)" &&
+    want_file "$REPO/.marks/ran-lint2" "on-edit po zmene" || return 1
+  want_json '.systemMessage == "[dev-kit] devkit.json sa zmenil — príkazy: lint .php (host): sh bin/fake-ok lint2 · lint .php: sh bin/fake-lint {file} # v2"' \
+    "on-edit po zmene" && want_file "$PDATA/sessions/$SID.cfgnote" "on-edit po zmene" || return 1
+  cfg "$c"' | .lint[".php"] = ["sh bin/fake-lint {file} # v3"]'
+  add app/Old.php '$c = 3;'
+  on_edit app/Old.php
+  want_rc 0 "2. zmena v tej istej session" && want_silent "2. zmena v tej istej session (hláška raz)" || return 1
+  card
+  want_out 'od poslednej session: 1 príkaz' "karta po potlačenej hláške" || return 1
+
+  SID="$SID-2"
+  cfg "$c"
+  pre_bash 'git commit -m "x"'
+  want_allow_cfgnote "pre-bash bez kódu" && want_json '.systemMessage | endswith("príkazy: lint .php: sh bin/fake-lint {file}")' "pre-bash bez kódu" &&
+    want_file "$PDATA/sessions/$SID.cfgnote" "pre-bash bez kódu" || return 1
+  SID="$SID-3"
+  cfg "$c"' | .commitGate.ext += [".txt"]'
+  g add app/Foo.php
+  pre_bash 'git commit -m "x"'
+  want_decision deny "pre-bash deny" && want_json '.systemMessage == "[dev-kit] devkit.json sa zmenil — príkazy: žiadny nový ani zmenený"
+    and (.hookSpecificOutput.permissionDecisionReason | contains("commit gate"))' "pre-bash deny" &&
+    want_file "$PDATA/sessions/$SID.cfgnote" "pre-bash deny" || return 1
+  cfg "$c"' | .commitGate.ext += [".txt"] | .lint[".php"] = ["sh bin/fake-lint {file} # v4"]'
+  pre_bash 'git commit -m "x"'
+  want_decision deny "pre-bash 2. zmena v tej istej session" &&
+    want_json 'has("systemMessage") | not' "pre-bash 2. zmena v tej istej session (hláška raz)" || return 1
+  card
+  want_out 'od poslednej session: 1 príkaz' "karta po potlačenej hláške pre-bash"
+}
 
 # ---------------------------------------------------------------- šablóny (D1, D5, SEC-13)
 
@@ -2445,6 +2506,7 @@ t "session-card: bez jq → statický JSON so systemMessage" t_card_no_jq_json
 t "session-card: container bez docker binárky → chýba docker" t_card_no_docker_binary
 t "session-card: python worktree bez .venv/ → upozornenie (D20)" t_card_worktree_venv
 t "session-card: stará verzia Claude Code, kontrola raz za deň" t_card_cc_version
+t "devkit.json zmenený (R3): karta raz, on-edit a pre-bash systemMessage raz za session, hooky bežia ďalej" t_cfg_trust
 t "šablóny: ukotvené deny, bez \\s/\\w v [...], vzorky tajomstiev, rules (paths, Pasce, ≤ 60), značky db:" t_templates_lint
 t "stop-check: check.sh exit 3 / 2 → pripomienka „nedala spustiť“, skip namiesto pass, bez bloku" t_stop_check_not_run
 t "lib.sh dk_blobs: nečitateľný súbor = - a errors.log, symlink .php vypadne" t_blobs_unreadable_symlink
