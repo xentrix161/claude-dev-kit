@@ -51,6 +51,7 @@ plugins/dev/PROVENANCE.md         kusy prevzaté z ECC s pinom
 tests/selftest.sh                 kontrakty skriptov, každý prípad vo vlastnom git repe
 tools/                            details.sh (rozpočet), upstream.sh (ECC)
 docs/SPEC.md                      kontrakt
+.github/workflows/check.yml       CI kitu: validate a selftest na ubuntu-latest a macos-latest
 ```
 
 - Nový prípad selftestu: funkcia `t_<meno>()` + riadok `t "<popis>" t_<meno>` v zozname na konci súboru.

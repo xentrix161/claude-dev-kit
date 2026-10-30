@@ -33,6 +33,7 @@
 - `check.sh`: `knownFailures` berie identifikátory aj zo zraniteľností `composer audit` (`Advisory ID`, `CVE`) a `pip-audit` (`ID` a aliasy) — vzor na jedno id záznamu (napr. `^CVE-2026-12345$`) pokryje celý záznam; opustený balík či iná výhrada composeru ostáva zlyhaním. Sieťová chyba composeru alebo pip-audit je `! chyba prostredia` (PARTIAL), nie FAIL; výťah zlyhania ukáže balík a id zraniteľnosti.
 - `/dev:review --security` a `/dev:ecc-production-audit` berú závislosti z kroku `audit`, `composer audit` už nespúšťajú samy.
 - `check.sh` v CI projektu: prepínač `--config <súbor>` alebo premenná `DEVKIT_CONFIG` nahradí `.claude/devkit.json` (napr. kópia s `"container": ""`, keď runner nemá kontajner projektu; relatívna cesta od pracovného adresára). Beh s iným configom vypíše riadok `config:` a nezapíše ani nezmaže `pass.json`, `partial.json` ani stav Stop, takže commit neodomkne; Stop vždy kontroluje config projektu. README má sekciu CI s ukážkou GitHub Actions a GitLab CI (klon kitu, bez inštalácie pluginu).
+- Kit má vlastné CI (GitHub Actions): pri pushi do `main` a pri každom PR beží na Ubuntu (bash 5, GNU nástroje) aj na macOS (`/bin/bash` 3.2, BSD nástroje) s najnovším Claude Code z npm povinne `make validate` (`--strict`) a `make selftest`. `make details` je tam len informatívny: bez prihlásenia `claude plugin details` počíta iný, nižší odhad tokenov, rozpočet preto stráži lokálny `make check` v prihlásenom Claude Code.
 
 ## 0.3.1 — 2026-10-29
 

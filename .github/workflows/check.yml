@@ -1,0 +1,72 @@
+# CI kitu na Linuxe aj na macOS: ciele make check po jednom, validate --strict a selftest povinne.
+# Runner nie je prihlásený a plugin details bez prihlásenia počíta iný odhad tokenov (README, Vývoj kitu).
+name: check
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: check-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    name: check (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    env:
+      CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: "1"
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      # Hooky aj selftest volajú bash z PATH; na macOS vždy systémový /bin/bash 3.2 ako u kolegov.
+      - name: bash 3.2 (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          mkdir -p "$RUNNER_TEMP/bash32"
+          ln -sf /bin/bash "$RUNNER_TEMP/bash32/bash"
+          echo "$RUNNER_TEMP/bash32" >> "$GITHUB_PATH"
+
+      - name: jq
+        run: |
+          if ! command -v jq >/dev/null 2>&1; then
+            if [ "$RUNNER_OS" = macOS ]; then
+              brew install jq
+            else
+              sudo apt-get update -qq && sudo apt-get install -y -qq jq
+            fi
+          fi
+          jq --version
+
+      - name: Claude Code
+        run: |
+          npm i -g @anthropic-ai/claude-code
+          claude --version
+
+      - name: Prostredie
+        run: |
+          command -v bash
+          bash --version | head -n 1
+          make --version | head -n 1
+
+      - name: make validate
+        run: make validate
+
+      - name: make selftest
+        run: make selftest
+
+      # Len informatívne: rozpočet tokenov záväzne stráži lokálny make check v prihlásenom Claude Code.
+      - name: make details (informatívne)
+        continue-on-error: true
+        run: make details

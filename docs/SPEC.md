@@ -53,6 +53,7 @@ KIT/
   tools/upstream.sh                     # P3: diff of pinned ECC pieces vs upstream
   tools/details.sh                      # inventory + always-on budget (§5)
   Makefile  README.md  CHANGELOG.md  LICENSE  docs/SPEC.md
+  .github/workflows/check.yml           # kit CI: validate + selftest on Linux and macOS (§9)
 ```
 Version lives only in `plugin.json` (never in the marketplace entry). The kit's own code is MIT (`LICENSE`);
 the ECC MIT text stays in `plugins/dev/LICENSES/`.
@@ -585,7 +586,8 @@ Command skills — all `disable-model-invocation: true` (0 always-on tokens):
 | `project-init` | ECC `skills/codebase-onboarding`, `commands/project-init.md`, plan §4.4, §14 PHP prax (infer-conventions), §16 P5, §17, §18 V2/V4/V6/V9 | see §6 |
 
 Reference skills — model-invocable, short descriptions (always-on budget for the whole plugin ≤ 3k
-tokens, measured by `tools/details.sh` by the docs rule: `disable-model-invocation` skills count 0):
+tokens, measured by `tools/details.sh` by the docs rule: `disable-model-invocation` skills count 0;
+the `claude plugin details` estimate depends on login and model, so the budget is checked logged in):
 | name | from ECC | `paths` | notes |
 |---|---|---|---|
 | `ecc-mysql-patterns` | `skills/mysql-patterns` | `db/**`, `migrations/**`, `**/*Model.php`, `**/*.sql`, `**/Entity/**`, `**/Repository/**` | MySQL 5.7/8, Dibi + Doctrine parametrization, EXPLAIN, indexes, N+1 |
@@ -790,6 +792,15 @@ summary line. Verify frontmatter keys in `sub-agents.md`.
 - `Makefile`: `check` (= `claude plugin validate --strict plugins/dev` + `claude plugin validate
   --strict .` + `selftest` + `details` when installed), `selftest`, `upstream`, `release
   VERSION=x.y.z` (bump plugin.json, remind CHANGELOG, `claude plugin tag --dry-run plugins/dev`).
+- `.github/workflows/check.yml` (GitHub Actions, on push to `main` and on pull requests, `permissions:
+  contents: read`): matrix `ubuntu-latest` (bash 5, GNU tools) and `macos-latest` (`/bin/bash` 3.2 put
+  first on `PATH`, BSD tools, GNU make 3.81); steps: checkout without persisted credentials, `jq` via
+  apt/brew only when missing, `npm i -g @anthropic-ai/claude-code`, then the `make check` targets one by
+  one: `make validate` and `make selftest` required (neither needs a login), `make details` with
+  `continue-on-error: true` — the runner is not logged in and `claude plugin details` then reports a
+  different, lower token estimate (about half for this kit), so only a local `make check` in a logged-in
+  Claude Code guards the §5 budget. `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1` (no auto-update, no
+  telemetry).
 - `tools/upstream.sh [--no-fetch] [--ref <ref>]`: ECC clone = `ECC_DIR`, default `<KIT>/../ECC` with
   `<KIT>` derived from the script's own location (never from `$HOME`); parse PROVENANCE.md, `git -C <ECC>
   fetch -q`, per row `git diff --stat <pin>..origin/main -- <path>`, print changed pieces (stručne, ale
