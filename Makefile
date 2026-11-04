@@ -16,7 +16,7 @@ help:
 	@echo "make selftest                tests/selftest.sh (bez dockeru a siete)"
 	@echo "make details                 inventár a always-on tokeny pracovnej kópie (limit $(BUDGET))"
 	@echo "make upstream                zmeny prevzatých kusov ECC voči origin/main (P3)"
-	@echo "make eval [EVAL_ARGS=…]      eval suite príkazov /dev:* (claude plugin eval, stojí tokeny; nie je v make check)"
+	@echo "make eval [EVAL_ARGS=…]      eval suite príkazov /dev:* (claude plugin eval na sonnet, EVAL_MODEL/EVAL_JUDGE; stojí tokeny, nie je v make check)"
 	@echo "make release VERSION=x.y.z   verzia v plugin.json + validate + tag dry-run"
 
 check: validate selftest details
@@ -35,8 +35,11 @@ details:
 	@CLAUDE="$(CLAUDE)" BUDGET="$(BUDGET)" bash tools/details.sh $(PLUGIN)
 
 # Eval suite plugins/dev/evals: model aj sudca stoja tokeny, preto nie je v check (README, Údržba).
+# Sonnet pre agentov aj sudcu: predvolený model účtu býva drahší a sudca haiku dáva falošné FAIL.
+EVAL_MODEL ?= sonnet
+EVAL_JUDGE ?= sonnet
 eval:
-	$(CLAUDE) plugin eval $(PLUGIN) --ablation with-without --scaffold --allow-tools Bash Edit Write $(EVAL_ARGS)
+	$(CLAUDE) plugin eval $(PLUGIN) --ablation with-without --scaffold --allow-tools Bash Edit Write --model $(EVAL_MODEL) --judge-model $(EVAL_JUDGE) $(EVAL_ARGS)
 
 upstream:
 	@bash tools/upstream.sh
