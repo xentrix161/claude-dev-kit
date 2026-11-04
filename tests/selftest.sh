@@ -3,7 +3,7 @@
 # Použitie: bash tests/selftest.sh [podreťazec názvu prípadu]
 #   DK_SELFTEST_KEEP=1          ponechá dočasné adresáre (cesta sa vypíše)
 #   DK_SELFTEST_SCRIPTS=<dir>   testuje skripty z iného adresára (napr. nainštalovaný plugin)
-#   DK_SELFTEST_JOBS=<n>        počet súbežných prípadov (predvolene 4; 1 = postupne)
+#   DK_SELFTEST_JOBS=<n>        počet súbežných prípadov (predvolene počet CPU, 4 až 8; 1 = postupne)
 # Každý prípad: vlastné git repo (mktemp -d), DEVKIT_DATA, CLAUDE_PROJECT_DIR, devkit.json s container "".
 
 KIT=$(cd "$(dirname "$0")/.." && pwd -P)
@@ -1235,7 +1235,9 @@ t_bash_cd_unresolved_note() {
   want_json '.hookSpecificOutput.permissionDecisionReason | startswith("[dev-kit] cieľ `cd`/`git -C` sa nedal určiť")' \
     "riadok je prvý" || return 1
   pre_bash "D=\"$O\"; cd \"\$D\" && $add"
-  want_decision deny 'D=' && want_out 'app/Bad.php' 'D=' && want_reason 'sa nedal určiť (cd "$D")' 'D=' || return 1
+  want_allow 'úvodné D= sa rozvinie (repo bez configu)' || return 1
+  pre_bash "true && D=\"$O\"; cd \"\$D\" && $add"
+  want_decision deny 'D= za &&' && want_out 'app/Bad.php' 'D= za &&' && want_reason 'sa nedal určiť (cd "$D")' 'D= za &&' || return 1
   pre_bash 'git -C "$X" add app/Bad.php && git -C "$X" commit -m b'
   want_decision deny '-C $X' && want_reason 'sa nedal určiť (-C "$X")' '-C $X' || return 1
   pre_bash "cd ~nikto-selftest && $add"
@@ -1312,6 +1314,111 @@ t_bash_heredoc_message() {
   pre_bash "$(printf '%s\n' 'git add app/Foo.php && git commit -m "$(cat <<'"'"'EOF'"'"'' 'fix: x' '' 'git add -p v správe' 'git commit gate' 'EOF' ')"')"
   want_allow "riadky heredocu nie sú príkazy"
 }
+# ---- parser príkazu commitu (SPEC §4.4.1): tabuľky tests/fixtures/cmd-parse*.tsv cez pre-bash.sh
+cp_dec() { # <text> — \n, \t, \\ fixture → znaky
+  printf '%s' "$1" | awk '{ s = $0; o = ""
+    while ((i = index(s, "\\")) > 0) { o = o substr(s, 1, i - 1); c = substr(s, i + 1, 1)
+      if (c == "n") o = o "\n"; else if (c == "t") o = o "\t"; else o = o "\\"
+      s = substr(s, i + 2) }
+    printf "%s", o s }'
+}
+cp_sub() { # <text> — zástupné symboly → cesty
+  local t="$1"
+  t=${t//@R\/app/$REPO/app}; t=${t//@R\/sub/$REPO/sub}; t=${t//@R/$REPO}
+  t=${t//@O/$CASE/other}; t=${t//@H/$CASE/home}; t=${t//@Q/$CASE/sp ace}; t=${t//@X/$CASE/nope}
+  t=${t//@N/$CASE/home}; t=${t//@S/$CASE/srepo}
+  printf '%s' "$t"
+}
+cp_repo() { # <dir> <písmeno> [nocfg] — repo so staged <písmeno>.ini (tajomstvo), s configom alebo bez
+  mkdir -p "$1" && git -C "$1" init -q >/dev/null 2>&1 || { fail "fixture: $1"; return 1; }
+  if [ "${3:-}" != nocfg ]; then mkdir -p "$1/.claude" && jq . "$FIX/devkit.json" > "$1/.claude/devkit.json"; fi
+  printf 'password = "Secret%s123"\n' "$2" > "$1/$2.ini" && git -C "$1" add "$2.ini" >/dev/null 2>&1 || { fail "fixture: $1/$2.ini"; return 1; }
+}
+cp_letters() { # <@R @O …> → písmená repa (zoradené, bez duplicít)
+  local w out=""
+  for w in $1; do
+    case "$w" in @R|@R/app) out="$out R" ;; @R/sub) out="$out B" ;; @O) out="$out O" ;; @H) out="$out H" ;; @Q) out="$out Q" ;; esac
+  done
+  # shellcheck disable=SC2086
+  printf '%s\n' $out | sort -u | tr '\n' ' '
+}
+cp_actual_lines() { # riadky U/N/R z dôvodu deny → „U:… ¦ N:… ¦ R:…“
+  printf '%s' "$OUT" | jq -r '.hookSpecificOutput.permissionDecisionReason // empty' 2>/dev/null | awk '
+    /^\[dev-kit\] cieľ `cd`/ { s = $0; sub(/^[^(]*\(/, "", s); sub(/\) — použi.*$/, "", s); u = s }
+    /^\[dev-kit\] nie je isté/ { s = $0; sub(/^[^(]*\(/, "", s); sub(/\) — kontrola.*$/, "", s); n = s }
+    /^\[dev-kit\] príkaz s commitom/ { s = $0; sub(/^[^(]*\(/, "", s); sub(/\) — spusti.*$/, "", s); r = s }
+    END { o = ""
+      if (u != "") o = "U:" u
+      if (n != "") o = o (o == "" ? "" : " ¦ ") "N:" n
+      if (r != "") o = o (o == "" ? "" : " ¦ ") "R:" r
+      printf "%s", o }'
+}
+cp_expected_lines() { # <riadky so symbolmi> → po náhrade symbolov a skrátení úryvku na 60 znakov
+  local out="" part kind text t
+  [ "$1" != - ] || return 0
+  while IFS= read -r part; do
+    [ -n "$part" ] || continue
+    kind=${part%%:*}; text=${part#*:}
+    t=$(cp_sub "$(cp_dec "$text")")
+    [ "${#t}" -le 60 ] || t="${t:0:59}…"
+    out="$out${out:+ ¦ }$kind:$t"
+  done <<EOF
+$(printf '%s\n' "$1" | awk '{ n = split($0, a, " ¦ "); for (i = 1; i <= n; i++) print a[i] }')
+EOF
+  printf '%s' "$out"
+}
+cp_setup() { # repá hlavnej tabuľky; HOME hooku = @H
+  new_case
+  cp_repo "$REPO" R && cp_repo "$REPO/sub" B && cp_repo "$CASE/other" O && cp_repo "$CASE/home" H \
+    && cp_repo "$CASE/sp ace" Q || return 1
+  export HOME="$CASE/home"
+}
+cp_rows() { # <modulo> <zvyšok> — riadky hlavnej tabuľky s číslom mod <modulo> = <zvyšok>
+  local n=0 vstup baza kand riadky pozn cmd exp act letters got
+  while IFS="$(printf '\t')" read -r vstup baza kand riadky pozn; do
+    case "$vstup" in ''|'#'*) continue ;; esac
+    n=$((n + 1))
+    [ $((n % $1)) = "$2" ] || continue
+    cmd=$(cp_sub "$(cp_dec "$vstup")")
+    pre_bash "$cmd"
+    if [ "$baza" = - ]; then want_allow "riadok $n: $vstup" || return 1; continue; fi
+    want_decision deny "riadok $n: $vstup" || return 1
+    letters=$(cp_letters "$baza $kand")
+    got=$(printf '%s' "$OUT" | LC_ALL=C grep -o '[A-Z]\.ini:1' | cut -c1 | sort -u | tr '\n' ' ')
+    [ "$got" = "$letters" ] || { fail "riadok $n ($vstup): repá '$got', čakal som '$letters'$(ctx)"; return 1; }
+    exp=$(cp_expected_lines "$riadky")
+    act=$(cp_actual_lines)
+    [ "$act" = "$exp" ] || { fail "riadok $n ($vstup): riadky '$act', čakal som '$exp'$(ctx)"; return 1; }
+  done < "$FIX/cmd-parse.tsv"
+  [ "$n" -ge 60 ] || fail "fixture: len $n riadkov"
+}
+t_cmd_parse_1() { cp_setup && cp_rows 6 1; }
+t_cmd_parse_2() { cp_setup && cp_rows 6 2; }
+t_cmd_parse_3() { cp_setup && cp_rows 6 3; }
+t_cmd_parse_4() { cp_setup && cp_rows 6 4; }
+t_cmd_parse_5() { cp_setup && cp_rows 6 5; }
+t_cmd_parse_6() { cp_setup && cp_rows 6 0; }
+cpc_setup() { # repá tabuľky fail closed; HOME hooku = @N (bez configu)
+  new_case
+  cp_repo "$REPO" R && cp_repo "$CASE/other" O nocfg && cp_repo "$CASE/home" N nocfg && cp_repo "$CASE/srepo" S || return 1
+  export HOME="$CASE/home"
+}
+cpc_rows() { # <modulo> <zvyšok>
+  local n=0 cwd vstup pozn cmd want
+  while IFS="$(printf '\t')" read -r cwd vstup pozn; do
+    case "$cwd" in ''|'#'*) continue ;; esac
+    n=$((n + 1))
+    [ $((n % $1)) = "$2" ] || continue
+    cmd=$(cp_sub "$(cp_dec "$vstup")")
+    if [ "$cwd" = @R ]; then pre_bash "$cmd"; want=R.ini:1; else pre_bash "$cmd" "$CASE/home"; want=S.ini:1; fi
+    want_decision deny "riadok $n: $vstup" && want_out "$want" "riadok $n: $vstup" || return 1
+  done < "$FIX/cmd-parse-closed.tsv"
+  [ "$n" -ge 40 ] || fail "fixture: len $n riadkov"
+}
+t_cmd_parse_closed_1() { cpc_setup && cpc_rows 3 1; }
+t_cmd_parse_closed_2() { cpc_setup && cpc_rows 3 2; }
+t_cmd_parse_closed_3() { cpc_setup && cpc_rows 3 0; }
+
 t_bash_secret_placeholder_anchor() {
   new_case
   put config/b.txt "\$a = ['password' => '\$up3rS3cret!Long',"
@@ -2886,7 +2993,12 @@ t_hook_text_cap() {
 
 N=0
 NF=0
-JOBS=${DK_SELFTEST_JOBS:-4}
+# Súbežnosť: počet CPU (4 až 8), DK_SELFTEST_JOBS má prednosť.
+CPUS=$(getconf _NPROCESSORS_ONLN 2>/dev/null || echo 4)
+case "$CPUS" in ''|*[!0-9]*) CPUS=4 ;; esac
+[ "$CPUS" -ge 4 ] || CPUS=4
+[ "$CPUS" -le 8 ] || CPUS=8
+JOBS=${DK_SELFTEST_JOBS:-$CPUS}
 case "$JOBS" in ''|*[!0-9]*|0) JOBS=1 ;; esac
 RES="$ROOT/results"
 mkdir -p "$RES"
@@ -2965,6 +3077,15 @@ t "pre-bash: git add -p v tom istom príkaze → deny aj po PASS" t_bash_add_pat
 t "pre-bash: názov súboru v úvodzovkách gitu → deny" t_bash_quoted_name
 t "pre-bash: zástupný text ukotvený na celú hodnotu (SEC-15)" t_bash_secret_placeholder_anchor
 t "pre-bash: telo heredocu správy commitu sa nečíta ako príkazy" t_bash_heredoc_message
+t "pre-bash parser (1/6): tabuľka cmd-parse.tsv — báza, kandidáti a riadky U/N/R" t_cmd_parse_1
+t "pre-bash parser (2/6): tabuľka cmd-parse.tsv — báza, kandidáti a riadky U/N/R" t_cmd_parse_2
+t "pre-bash parser (3/6): tabuľka cmd-parse.tsv — báza, kandidáti a riadky U/N/R" t_cmd_parse_3
+t "pre-bash parser (4/6): tabuľka cmd-parse.tsv — báza, kandidáti a riadky U/N/R" t_cmd_parse_4
+t "pre-bash parser (5/6): tabuľka cmd-parse.tsv — báza, kandidáti a riadky U/N/R" t_cmd_parse_5
+t "pre-bash parser (6/6): tabuľka cmd-parse.tsv — báza, kandidáti a riadky U/N/R" t_cmd_parse_6
+t "pre-bash parser fail closed (1/3): tabuľka cmd-parse-closed.tsv — každý riadok deny" t_cmd_parse_closed_1
+t "pre-bash parser fail closed (2/3): tabuľka cmd-parse-closed.tsv — každý riadok deny" t_cmd_parse_closed_2
+t "pre-bash parser fail closed (3/3): tabuľka cmd-parse-closed.tsv — každý riadok deny" t_cmd_parse_closed_3
 t "check.sh --quick: všetko PASS → exit 0, riadky krokov, log, pass.json s blobmi" t_check_quick_pass
 t "check.sh: zlyhaný krok → exit 1, ≤ 20 riadkov, ✗ krok" t_check_fail
 t "check.sh: chýbajúci requires → SKIP riadok" t_check_skip_missing

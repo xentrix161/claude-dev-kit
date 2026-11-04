@@ -1,11 +1,10 @@
 #!/usr/bin/env bash
 # PreToolUse (Bash): pri `git commit` tajomstvá v pridaných riadkoch + commit gate (PASS z check.sh pre presne tento obsah).
-# Rozpoznanie cez DK_RE_COMMIT / DK_RE_ADD z lib.sh (SPEC §4.4). Obmedzenia (`sh -c`, textové `cd`): SPEC §4.4
-# Known limitations.
+# Repo commitu (báza, kandidáti) dáva parser cmd-parse.sh (SPEC §4.4.1); kontroly bežia v každom dotknutom repe
+# s configom. Obmedzenia (`sh -c`, aliasy): SPEC §4.4 Known limitations.
 . "$(dirname "$0")/lib.sh" || exit 0
+. "$(dirname "$0")/cmd-parse.sh" || exit 0
 DK_HOOK=pre-bash
-
-DK_RE_CD='(^|[;&|({!]|&&|\|\||(^|[[:space:]])(then|do|else))[[:space:]]*cd[[:space:]]+(-[LP]+[[:space:]]+)*(--[[:space:]]+)?("[^"]*"|'"'"'[^'"'"']*'"'"'|[^;&|[:space:]]+)'
 
 dk_deny() {
     jq -nc --arg r "$1" --arg s "${DK_CFG_NOTE:-}" \
@@ -20,7 +19,7 @@ dk_strip_quotes() {
         \"*\") s=${s#\"}; s=${s%\"} ;;
         \'*\') s=${s#\'}; s=${s%\'} ;;
     esac
-    case "$s" in "~"|"~/"*) s="$HOME${s#\~}" ;; esac
+    case "$s" in "~"|"~/"*) s="${DK_HOME:-$HOME}${s#\~}" ;; esac
     printf '%s' "$s"
 }
 
@@ -51,18 +50,20 @@ dk__repl() { # <token> <value> <boundary>
     DK_X="$out$s"
 }
 
-# Cieľ cd / -C / --work-tree / --git-dir → absolútna cesta (~, $HOME, $PWD a $(pwd) = base, $CLAUDE_PROJECT_DIR).
-# Návrat 1 = nerozriešiteľné ($(…), iná premenná, ~iný, `cd -`, prepínač bez adresára).
+# Cieľ cd / -C / --work-tree / --git-dir → absolútna cesta (~, $HOME, $PWD a $(pwd) = base, $CLAUDE_PROJECT_DIR,
+# úvodné priradenia príkazu z DK_VARS; DK_HOME = úvodné HOME=, DK_HOME_UNKNOWN = HOME v príkaze nie je známe).
+# Návrat 1 = neznámy cieľ ($(…), iná premenná, ~iný, `cd -`, prepínač bez adresára).
 dk_expand_dir() { # <raw> <base>
-    local raw="$1" base="$2"
-    case "$raw" in '~'|'~/'*) ;; '~'*) return 1 ;; esac
+    local raw="$1" base="$2" home="${DK_HOME:-$HOME}" n v
+    case "$raw" in '~'|'~/'*) [ -z "${DK_HOME_UNKNOWN:-}" ] || return 1 ;; '~'*) return 1 ;; esac
     case "$raw" in
         \'*\') DK_X=$(dk_strip_quotes "$raw") ;;
         *)
             DK_X=$(dk_strip_quotes "$raw")
             DK_X=${DK_X//\"/}
-            dk__repl '${HOME}' "$HOME" 0
-            dk__repl '$HOME' "$HOME" 1
+            if [ -n "${DK_HOME_UNKNOWN:-}" ]; then case "$DK_X" in *'$HOME'*) return 1 ;; esac; fi
+            dk__repl '${HOME}' "$home" 0
+            dk__repl '$HOME' "$home" 1
             dk__repl '${PWD}' "$base" 0
             dk__repl '$PWD' "$base" 1
             dk__repl '$(pwd)' "$base" 0
@@ -71,6 +72,13 @@ dk_expand_dir() { # <raw> <base>
                 dk__repl '${CLAUDE_PROJECT_DIR}' "$CLAUDE_PROJECT_DIR" 0
                 dk__repl '$CLAUDE_PROJECT_DIR' "$CLAUDE_PROJECT_DIR" 1
             fi
+            while IFS="$DK_US" read -r n v; do
+                [ -n "$n" ] || continue
+                dk__repl "\${$n}" "$v" 0
+                dk__repl "\$$n" "$v" 1
+            done <<EOF
+${DK_VARS:-}
+EOF
             case "$DK_X" in *'$'*|*'`'*) return 1 ;; esac
             ;;
     esac
@@ -78,20 +86,248 @@ dk_expand_dir() { # <raw> <base>
     dk_abs "$DK_X" "$base"
 }
 
-# Cieľ cd / -C / --work-tree / --git-dir → base (premenné base, fb, unres z dk_main). Nerozriešený = cwd session
-# a úryvok do deny textu; cieľ nezávislý od aktuálneho adresára (absolútny, ~) úryvok zruší.
-dk__target() { # <raw> <úryvok> [git-dir]
-    local v
-    case "$1" in -*) base=$fb unres=$2; return 0 ;; esac
-    if ! v=$(dk_expand_dir "$1" "$base"); then
-        base=$fb unres=$2
+# Cieľ cd / pushd z operandov (SPEC §4.4.1): DK_T = slovo cieľa (bez operandu `~` alebo prefix HOME=), návrat 1 =
+# neznámy (popd, prepínač mimo -L/-P, operand za `--` s `-`, 2+ operandy, CDPATH=). DK_TC = všetky operandy.
+dk__cdtarget() { # <cmd> <home-prefix> <cdpath> <op>…
+    local cmd="$1" hp="$2" cdp="$3" w x dd=0 n=0
+    shift 3
+    DK_T="" DK_TC=""
+    for w in "$@"; do DK_TC="$DK_TC$w$DK_US"; done
+    [ "$cmd" != popd ] && [ "$cdp" = 0 ] || return 1
+    for w in "$@"; do
+        x=$(dk_strip_quotes "$w")
+        if [ "$dd" = 0 ]; then
+            case "$x" in
+                --) dd=1; continue ;;
+                -?*) case "${x#-}" in *[!LP]*) ;; *) continue ;; esac ;;
+            esac
+        fi
+        n=$((n + 1))
+        [ "$n" = 1 ] && DK_T=$w
+        case "$x" in -*|+[0-9]*) return 1 ;; esac
+    done
+    case "$n" in
+        0) [ "$cmd" = cd ] || return 1; DK_T=${hp:-'~'} ;;
+        1) ;;
+        *) return 1 ;;
+    esac
+    return 0
+}
+
+# Kandidáti z hodnôt neznámych premenných (riadky K parsera v DK_KANDS) pre slová cieľa; HOME aj hodnota hooku.
+dk__varkands() { # <base> <slovo>… → adresáre oddelené \x1f
+    local b="$1" w n v r out=""
+    shift
+    for w in "$@"; do
+        [ -n "$w" ] || continue
+        while IFS="$DK_US" read -r n v; do
+            [ -n "$n" ] || continue
+            if [ "$n" = HOME ]; then
+                case "$w" in '~'*|*'$HOME'*|*'${HOME}'*) ;; *) continue ;; esac
+                r=$(DK_HOME_UNKNOWN="" dk_expand_dir "$v" "$b") || continue
+                r=$(DK_HOME="$r" DK_HOME_UNKNOWN="" dk_expand_dir "$w" "$b") || continue
+            else
+                case "$w" in *"\$$n"*|*"\${$n}"*) ;; *) continue ;; esac
+                r=$(dk_expand_dir "$v" "$b") || continue
+                r=$(DK_VARS="${DK_VARS:-}$n$DK_US$r$DK_NL" dk_expand_dir "$w" "$b") || continue
+            fi
+            [ -d "$r" ] && out="$out$r$DK_US"
+        done <<EOF
+${DK_KANDS:-}
+EOF
+        if [ -n "${DK_HOME_UNKNOWN:-}" ]; then
+            case "$w" in '~'*|*'$HOME'*|*'${HOME}'*)
+                r=$(DK_HOME="$HOME" DK_HOME_UNKNOWN="" dk_expand_dir "$w" "$b") && [ -d "$r" ] && out="$out$r$DK_US" ;;
+            esac
+        fi
+    done
+    printf '%s' "$out"
+}
+
+# Položka záznamu (U = neznámy cieľ, N = nie je isté, či cd prebehne) s kandidátmi; relatívne isté cd ich posúva.
+dk__item() { DK_RITEMS="$DK_RITEMS$1$DK_US$2$DK_US$3$DK_NL"; } # <U|N> <úryvok> <kandidáti \x1f…>
+dk__items_rel() { # <relatívny cieľ>
+    local kind snip kl k v out="" nk
+    while IFS="$DK_US" read -r kind snip kl; do
+        [ -n "$kind" ] || continue
+        nk=""
+        while IFS= read -r k; do
+            [ -n "$k" ] || continue
+            if v=$(dk_expand_dir "$1" "$k") && [ -d "$v" ]; then k=$v; fi
+            nk="$nk$k$DK_US"
+        done <<EOF
+$(printf '%s' "$kl" | tr "$DK_US" '\n')
+EOF
+        out="$out$kind$DK_US$snip$DK_US$nk$DK_NL"
+    done <<EOF
+$DK_RITEMS
+EOF
+    DK_RITEMS=$out
+}
+
+# Jedno cd/pushd/popd/chdir pred commitom (riadok D parsera): isté a známe mení base; inak položka U/N.
+dk__cdstep() { # <C|N> <cmd> <úryvok> <home> <cdpath> <op>…
+    local class="$1" cmdn="$2" snip="$3" home="$4" cdp="$5" res indep=0 kl="" w v
+    shift 5
+    if dk__cdtarget "$cmdn" "$home" "$cdp" "$@" && res=$(dk_expand_dir "$DK_T" "$base"); then
+        case "$(dk_expand_dir "$DK_T" "$DK_US")" in "$DK_US"*) ;; *) indep=1 ;; esac
+        if [ "$class" = C ]; then
+            [ -d "$res" ] || return 0
+            base=$res
+            if [ "$indep" = 1 ]; then DK_RITEMS=""; else dk__items_rel "$DK_T"; fi
+        elif [ -d "$res" ]; then
+            dk__item N "$snip" "$res$DK_US"
+        fi
         return 0
     fi
-    case "$(dk_expand_dir "$1" "$DK_US")" in "$DK_US"*) ;; *) unres="" ;; esac
-    if [ -n "${3:-}" ]; then
-        case "$v" in */.git) v=${v%/.git} ;; esac
+    while IFS= read -r w; do
+        [ -n "$w" ] || continue
+        v=$(dk_expand_dir "$w" "$base") && [ -d "$v" ] && kl="$kl$v$DK_US"
+    done <<EOF
+$(printf '%s' "$DK_TC" | tr "$DK_US" '\n')
+EOF
+    # shellcheck disable=SC2046
+    kl="$kl$(set -f; IFS=$DK_US; dk__varkands "$base" "$DK_T" $DK_TC)"
+    dk__item U "$snip" "$base$DK_US$kl"
+    [ "$class" != C ] || base=$fb
+}
+
+# Cieľ -C / --work-tree / --git-dir commitu: neznámy = položka U s kandidátom doterajšej bázy, base = cwd session.
+dk__gtarget() { # <raw> <úryvok> [git-dir]
+    local v
+    if ! v=$(dk_expand_dir "$1" "$base"); then
+        dk__item U "$2" "$base$DK_US"
+        base=$fb
+        return 0
     fi
-    if [ -d "$v" ]; then base=$v; else base=$fb; fi
+    [ -z "${3:-}" ] || case "$v" in */.git) v=${v%/.git} ;; esac
+    [ ! -d "$v" ] || base=$v
+}
+
+# Riadok V parsera (úvodné priradenie): hodnota rozvinutá známymi expanziami; relatívna ostáva relatívna.
+dk__var() { # NAME\x1fvalue\x1f[E]
+    local n v e res
+    IFS="$DK_US" read -r n v e <<EOF
+$1
+EOF
+    res=$(dk_expand_dir "$v" "$DK_US") || return 0
+    case "$res" in "$DK_US"/*) res=${res#"$DK_US"/} ;; esac
+    DK_VARS="$DK_VARS$n$DK_US$res$DK_NL"
+    [ "$e" != E ] || DK_VARS_E="$DK_VARS_E$n$DK_US$res$DK_NL"
+    [ "$n" != HOME ] || DK_HOME=$(dk_abs "$res" "$fb")
+}
+dk__kand() { # NAME\x1fvalue
+    DK_KANDS="$DK_KANDS$1$DK_NL"
+    case "$1" in HOME"$DK_US"*) DK_HOME_UNKNOWN=1 ;; esac
+}
+dk__snip() { DK_SNIPS="$DK_SNIPS$1$DK_US$2$DK_NL"; } # <U|N|R> <text>
+# Úryvky druhu: najviac 3, každý do 60 znakov, spojené „; “.
+dk__snips() { # <U|N|R>
+    local k t out="" n=0 seen="$DK_NL"
+    while IFS="$DK_US" read -r k t; do
+        [ "$k" = "$1" ] && [ -n "$t" ] || continue
+        case "$seen" in *"$DK_NL$t$DK_NL"*) continue ;; esac
+        seen="$seen$t$DK_NL"
+        n=$((n + 1))
+        [ "$n" -le 3 ] || break
+        [ "${#t}" -le 60 ] || t="${t:0:59}…"
+        out="$out${out:+; }$t"
+    done <<EOF
+$DK_SNIPS
+EOF
+    printf '%s' "$out"
+}
+
+# Záznam commitu / add (riadok C parsera) s jeho D riadkami → báza a kandidáti, úryvky, riadok príkazu pre kontroly.
+dk__crec() { # <kind\x1fslovo…> <D riadky>
+    local rest="$1" dl="$2" kind words line c cmdn snip home cdp ops tok nx="" wtree="" gdir="" n v
+    kind=${rest%%"$DK_US"*}; words=${rest#*"$DK_US"}
+    base=$fb; DK_RITEMS=""
+    while IFS= read -r line; do
+        [ -n "$line" ] || continue
+        IFS="$DK_US" read -r c cmdn snip home cdp ops <<EOF
+$line
+EOF
+        # shellcheck disable=SC2046
+        (set -f; IFS=$DK_US; dk__cdstep "$c" "$cmdn" "$snip" "$home" "$cdp" $ops; printf '%s\n%s' "$base" "$DK_RITEMS") > "$DK_TMP/rec"
+        base=$(sed -n 1p "$DK_TMP/rec"); DK_RITEMS=$(sed 1d "$DK_TMP/rec")
+        [ -z "$DK_RITEMS" ] || DK_RITEMS="$DK_RITEMS$DK_NL"
+    done <<EOF
+$dl
+EOF
+    while IFS= read -r tok; do
+        [ -n "$tok" ] || continue
+        case "$nx" in
+            C) dk__gtarget "$tok" "-C $tok"; nx=""; continue ;;
+            W) wtree=$tok; nx=""; continue ;;
+            G) gdir=$tok; nx=""; continue ;;
+            S) nx=""; continue ;;
+        esac
+        case "$tok" in
+            -C) nx=C ;;
+            -c|--namespace) nx=S ;;
+            --work-tree) nx=W ;;
+            --git-dir) nx=G ;;
+            --work-tree=*) wtree=${tok#--work-tree=} ;;
+            --git-dir=*) gdir=${tok#--git-dir=} ;;
+            GIT_WORK_TREE=*) wtree=${tok#GIT_WORK_TREE=} ;;
+            GIT_DIR=*) gdir=${tok#GIT_DIR=} ;;
+            commit|add|stage) break ;;
+        esac
+    done <<EOF
+$(printf '%s\n' "$words" | tr "$DK_US" '\n')
+EOF
+    if [ -z "$wtree$gdir" ]; then
+        while IFS="$DK_US" read -r n v; do
+            case "$n" in GIT_WORK_TREE) wtree=$v ;; GIT_DIR) gdir=$v ;; esac
+        done <<EOF
+${DK_VARS_E:-}
+EOF
+    fi
+    if [ -n "$wtree" ]; then
+        dk__gtarget "$wtree" "--work-tree $wtree"
+    elif [ -n "$gdir" ]; then
+        dk__gtarget "$gdir" "--git-dir $gdir" git
+    fi
+    [ -d "$base" ] || base=$fb
+    line=$(printf '%s' "$words" | tr "$DK_US" ' ')
+    case "$kind" in
+        commit) DK_COMMIT_LINES="$DK_COMMIT_LINES$line$DK_NL"; DK_ADD_LINES="$DK_ADD_LINES$DK_ADD_PEND"; DK_ADD_PEND="" ;;
+        add) DK_ADD_PEND="$DK_ADD_PEND$line$DK_NL" ;;
+    esac
+    DK_RDIRS="$DK_RDIRS$base$DK_NL"
+    local pb other k kl
+    pb=$(dk__proj "$base")
+    while IFS="$DK_US" read -r c snip kl; do
+        [ -n "$c" ] || continue
+        other=0
+        while IFS= read -r k; do
+            [ -n "$k" ] || continue
+            DK_RDIRS="$DK_RDIRS$k$DK_NL"
+            [ "$(dk__proj "$k")" = "$pb" ] || other=1
+        done <<EOF
+$(printf '%s' "$kl" | tr "$DK_US" '\n')
+EOF
+        case "$c" in U) dk__snip U "$snip" ;; N) [ "$other" = 0 ] || dk__snip N "$snip" ;; esac
+    done <<EOF
+$DK_RITEMS
+EOF
+}
+dk__proj() { dk_set_project "$1" ""; printf '%s' "$DK_PROJECT"; }
+
+# Záchrana (riadok R): báza = cwd session, kandidáti = slová za cd / pushd / -C kdekoľvek v texte, ktoré sú adresáre.
+dk__rkands() { # <príkaz>
+    local w v
+    printf '%s\n' "$1" | awk '
+        { n = length($0); w = ""
+          for (i = 1; i <= n; i++) { c = substr($0, i, 1)
+            if (c == "\\") { w = w substr($0, i + 1, 1); i++; continue }
+            if (c == "\"" || c == "\047") continue
+            if (c ~ /[ \t;&|(){}]/) { if (w != "") print w; w = ""; continue }
+            w = w c }
+          if (w != "") print w }' | awk 'p == "cd" || p == "pushd" || p == "-C" { print } { p = $0 }' | while IFS= read -r w; do
+        v=$(dk_expand_dir "$w" "$fb") && [ -d "$v" ] && printf '%s\n' "$v"
+    done
 }
 
 # Prečo posledná quick/full kontrola nedala PASS (partial.json z check.sh, < 24 h) a ako ďalej; inak nič.
@@ -169,65 +405,85 @@ dk_main() {
     DK_INPUT_DONE=1
     case "$DK_INPUT" in *commit*) ;; *) return 0 ;; esac
     command -v jq >/dev/null 2>&1 || return 0
-    local cmd lno t0 d
+    local cmd t0
     cmd=$(printf '%s' "$DK_INPUT" | jq -r '.tool_input.command // empty' 2>/dev/null)
     [ -n "$cmd" ] || return 0
     case "$cmd" in *'<<'*) cmd=$(printf '%s\n' "$cmd" | dk__no_heredoc) ;; esac
-    lno=$(printf '%s\n' "$cmd" | grep -nE -e "$DK_RE_COMMIT" | cut -d: -f1 | tail -n 1)
-    [ -n "$lno" ] || return 0
+    printf '%s\n' "$cmd" | grep -qE -e "$DK_RE_COMMIT" || return 0
     t0=$(dk_ms)
     dk_init
-    d=$(printf '\001')
+    dk_tmpdir
 
-    # Repo: cwd → každé `cd` pred posledným commitom (kumulatívne) → globálne prepínače gitu toho commitu.
-    # Nerozriešiteľný cieľ = cwd session (fail closed) a riadok v deny texte.
-    local line pre scan fb base t v seg tok nx="" wtree="" gdir="" unres="" unote=""
+    # Repo každého commitu: báza (isté cd pred ním, -C, --work-tree, --git-dir) a kandidáti (neisté cd, neznámy
+    # cieľ) z parsera; kontroly bežia v každom repe s configom (SPEC §4.4.1).
+    local fb base line tag rest dl="" parsed
     fb=${DK_CWD:-${CLAUDE_PROJECT_DIR:-$PWD}}
-    base=$fb
-    line=$(printf '%s\n' "$cmd" | sed -n "${lno}p")
-    pre=$(printf '%s\n' "$line" | sed -E "s${d}^(.*)${DK_RE_COMMIT}.*${d}\\1${d}")
-    scan=$( { [ "$lno" -gt 1 ] && printf '%s\n' "$cmd" | sed -n "1,$((lno - 1))p"; printf '%s\n' "$pre"; } )
-    while IFS= read -r t; do
-        [ -n "$t" ] || continue
-        dk__target "$t" "cd $t"
-    done <<EOF
-$(printf '%s\n' "$scan" | grep -oE -e "$DK_RE_CD" | sed -E 's/^([;&|({!]|&&|\|\||[[:space:]]|then|do|else)*cd[[:space:]]+//; s/^(-[LP]+[[:space:]]+)*(--[[:space:]]+)?//')
-EOF
-    seg=$(printf '%s\n' "$line" | grep -oE -e "$DK_RE_COMMIT" | tail -n 1)
-    while IFS= read -r tok; do
-        case "$nx" in
-            C) dk__target "$tok" "-C $tok"; nx=""; continue ;;
-            W) wtree=$tok; nx=""; continue ;;
-            G) gdir=$tok; nx=""; continue ;;
-            S) nx=""; continue ;;
-        esac
-        case "$tok" in
-            -C) nx=C ;;
-            -c|--namespace) nx=S ;;
-            --work-tree) nx=W ;;
-            --git-dir) nx=G ;;
-            --work-tree=*) wtree=${tok#--work-tree=} ;;
-            --git-dir=*) gdir=${tok#--git-dir=} ;;
-            GIT_WORK_TREE=*) wtree=${tok#GIT_WORK_TREE=} ;;
-            GIT_DIR=*) gdir=${tok#GIT_DIR=} ;;
+    DK_VARS="" DK_VARS_E="" DK_KANDS="" DK_HOME="" DK_HOME_UNKNOWN="" DK_RITEMS="" DK_SNIPS="" DK_RDIRS=""
+    DK_COMMIT_LINES="" DK_ADD_LINES="" DK_ADD_PEND="" DK_RESCUE=0
+    parsed=$(dk_cmd_parse "$cmd")
+    while IFS= read -r line; do
+        [ -n "$line" ] || continue
+        tag=${line%%"$DK_US"*}; rest=${line#*"$DK_US"}
+        case "$tag" in
+            V) dk__var "$rest" ;;
+            K) dk__kand "$rest" ;;
+            R) dk__snip R "$rest"; DK_RESCUE=1 ;;
+            D) dl="$dl$rest$DK_NL" ;;
+            C) dk__crec "$rest" "$dl"; dl="" ;;
         esac
     done <<EOF
-$(dk__tokens "$seg")
+$parsed
 EOF
-    if [ -n "$wtree" ]; then
-        dk__target "$wtree" "--work-tree $wtree"
-    elif [ -n "$gdir" ]; then
-        dk__target "$gdir" "--git-dir $gdir" git
+    if [ "$DK_RESCUE" = 1 ]; then
+        DK_RDIRS="$DK_RDIRS$fb$DK_NL$(dk__rkands "$cmd")$DK_NL"
     fi
-    [ -d "$base" ] || base=$fb
-    if [ -n "$unres" ]; then
-        [ "${#unres}" -le 60 ] || unres="${unres:0:59}…"
-        unote="[dev-kit] cieľ \`cd\`/\`git -C\` sa nedal určiť ($unres) — použi doslovnú cestu$DK_NL"
-    fi
-    dk_set_project "$base" ""
-    [ -n "$DK_CFG" ] || return 0
+    [ -n "$DK_COMMIT_LINES" ] || DK_COMMIT_LINES=$(printf '%s\n' "$cmd" | grep -E -e "$DK_RE_COMMIT")
+
+    # Repá s configom, každé raz; kontroly v každom, deny po blokoch.
+    local repos="" dir nden=0 hdr
+    DK_SEC_HINT=0
+    while IFS= read -r dir; do
+        [ -n "$dir" ] || continue
+        dk_set_project "$dir" ""
+        [ -n "$DK_CFG" ] || continue
+        case "$DK_NL$repos" in *"$DK_NL$DK_PROJECT$DK_US"*) continue ;; esac
+        repos="$repos$DK_PROJECT$DK_US$dir$DK_NL"
+    done <<EOF
+$DK_RDIRS
+EOF
+    [ -n "$repos" ] || return 0
+    while IFS="$DK_US" read -r dir base; do
+        [ -n "$dir" ] || continue
+        dk_set_project "$dir" ""
+        [ -n "$DK_CFG" ] || continue
+        DK_EDENY=""
+        dk_eval_repo "$t0"
+        [ -n "$DK_EDENY" ] || continue
+        nden=$((nden + 1))
+        printf '%s\n%s\n' "$DK_PROJECT" "$DK_EDENY" > "$DK_TMP/deny.$nden"
+    done <<EOF
+$repos
+EOF
+    [ "$nden" -gt 0 ] || return 0
+    local deny="" s i=0
+    s=$(dk__snips U); [ -z "$s" ] || deny="$deny[dev-kit] cieľ \`cd\`/\`git -C\` sa nedal určiť ($s) — použi doslovnú cestu$DK_NL"
+    s=$(dk__snips N); [ -z "$s" ] || deny="$deny[dev-kit] nie je isté, či \`cd\` pred commitom prebehne ($s) — kontrola zahŕňa aj jeho cieľ; spoj cd s commitom cez && alebo použi git -C <cesta>$DK_NL"
+    s=$(dk__snips R); [ -z "$s" ] || deny="$deny[dev-kit] príkaz s commitom sa nedal rozložiť ($s) — spusti git commit samostatným príkazom$DK_NL"
+    while [ "$i" -lt "$nden" ]; do
+        i=$((i + 1))
+        hdr=""; [ "$nden" -le 1 ] || hdr="[dev-kit] repo $(sed -n 1p "$DK_TMP/deny.$i"):$DK_NL"
+        deny="$deny$hdr$(sed 1d "$DK_TMP/deny.$i")$DK_NL"
+    done
+    dk_deny "$(printf '%s' "$deny" | grep -v '^$' | head -n 20)"
+    return 0
+}
+
+# Kontroly (tajomstvá, commit gate) v repe DK_PROJECT pre všetky commity a add príkazu; výsledok v DK_EDENY.
+dk_eval_repo() { # <t0>
+    local t0="$1" d
+    d=$(printf '\001')
     # Zmena devkit.json repa commitu (R3): systemMessage raz za session, gate ani kontrola tajomstiev sa nemenia.
-    dk_cfg_trust note && DK_CFG_NOTE=$(dk_cfg_note)
+    [ -n "$DK_CFG_NOTE" ] || { dk_cfg_trust note && DK_CFG_NOTE=$(dk_cfg_note); }
 
     local tag a b enabled=true gext="" fullw="" pats="" allow="" forbid=""
     dk_cfg_read '"E\u001f\(if (.commitGate|type) == "boolean" then .commitGate elif .commitGate.enabled == false then false else true end | s)",
@@ -286,7 +542,7 @@ EOF
         done
         set +f
     done <<EOF
-$(printf '%s\n' "$cmd" | sed -E "s/\"[^\"]*\"/Q/g; s/'[^']*'/Q/g" | awk '{ gsub(/&&|\|\||;/, "\n"); print }')
+$(printf '%s\n' "$DK_COMMIT_LINES" | sed -E "s/\"[^\"]*\"/Q/g; s/'[^']*'/Q/g")
 EOF
 
     # `git add`/`git stage` v tom istom príkaze pred commitom (hook beží pred celým príkazom, index ešte nie je naplnený).
@@ -334,7 +590,7 @@ EOF2
         fi
         specs="$specs$a_specs"
     done <<EOF
-$(printf '%s\n' "$scan" | grep -oE -e "${DK_RE_ADD}[^;&|]*" | sed -E "s${d}${DK_RE_ADD}${d}${d}")
+$(printf '%s\n' "$DK_ADD_LINES" | grep -oE -e "${DK_RE_ADD}.*" | sed -E "s${d}${DK_RE_ADD}${d}${d}")
 EOF
     local wt=""
     if [ "$aall" = 1 ]; then
@@ -371,7 +627,7 @@ EOF
     qn=$(printf '%s\n' "$tbc" | grep '^"' | head -n 1)
     if [ -n "$qn" ]; then
         if [ "$gate_on" = 1 ]; then dk_log pre-bash commitGate deny "" $(( $(dk_ms) - t0 )); else dk_log pre-bash secrets deny "" $(( $(dk_ms) - t0 )); fi
-        dk_deny "$unote[dev-kit] nepodporovaný názov súboru $qn (úvodzovky, \\ alebo riadiace znaky) — kontrola ho nevie overiť, premenuj ho."
+        DK_EDENY="[dev-kit] nepodporovaný názov súboru $qn (úvodzovky, \\ alebo riadiace znaky) — kontrola ho nevie overiť, premenuj ho."
         return 0
     fi
 
@@ -488,7 +744,10 @@ EOF
         if [ "$nsec" -gt 0 ]; then
             deny="$deny[dev-kit] commit zablokovaný — tajomstvo alebo zakázaný súbor ($nsec):$DK_NL$(printf '%s' "$sfind" | head -n 8)$DK_NL"
             [ "$nsec" -gt 8 ] && deny="${deny}… ďalšie nálezy: $((nsec - 8))$DK_NL"
-            deny="${deny}Hodnotu nevypisuj ani sám neodstraňuj — nahlás používateľovi súbor:riadok a počkaj na jeho rozhodnutie (súbor z commitu: git restore --staged <súbor>; falošný poplach: secrets.allow v .claude/devkit.json).$DK_NL"
+            if [ "$DK_SEC_HINT" = 0 ]; then
+                deny="${deny}Hodnotu nevypisuj ani sám neodstraňuj — nahlás používateľovi súbor:riadok a počkaj na jeho rozhodnutie (súbor z commitu: git restore --staged <súbor>; falošný poplach: secrets.allow v .claude/devkit.json).$DK_NL"
+                DK_SEC_HINT=1
+            fi
         fi
         if [ "$nsec" -gt 0 ] || [ "$forceall" = 1 ]; then
             dk_log pre-bash secrets deny "" $(( $(dk_ms) - t0 ))
@@ -569,9 +828,7 @@ EOF
         fi
     fi
 
-    if [ -n "$deny" ]; then
-        dk_deny "$(printf '%s' "$unote$deny" | grep -v '^$' | head -n 20)"
-    fi
+    DK_EDENY=$deny
     return 0
 }
 
