@@ -428,6 +428,259 @@ target, which never equals the content `check.sh` hashed, so the gate would deny
 Never block `git commit --amend --no-edit` differently — same rules apply. Do not attempt to
 intercept `--no-verify` (irrelevant to Claude hooks).
 
+### 4.4.1 Commit command parser — PROPOSAL (B15), awaiting approval
+Status: proposal for the user's approval (plan item B15, decision R4). Nothing in this section is implemented; until
+it is approved and implemented, §4.4 applies as written, including its Known limitations. After implementation the
+rules replace the Repo paragraph and the Known limitations of §4.4 (except the items listed at the end of this section)
+and the tables live in `tests/fixtures/cmd-parse.tsv` and `tests/fixtures/cmd-parse-closed.tsv`.
+
+**Output.** `dk_cmd_parse <command> <fb>` (`fb` = session cwd, as in §4.4) returns one record per `git commit` and per
+`git add`/`git stage` of the command: `báza` (the directory that command runs in) and `nerozriešené` — a list of
+items, each with a snippet, a kind (`U` target unknown, `N` not certain that the `cd` runs, `R` fallback) and
+`kandidáti` (directories where the command may run instead). Here-doc bodies are blanked first (§4.4).
+
+**Masking.** Literal, without structure: `'…'`, `$'…'`, `"…"` except `$(…)` and `` `…` `` inside it, the character
+after `\` (`\;` is a word character, `\cd` is the word `cd`), `#` at the start of a word up to the end of the line,
+`$((…))`, `((…))`, `${…}` and the inside of `[[ … ]]` (`&&`, `||`, `<`, `(` there are not operators). `\` + newline
+is removed. `$(…)`, `` `…` ``, `<(…)` and `>(…)` are nested command lists parsed by the same rules. Redirections
+(`[n]<`, `>`, `>>`, `>|`, `<>`, `<&`, `>&`, `&>`, `&>>`, `<<`, `<<-`, `<<<` with their word) are not operators and
+belong to their simple command.
+
+**Structure.** list = and-or lists separated by `;`, `&` or newline; and-or list = pipelines joined by `&&` / `||`
+(a newline after `&&`, `||` or `|`, also after a comment, continues it); pipeline = commands joined by `|`, with
+optional `!` / `time` in front; command = simple command, `( … )`, `{ …; }`, `if`, `while`, `until`, `for`,
+`select`, `case` or a function definition (`name() …`, `function name …`, zsh `() { … }`). Reserved words count only
+in command position (`echo then cd /x` is one simple command `echo`).
+
+**Commands.** A simple command is a commit / add when its masked text matches `DK_RE_COMMIT` / `DK_RE_ADD`
+(wrappers, prefix assignments and git options as in §4.4). It changes the directory when its command word — after
+prefix assignments, redirections and `builtin` / `command` — is `cd` (also `\cd`, `"cd"`), `pushd`, `popd` or
+`chdir`:
+- `cd` / `pushd` skip `-L` / `-P` (also combined) and one `--` after them (A4); one operand = target; no operand =
+  `~`, with a prefix `HOME=<literal>` on that `cd` = the literal. Unknown target: `cd -`, any other option (also after
+  `--`; zsh `-q`/`-s`, bash ≥ 4.3 `-e`/`-@`), two or more operands (zsh `cd old new`), `pushd` with an option,
+  `+N`/`-N` or without an operand, a prefix `CDPATH=…`, and `popd`.
+- `chdir` exists only in zsh, so it is never certain (kind `N`).
+- Other prefix assignments (`X=1 cd /x`) do not change the target.
+
+**Targets.** Expanded as `dk_expand_dir` (§4.4): `~`, `~/…`, `$HOME`, `$PWD`, `$(pwd)`, `` `pwd` ``,
+`$CLAUDE_PROJECT_DIR`, plus variables of leading assignments. Anything else (`$(…)`, other variables, `~user`) is an
+unknown target.
+
+**Leading assignments.** A simple command made only of `NAME=value` words (optionally after `export`) at the very start
+of the command, preceded only by other such commands joined by `;`, newline or `&&`, whose value is literal or built
+from the expansions above. Its variable expands in later targets when the command assigns `NAME` nowhere else (no
+other `NAME=`, `NAME+=`, `export|readonly|declare|typeset|local|unset|read NAME`, `for NAME`). A leading `HOME` applies
+to `~`, `$HOME` and a bare `cd`; a leading `export GIT_DIR=…` / `GIT_WORK_TREE=…` acts as a prefix of every later
+commit. Every other assignment leaves the variable unknown; each literal value the command assigns to it (also the
+words of `for NAME in …`, and the hook's `$HOME` for `HOME`) becomes a kandidát of a target that uses it.
+
+**Certainty of a `cd` D before a commit C.** When C is inside `( … )`, `$(…)`, `` `…` ``, `<(…)`, `>(…)`, a
+`then` / `else` / `do` body or a `case` branch, apply the rules inside it first, then treat the whole construct as C in
+the enclosing list.
+- certain: D is the first pipeline of its and-or list, not in a pipe, without `!` / `time`, and that list ends with
+  `;` or newline before C's list; or D is in C's and-or list with only `&&` between the start of the list and C. A
+  group `{ …; }` is transparent: D inside it is certain when it is certain within the group and the group is certain
+  for C.
+- not certain (kind `N`): every other D that may run in the current shell before C — after `&&` / `||` in an earlier
+  and-or list; in C's and-or list when `||` precedes C; in any pipe element (zsh runs the last one in the current
+  shell); in a list ended by `&`; in `( … )` without C; in a function body (the function may be called later); in an
+  `if` / `elif` condition or body, a loop body or a `case` branch without C; after `!` or `time`; and any D in a loop
+  body that contains C, also after C.
+- no effect: D inside `$(…)`, `` `…` ``, `<(…)`, `>(…)` without C; D after C outside a loop around C.
+
+**Result per commit.** báza starts at `fb`. Certain D in text order: a known target ⇒ báza = target resolved against
+báza when it is an existing directory, else báza stays (the `cd` fails, the shell stays where it was); an unknown
+target ⇒ báza = `fb` and item `U` with kandidáti = its literal operands that are directories, values from
+assignments, and the previous báza. Not certain D ⇒ item `N` (`U` when the target is unknown) with kandidáti = the
+target resolved against the báza at that point when it is a directory, otherwise `fb` and values from assignments;
+báza does not change. A later certain D whose target does not depend on báza (`/…`, `~`, `$HOME`,
+`$CLAUDE_PROJECT_DIR`) drops the items collected so far; a relative one is applied to the kandidáti as well (when the
+result is a directory). Then C's own `-C` / `--work-tree` / `--git-dir` / `GIT_WORK_TREE` / `GIT_DIR` as in §4.4
+(unknown ⇒ báza `fb`, item `U`). `git add` / `git stage` records get their báza the same way.
+
+**Fallback (fail closed).** A parse error (unterminated quote, unbalanced `(`, `{`, `$(` or backtick, `fi` / `done` /
+`esac` / `}` without its opener, `case` without `esac`, a zsh short form such as `if … { }`), a commit inside a
+function body, or `DK_RE_COMMIT` finding more commits in the raw text than the parser found in the structure (a
+commit inside a string — `sh -c`, `bash -c`, `eval`, `xargs` — or behind `\;`) adds one record: báza `fb`, item `R`
+with the reason (`neuzavretá úvodzovka`, `neuzavretá zátvorka`, `neočakávané slovo <w>`, `commit v tele funkcie`,
+`commit mimo štruktúry`), kandidáti = every word after a word `cd`, `pushd` or `-C` anywhere in the text with quotes
+and backslashes removed that expands to an existing directory.
+
+**Use in the hook.** Checked repos = the repo (`dk_set_project`) of every báza and every kandidát of all records, each
+once; repos without config are skipped (§4.4 no-op). The to-be-committed set is built in each repo from all commits
+and adds of the command (union of flags and pathspecs, as today), both checks (secrets, gate) run in each repo, the
+deny lists findings per repo with `[dev-kit] repo <path>:` before each block when more than one repo denies, and the
+instruction line for secret findings appears once. Before the findings, only in a deny, in this order (each with at
+most 3 snippets joined by `; `; a snippet = the simple command as written, or `-C|--work-tree|--git-dir <target>`,
+at most 60 chars, longer 59 + `…`):
+- `U` (text of §4.4 unchanged): ``[dev-kit] cieľ `cd`/`git -C` sa nedal určiť (<úryvky>) — použi doslovnú cestu``
+- `N`, only when one of the item's kandidáti lies in another repo than báza: ``[dev-kit] nie je isté, či `cd` pred
+  commitom prebehne (<úryvky>) — kontrola zahŕňa aj jeho cieľ; spoj cd s commitom cez && alebo použi git -C <cesta>``
+- `R`: ``[dev-kit] príkaz s commitom sa nedal rozložiť (<dôvod>) — spusti git commit samostatným príkazom``
+
+**Still not seen after B15** (stays in §4.4 Known limitations): the structure inside strings (`sh -c`, `bash -c`,
+`eval`, `xargs`, `source` / `.`) beyond the fallback; aliases and functions from the user's shell startup files, which
+Claude Code applies to every Bash command (docs: tools reference, Bash tool behavior), including a function or alias
+named `cd` or `git`; `CDPATH` from the environment, zsh `AUTO_CD` / `CDABLE_VARS`, bash `cdable_vars`;
+`GIT_INDEX_FILE`; `$(…)` inside an unquoted here-doc body; functions defined by an earlier Bash call.
+
+**Differences from the wording of B15 (to approve).**
+1. Kandidáti: an unresolved item does not only fall back to the session cwd — its target is checked too. With the
+   session cwd alone, `true && cd /B; git commit` from a clean cwd would let a commit in B through, which the current
+   hook catches (closed table, row 19).
+2. `$(…)`, `` `…` ``, `<(…)` without the commit have no effect (exact: a substitution cannot move the commit);
+   `( … )`, pipe, background, function body and `case` branch are `N` as B15 says.
+3. Leading assignments expand (B15: an assignment counts only at the start of the command), so in
+   `t_bash_cd_unresolved_note` the line `D="$O"; cd "$D" && …` becomes repo O without config ⇒ allow (assert changes).
+4. Each commit gets its own báza (`cd /A && git commit; cd /B && git commit` checks A and B; today only B).
+5. New deny lines `N` and `R`; `R` keeps today's accidental check of the session cwd for `sh -c '…git commit…'`.
+
+**Placement.** New `plugins/dev/scripts/cmd-parse.sh`, sourced only by `pre-bash.sh` after `lib.sh`, with
+`dk_cmd_parse` and the lexer as one POSIX awk program (BSD awk, mawk, gawk; no `gensub`, no arrays of arrays):
+char-by-char scanning is too slow in bash 3.2, and a separate file can be run alone on one table row
+(`bash cmd-parse.sh --dump '<command>' <fb>`) while `pre-bash.sh` stays about the checks. Estimated size: `cmd-parse.sh`
+≈ 280 lines (awk ≈ 200); `pre-bash.sh` −45 lines (`DK_RE_CD`, the `cd` scan, the `-C` loop) and +70 (records, loop
+over repos — the tail of `dk_main` moves into `dk_eval_repo`, ≈ 250 lines re-indented — and the `N` / `R` lines);
+`selftest.sh` ≈ +110 lines; the two fixtures ≈ 110 lines.
+
+**Fixtures.** UTF-8, LF; lines starting with `#` (the first one names the columns) and empty lines are skipped;
+columns separated by exactly one TAB; `-` = empty. In `vstup` and `riadky`: `\n` = newline, `\t` = TAB, `\\` =
+backslash, any other `\` is a fixture error (decoded in awk, not `printf %b`). Placeholders = `@` + one capital letter
+not followed by a letter, substituted after decoding; expected snippets are truncated after substitution like the
+hook does (59 + `…`).
+- `tests/fixtures/cmd-parse.tsv`: `vstup`, `báza` (one per commit in order, space separated; `-` = no commit ⇒ allow),
+  `kandidáti` (space separated, order free), `riadky` (`U:<úryvky>`, `N:<úryvky>`, `R:<dôvod>`, joined by ` ¦ `),
+  `pozn.` (free text). Placeholders: `@R` session cwd and `CLAUDE_PROJECT_DIR` (repo with config), `@R/app` a plain
+  directory in it, `@R/sub` a nested repo, `@O` another repo, `@H` the hook's `HOME` (repo), `@Q` repo `sp ace`, `@X`
+  nonexistent; every repo has config and one staged secret `<letter>.ini`.
+- `tests/fixtures/cmd-parse-closed.tsv`: `cwd`, `vstup`, `pozn.`. `@R` repo with config and a staged secret, `@O`
+  repo without config, `@N` repo without config (also the hook's `HOME`), `@S` repo with config and a staged secret.
+- Runner: end to end through `pre-bash.sh` (so the mutation test also runs against an older `pre-bash.sh` via
+  `DK_SELFTEST_SCRIPTS`). Main table: the set of `<letter>.ini:1` findings = repos of báza ∪ kandidáti, the `U` / `N` /
+  `R` lines exactly as `riadky` (none for `-`). Closed table: every row is a deny listing `R.ini` (cwd `@R`) or
+  `S.ini` (cwd `@N`). Cases `t_cmd_parse_1` … `_4` (rows by number mod 4) and `t_cmd_parse_closed_1`, `_2`, about
+  15 hook runs each (≈ 2 s), in the parallel pool.
+
+**Main table.** `bash · zsh` = where the commit really ran (a `git` stub on `PATH`, `/bin/bash` 3.2.57 and zsh 5.9,
+`-` = the commit does not run); every directory there is in báza ∪ kandidáti in all 62 rows. `dnes` = repos the
+current `pre-bash.sh` (repo logic as in 0.3.1) checks, `allow` = no commit recognised; it differs from báza ∪
+kandidáti in 41 of 62 rows (mutation criterion of B15: at least half). `$X`, `$D`, `$d` are unset variables; `⏎` =
+newline.
+
+| # | vstup | báza | kandidáti | riadky | bash · zsh | dnes | pozn. |
+|---|---|---|---|---|---|---|---|
+| 1 | `git commit -m x` | @R | - | - | @R | @R | základ |
+| 2 | `cd @O && git commit -m x` | @O | - | - | @O | @O | základ |
+| 3 | `cd @O && cd ../r/sub && git commit -m x` | @R/sub | - | - | @R/sub | @R/sub | relatívna reťaz, vnorené repo |
+| 4 | `cd @O && git -C ../r commit -m x` | @R | - | - | @R | @R | -C voči cd |
+| 5 | `echo "git commit -m x"` | - | - | - | - | allow | nie je commit |
+| 6 | `sh -c 'cd @O && git commit -m x'` | @R | @O | `R:commit mimo štruktúry` | @O | @R | KL sh -c, záchrana |
+| 7 | `false && cd @O; git commit -m x` | @R | @O | `N:cd @O` | @R | @O | KL |
+| 8 | `HOME=@O; cd ~ && git commit -m x` | @O | - | - | @O | @H | KL, úvodné priradenie |
+| 9 | `true && HOME=@O; cd ~ && git commit -m x` | @R | @O @H | `U:cd ~` | @O | @H | HOME za && |
+| 10 | `X=1 cd @O && git commit -m x` | @O | - | - | @O | @R | KL |
+| 11 | `\cd @O && git commit -m x` | @O | - | - | @O | @R | KL |
+| 12 | `pushd @O >/dev/null && git commit -m x` | @O | - | - | @O | @R | KL |
+| 13 | `case a in a) cd @O;; esac; git commit -m x` | @R | @O | `N:cd @O` | @O | @R | KL |
+| 14 | `echo "; cd @O"; git commit -m x` | @R | - | - | @R | @O | KL |
+| 15 | `cd @O & git commit -m x` | @R | @O | `N:cd @O` | @R | @O | KL |
+| 16 | `X=$(cd @O; pwd); git commit -m x` | @R | - | - | @R | @O | KL |
+| 17 | `cd -q @O; git commit -m x` | @R | @O | `U:cd -q @O` | bash @R · zsh @O | @R | KL (zsh -q) |
+| 18 | `false && ⏎ cd @O ⏎ git commit -m x` | @R | @O | `N:cd @O` | @R | @O | A4 viacriadkové && |
+| 19 | `false \ ⏎ && cd @O; git commit -m x` | @R | @O | `N:cd @O` | @R | @O | A4 `\`+nový riadok |
+| 20 | `false && # pozn. ⏎ cd @O; git commit -m x` | @R | @O | `N:cd @O` | @R | @O | A4 komentár |
+| 21 | `x=$(cd @O && git commit -m x)` | @O | - | - | @O | @O | A4 |
+| 22 | `f() { cd @O; }; f; git commit -m x` | @R | @O | `N:cd @O` | @O | @O | A4 telo funkcie |
+| 23 | `cd -- -P; git commit -m x` | @R | - | `U:cd -- -P` | @R | @R | A4 |
+| 24 | `cd @O \| true; git commit -m x` | @R | @O | `N:cd @O` | @R | @O | rúra |
+| 25 | `true \| cd @O; git commit -m x` | @R | @O | `N:cd @O` | bash @R · zsh @O | @O | rúra (zsh: posledný člen v shelli) |
+| 26 | `(cd @O && make); git commit -m x` | @R | @O | `N:cd @O` | @R | @O | subshell |
+| 27 | `(cd @O && git commit -m x)` | @O | - | - | @O | @O | subshell s commitom |
+| 28 | `cat <(cd @O && git commit -m x)` | @O | - | - | @O | @O | <(…) s commitom |
+| 29 | `cd @O && echo "$(git commit -m x)"` | @O | - | - | @O | @O | $(…) v úvodzovkách |
+| 30 | `cd @O && git commit -m a; cd @R && git commit -m b` | @O @R | - | - | @O @R | @R | dva commity |
+| 31 | `D=@O; cd "$D" && git commit -m x` | @O | - | - | @O | @R | úvodné priradenie |
+| 32 | `true && D=@O; cd "$D" && git commit -m x` | @R | @O | `U:cd "$D"` | @O | @R | priradenie za && |
+| 33 | `D=@O; D="@Q"; cd "$D" && git commit -m x` | @R | @O @Q | `U:cd "$D"` | @Q | @R | dve priradenia |
+| 34 | `for d in @O; do cd "$d"; done; git commit -m x` | @R | @O | `U:cd "$d"` | @O | @R | premenná cyklu |
+| 35 | `cd "$(git rev-parse --show-toplevel)" && git commit -m x` | @R | - | `U:cd "$(git rev-parse --show-toplevel)"` | @R | @R | substitúcia v cieli |
+| 36 | `cd @O; cd @X; git commit -m x` | @O | - | - | @O | @R | cieľ nie je adresár |
+| 37 | `if true; then cd @O; fi; git commit -m x` | @R | @O | `N:cd @O` | @O | @O | if |
+| 38 | `cd @O \|\| git commit -m x` | @R | @O | `N:cd @O` | - | @O | \|\| |
+| 39 | `for i in 1 2; do git commit -m x; cd @O; done` | @R | @O | `N:cd @O` | @R @O | @R | cd za commitom v cykle |
+| 40 | `echo then cd @O; git commit -m x` | @R | - | - | @R | @O | then ako argument |
+| 41 | `cd "@Q" && git commit -m x` | @Q | - | - | @Q | @Q | medzera v ceste |
+| 42 | `cd @R/app && git commit -m x` | @R/app | - | - | @R/app | @R | podadresár repa |
+| 43 | `cd && git commit -m x` | @H | - | - | @H | @R | holé cd |
+| 44 | `HOME=@O cd && git commit -m x` | @O | - | - | @O | @R | prefix HOME pri holom cd |
+| 45 | `builtin cd @O && git commit -m x` | @O | - | - | @O | @R | obal builtin |
+| 46 | `time cd @O; git commit -m x` | @R | @O | `N:cd @O` | @O | @R | time |
+| 47 | `chdir @O && git commit -m x` | @R | @O | `N:chdir @O` | bash - · zsh @O | @R | chdir (len zsh) |
+| 48 | `cd @O a; git commit -m x` | @R | @O | `U:cd @O a` | bash @O · zsh @R | @O | dva operandy |
+| 49 | `export GIT_DIR=@O/.git; git commit -m x` | @O | - | - | @O | @R | úvodný export GIT_DIR |
+| 50 | `{ cd @O; } && git commit -m x` | @O | - | - | @O | @O | skupina |
+| 51 | `[[ -d @O && -n x ]] && cd @O && git commit -m x` | @O | - | - | @O | @O | [[ ]] |
+| 52 | `cd @O &>/dev/null && git commit -m x` | @O | - | - | @O | @O | &> nie je pozadie |
+| 53 | `cd "$X"; cd @O && git commit -m x` | @O | - | - | @O | @O | absolútny cieľ ruší riadok |
+| 54 | `cd "$X"; cd app; git commit -m x` | @R/app | - | `U:cd "$X"` | @R/app | @R | relatívny cieľ riadok drží |
+| 55 | `git -C "$X" commit -m x` | @R | - | `U:-C "$X"` | @R | @R | -C |
+| 56 | `cd @O ⏎ # && cd "@Q" ⏎ git commit -m x` | @O | - | - | @O | @Q | komentár na riadku |
+| 57 | `cd @O; git commit -m a ⏎ cd "@Q"; git commit -m b` | @O @Q | - | - | @O @Q | @Q | dva riadky, dva commity |
+| 58 | `cd @O\; git commit -m x` | @R | - | `R:commit mimo štruktúry` | - | @R | `\;` nie je operátor |
+| 59 | `cd @O; popd; git commit -m x` | @R | @O | `U:popd` | @O | @O | popd |
+| 60 | `false && cd @O; cd "$X"; git commit -m x` | @R | @O | `U:cd "$X"` ¦ `N:cd @O` | @R | @R | oba druhy riadkov |
+| 61 | `git commit -m "x` | @R | - | `R:neuzavretá úvodzovka` | - | @R | záchrana |
+| 62 | `f() { git commit -m x; }; cd @O; f` | @R | @O | `R:commit v tele funkcie` | @O | @R | záchrana |
+
+**Fail-closed table.** Every row must end in a deny: the commit runs (in at least one shell) in a repo with config
+and a staged secret, while a wrong `báza` would pick a repo without config. `dnes` = result of the current
+`pre-bash.sh`: 29 of 41 rows are fail open.
+
+| # | cwd | vstup | bash · zsh | dnes | pozn. |
+|---|---|---|---|---|---|
+| 1 | @R | `false && cd @O; git commit -m x` | @R | allow (fail open) | KL |
+| 2 | @R | `echo "; cd @O"; git commit -m x` | @R | allow (fail open) | KL |
+| 3 | @R | `cd @O & git commit -m x` | @R | allow (fail open) | KL |
+| 4 | @R | `X=$(cd @O; pwd); git commit -m x` | @R | allow (fail open) | KL |
+| 5 | @R | `case a in b) cd @O;; esac; git commit -m x` | @R | deny | KL |
+| 6 | @R | `(cd @O && make); git commit -m x` | @R | allow (fail open) | subshell |
+| 7 | @R | `cd @O \| true; git commit -m x` | @R | allow (fail open) | rúra |
+| 8 | @R | `true \| cd @O; git commit -m x` | bash @R · zsh @O | allow (fail open) | rúra (bash) |
+| 9 | @R | `f() { cd @O; }; git commit -m x` | @R | allow (fail open) | funkcia bez volania |
+| 10 | @R | `if false; then cd @O; fi; git commit -m x` | @R | allow (fail open) | if |
+| 11 | @R | `false && ⏎ cd @O ⏎ git commit -m x` | @R | allow (fail open) | A4 |
+| 12 | @R | `false \ ⏎ && cd @O; git commit -m x` | @R | allow (fail open) | A4 |
+| 13 | @R | `false && # pozn. ⏎ cd @O; git commit -m x` | @R | allow (fail open) | A4 |
+| 14 | @R | `# cd @O ⏎ git commit -m x` | @R | deny | komentár |
+| 15 | @R | `echo then cd @O; git commit -m x` | @R | allow (fail open) | slovo then |
+| 16 | @R | `cd @X \|\| git commit -m x` | @R | deny | \|\| |
+| 17 | @R | `for i in 1 2; do git commit -m x; cd @O; done` | @R @O | deny | cyklus |
+| 18 | @R | `git commit -m x && cd @O` | @R | deny | za commitom |
+| 19 | @N | `true && cd @S; git commit -m x` | @S | deny | regresia 0.3.1 |
+| 20 | @N | `cd @S \|\| true; git commit -m x` | @S | deny | prvý v zozname |
+| 21 | @N | `pushd @S && git commit -m x` | @S | allow (fail open) | KL |
+| 22 | @N | `\cd @S && git commit -m x` | @S | allow (fail open) | KL |
+| 23 | @N | `X=1 cd @S && git commit -m x` | @S | allow (fail open) | KL |
+| 24 | @N | `HOME=@S; cd ~ && git commit -m x` | @S | allow (fail open) | KL |
+| 25 | @N | `case a in a) cd @S;; esac; git commit -m x` | @S | allow (fail open) | KL |
+| 26 | @N | `builtin cd @S && git commit -m x` | @S | allow (fail open) | obal |
+| 27 | @N | `time cd @S; git commit -m x` | @S | allow (fail open) | time |
+| 28 | @N | `chdir @S && git commit -m x` | bash - · zsh @S | allow (fail open) | zsh |
+| 29 | @N | `true \| cd @S; git commit -m x` | bash @N · zsh @S | deny | rúra (zsh) |
+| 30 | @N | `cd -q @S; git commit -m x` | bash @N · zsh @S | allow (fail open) | KL (zsh -q) |
+| 31 | @N | `if true; then cd @S; fi; git commit -m x` | @S | deny | if |
+| 32 | @N | `f() { cd @S; }; f; git commit -m x` | @S | deny | A4 |
+| 33 | @N | `x=$(cd @S && git commit -m x)` | @S | deny | A4 |
+| 34 | @N | `{ cd @S; } && git commit -m x` | @S | deny | skupina |
+| 35 | @N | `cd @S && git commit -m a; cd @N && git commit -m b` | @S @N | allow (fail open) | dva commity |
+| 36 | @N | `export GIT_DIR=@S/.git; git commit -m x` | @S | allow (fail open) | úvodný export |
+| 37 | @N | `D=@S; cd "$D" && git commit -m x` | @S | allow (fail open) | úvodné priradenie |
+| 38 | @N | `true && D=@S; cd "$D" && git commit -m x` | @S | allow (fail open) | kandidát z priradenia |
+| 39 | @N | `for d in @S; do cd "$d"; done; git commit -m x` | @S | allow (fail open) | kandidát z for |
+| 40 | @N | `sh -c 'cd @S && git commit -m x'` | @S | allow (fail open) | záchrana |
+| 41 | @N | `f() { git commit -m x; }; cd @S; f` | @S | allow (fail open) | záchrana |
+
 ### 4.5 `check.sh` — the single source of truth (`/dev:check`, Stop, commit, CI)
 Usage: `check.sh [--quick|--full|--auto|--stop] [--session <id>] [--project <dir>] [--config <file>] [--files <rel>…]` —
 flags in any order; `--files` consumes paths until the next `--` flag.
