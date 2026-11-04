@@ -3,7 +3,7 @@
 - Formát: `## <verzia> — <dátum>`, najnovšie hore; verzia = `version` v `plugins/dev/.claude-plugin/plugin.json`.
 - Posun pinu ECC (P3) zapíš ako odrážku: kusy + nový commit.
 
-## 0.4.0 — 2026-10-30
+## 0.4.0 — 2026-11-04
 
 - Príklady bez domény konkrétneho projektu: `task-tldr` ukazuje zhrnutie z e-shopu (stavy objednávky, export, krok po nasadení), `ecc-change-impact` menuje odberateľa „iný tenant“.
 - `/dev:debug`: zachytávanie mailov (Mailpit), vyhľadávací server a prihlásenie testovacím loginom len vtedy, keď ich projekt má; súbor s loginom menuje `CLAUDE.md` projektu.
@@ -43,7 +43,7 @@
 - Úvodná karta a pripomienky Stop dávajú Claudovi fakty namiesto pokynov — napr. „[partial] tieto kroky sa nedali spustiť, nie sú overené“, „zmazaný testovací súbor — zámer s používateľom nie je overený“, „worktree nemá vendor/ → rieši ho .worktreeinclude alebo composer install“; výzva „skontroluj diff“ pri zmene `devkit.json` ostáva len v upozornení pre teba. Text karty, pripomienok Stop a stavu pred kompakciou má najviac 9 000 znakov, dlhší sa skráti s „…“ (Claude Code by text nad 10 000 znakov odložil do súboru a Claudovi ukázal len začiatok).
 - Commit gate číta príkaz Bash parserom (`scripts/cmd-parse.sh`, SPEC §4.4.1) namiesto textových regexov: pre každý `git commit` pozná adresár, v ktorom naozaj pobeží (isté `cd`, `pushd`, `builtin cd`, `\cd`, `X=1 cd`, úvodné priradenia `D=…; cd "$D"`, `HOME=…`, `export GIT_DIR=…`, `{ …; }`, `$(…)` s commitom, viac commitov v jednom príkaze), a kontroly pustí aj v kandidátoch — cieľoch `cd`, ktoré nie je isté, že prebehnú (`false && cd …;`, `cd … || …`, rúra, pozadie, `if`, `case`, cyklus, telo funkcie, zsh `chdir`), v hodnotách neznámych premenných a pri nerozložiteľnom príkaze (`sh -c`, neuzavretá úvodzovka) v cwd session a všetkých adresároch za `cd`/`-C` v texte. Deny text má nové riadky „nie je isté, či `cd` pred commitom prebehne“ a „príkaz s commitom sa nedal rozložiť“, pri viacerých repách blok na repo (`[dev-kit] repo <cesta>:`). Fixture `tests/fixtures/cmd-parse*.tsv` (62 + 41 riadkov, overené v bash 3.2 a zsh) bežia celé v selfteste.
 
-## 0.3.1 — 2026-10-29
+## 0.3.1 — 2026-11-04
 
 - Úvodná karta: pripomienka „údržba kitu“ (`make upstream`) sa ukáže len vtedy, keď plugin beží z pracovnej kópie kitu (vedľa skriptov je `tools/upstream.sh`), a cestu v nej odvodí z umiestnenia skriptov. Inštalácia z marketplace ju už neukazuje.
 - Stop: párové pravidlá (`pairs`) rátajú aj súbory commitnuté počas session (`sessions/<id>.head` = HEAD pri prvej úprave v session), takže test commitnutý v tom istom ťahu už nevyvolá falošnú pripomienku.
