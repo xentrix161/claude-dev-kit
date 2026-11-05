@@ -3,7 +3,7 @@
 - Formát: `## <verzia> — <dátum>`, najnovšie hore; verzia = `version` v `plugins/dev/.claude-plugin/plugin.json`.
 - Posun pinu ECC (P3) zapíš ako odrážku: kusy + nový commit.
 
-## 0.4.1 — nevydané
+## 0.4.1 — 2026-11-05
 
 - `knownFailures`: riadok pytest `ERROR <cesta>.py[::<test>]` z krátkeho súhrnu (chyba fixture či setupu, chyba zberu modulu) je zlyhanie ako `FAILED <id>` — neznámy `ERROR` popri známych `FAILED` už nedá PASS. Vzor sa píše ako pri `FAILED` (`^tests/test_x\.py::test_w$`, pri chybe zberu cesta `^tests/test_conf\.py$`); `ERROR` bez cesty `.py` nie je identifikátor.
 - Zápisy stavu s diakritikou: `partial.json` (riadky `! …`, ktoré cituje commit gate po PARTIAL), `pass.json`, zámok testu `test-lock.json` a vstup `/dev:stats` idú do jq cez `--arg`/`--rawfile`, nie `jq -R` z rúry — dlhý riadok s viacbajtovým znakom (napr. názov kroku či kontajnera, cesta testu) sa už nerozbije na `�`.
