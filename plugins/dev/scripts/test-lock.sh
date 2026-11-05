@@ -45,8 +45,8 @@ EOF
         if dk_lock_read "$TTL"; then rels="$DK_LOCK_FILES$rels"; fi
         rels=$(printf '%s' "$rels" | grep -v '^$' | awk '!seen[$0]++')
         now=$(dk_now)
-        if printf '%s\n' "$rels" | jq -Rn --argjson t "$now" --argjson h "$TTL" \
-            '{files: [inputs | select(length > 0)], time: $t, ttlHours: $h}' 2>/dev/null > "$LF.tmp" && mv "$LF.tmp" "$LF"; then
+        if jq -n --arg f "$rels" --argjson t "$now" --argjson h "$TTL" \
+            '{files: ($f | split("\n") | map(select(length > 0))), time: $t, ttlHours: $h}' 2>/dev/null > "$LF.tmp" && mv "$LF.tmp" "$LF"; then
             echo "[dev-kit] test zamknutý: $(dk_list "$rels") (do $(dk_fmt_time $((now + TTL * 3600)))) — oprav kód, nie test; odomknutie: /dev:fix --unlock$NOTE"
         else
             echo "[dev-kit] zámok sa nepodarilo zapísať do $LF"

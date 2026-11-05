@@ -258,9 +258,10 @@ every project (pre-edit guards any path — `agentReadOnly`, `forbidFiles`, lock
 file for secrets, while the `lint` map is per project), and on Stop, SessionStart or PreCompact a handler with
 `if` would never run (§0 assumption 4). Text for Claude and the user — `additionalContext`, `systemMessage`
 of session-card and stop-check, the PreCompact stdout — goes through jq `dk_cap` (`DK_JQ_CAP`, §4.1): at most
-9 000 UTF-16 code units (a character outside the BMP counts 2), a longer text is cut and ends with `…`. Text
-reaches jq via `--arg`, never `jq -R` from a pipe (jq 1.7 breaks a multibyte character at a read-chunk
-boundary into U+FFFD).
+9 000 UTF-16 code units (a character outside the BMP counts 2), a longer text is cut and ends with `…`. Scripts
+hand text to jq only via `--arg` or `--rawfile` (hook text above, `partial.json` and `pass.json` §4.5,
+`test-lock.json` §4.8, the decision log in `stats.sh` §4.9), never `jq -R` from a pipe (jq 1.7.1 breaks a
+multibyte character at a read-chunk boundary into U+FFFD).
 
 ### 4.1 `lib.sh` (sourced by all scripts)
 Functions (names fixed, other scripts depend on them):

@@ -3018,6 +3018,52 @@ t_hook_text_cap() {
   want_rc 0 "Stop" && want_no_block "Stop" || return 1
   cap_ok "$(printf '%s' "$OUT" | jq -r '.hookSpecificOutput.additionalContext // empty')" "Stop"
 }
+# C5: JSON zo súborov stavu bez jq -R z rúry (SPEC §4). jq 1.7.1 delí len riadok dlhší ako blok čítania
+# (~4 kB): každá časť má riadok cez dve hranice bloku (zásah nezávisí od parity); pass.json len stráž (cesta).
+no_fffd() { # <súbor|-> <popis> — bez U+FFFD (stdin pri „-“)
+  if LC_ALL=C grep -q "$(printf '\357\277\275')" "$1"; then fail "$2: obsahuje U+FFFD"; return 1; fi
+}
+t_jq_multibyte() {
+  new_case
+  DOCKER_OK=1
+  local cc l i r step long
+  local -a a
+  cc=$(awk 'BEGIN { for (i = 0; i < 20000; i++) printf "č" }')
+  step='.check.steps = [{"id": "šablóny", "run": "sh bin/fake-ok x", "modes": ["quick", "full"]}]'
+  # (a) partial.json: riadok „! …“ s 20 000 × č v mene kontajnera; pass.json: cesty s diakritikou
+  cfg --arg c "$cc" "$step"' | .container = $c'
+  add app/Foo.php '$m = 1;'
+  check --auto --project "$REPO"
+  want_rc 4 "check PARTIAL" || return 1
+  want_jfile "$PDATA/partial.json" '.steps == ["šablóny"] and .lines == ["! šablóny: kontajner \($c) nebeží"]' --arg c "$cc" &&
+    no_fffd "$PDATA/partial.json" partial.json || return 1
+  cfg "$step"
+  l=$(awk 'BEGIN { for (i = 0; i < 100; i++) printf "ž" }')
+  i=0
+  while [ "$i" -lt 5 ]; do put "docs/čšť_${i}_$l.md" x; i=$((i + 1)); done
+  check --auto --project "$REPO"
+  want_rc 0 "check PASS" || return 1
+  want_jfile "$PDATA/pass.json" '.blobs | (keys | map(select(startswith("docs/čšť_"))) | length) == 5
+    and has("docs/čšť_4_\($l).md")' --arg l "$l" && no_fffd "$PDATA/pass.json" pass.json || return 1
+  # (b) test-lock.json: 300 ciest a jedna s 4 200 × ž
+  long="tests/$(awk 'BEGIN { for (i = 0; i < 4200; i++) printf "ž" }').php"
+  i=1
+  while [ "$i" -le 300 ]; do a[$i]="tests/žlťočka_$i.php"; i=$((i + 1)); done
+  run test-lock lock "${a[@]}" "$long" --project "$REPO"
+  want_rc 0 "test-lock" && want_out 'test zamknutý' "test-lock" || return 1
+  want_jfile "$PDATA/test-lock.json" '(.files | length) == 301 and .files[299] == "tests/žlťočka_300.php" and .files[300] == $l' \
+    --arg l "$long" && no_fffd "$PDATA/test-lock.json" test-lock.json || return 1
+  # (c) stats.sh nad logom ~100 kB, diakritika v rule (stats ho vypisuje), záznam dlhší ako blok čítania
+  r="guard:$(awk 'BEGIN { for (i = 0; i < 4500; i++) printf "ď" }')"
+  awk -v r="$r" -v t="$(now)" 'BEGIN { for (i = 0; i < 12; i++)
+    printf "{\"ts\":%s,\"project\":\"/p\",\"session\":\"s\",\"hook\":\"on-edit\",\"rule\":\"%s\",\"decision\":\"block\",\"file\":\"app/Košík.php\",\"ms\":5}\n", t, r }' \
+    > "$DATA/decisions.jsonl"
+  run stats --days 30 --all
+  want_rc 0 "stats" && want_out 'záznamy: 12' "stats" || return 1
+  printf '%s\n' "$OUT" | LC_ALL=C grep -qxF -- "  on-edit $r  12/0/0/0/0/0" ||
+    { fail "stats: chýba riadok pravidla s 12 blokmi$(ctx)"; return 1; }
+  printf '%s' "$OUT" | no_fffd - stats
+}
 
 # ---------------------------------------------------------------- beh
 
@@ -3219,6 +3265,7 @@ t "pre-compact: hooks.json PreCompact; bez devkit.json, bez jq, s neplatným con
 t "pre-compact: plain text (nie JSON) — súbory session (8 + ďalšie), Stop len tejto session, pass.json, zámok a handoff < 24 h" t_pre_compact_facts
 t "hooks.json: Edit|Write|NotebookEdit bez MultiEdit, žiadny handler s if; agenti bez MultiEdit" t_hooks_tools_no_if
 t "karta, Stop a pre-compact: text pre Clauda najviac 9 000 znakov UTF-16 s „…“ (dlhý handoff a say)" t_hook_text_cap
+t "partial.json, pass.json, test-lock.json a stats.sh: diakritika cez hranicu bloku čítania jq bez U+FFFD" t_jq_multibyte
 
 wait
 for f in "$RES"/*; do

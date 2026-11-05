@@ -72,3 +72,9 @@
 ## Odchýlky
 
 - C4: filter selftestu hľadá podreťazec v popise prípadu, nie v mene funkcie, takže `agent_memory` nevyberie nič (`FAIL 0/0`). Dôkaz preto s filtrom `'agent kitu'` (tri prípady `pre-edit: agent kitu …`): `CLAUDE_CONFIG_DIR=/nonexistent bash tests/selftest.sh 'agent kitu'` pred zmenou `FAIL 1/3` (pamäť → deny s cestou `/nonexistent/agent-memory/`), po zmene `PASS 3/3`; celý selftest s nastaveným `CLAUDE_CONFIG_DIR` `PASS`.
+- C5: jq 1.7.1 pri `-R` rozdelí viacbajtový znak len v riadku dlhšom ako blok čítania (~4 kB); kratšie riadky prejdú celé. Test preto má v každej časti riadok cez dve hranice bloku (zásah nezávisí od parity):
+  - (b) namiesto 3 000 krátkych ciest (tie chybu nespustia ani so starým skriptom a `test-lock.sh lock` s 3 000 argumentmi beží ~3 s, selftest by prekročil 20 s) 300 ciest `tests/žlťočka_<n>.php` a jedna s 4 200 × `ž`;
+  - (c) `dk_log` nemá pole `reason` → diakritika je v `rule`, ktoré `stats.sh` vypisuje (poškodenie inde by vo výstupe nebolo vidno); 12 záznamov s `rule` 4 500 × `ď` (~100 kB), test overí `záznamy: 12` a riadok pravidla `12/0/0/0/0/0`;
+  - `pass.json`: riadok `blobs.snap` (`cesta<TAB>blob`) blok čítania neprekročí (cesta ≤ PATH_MAX), chyba tu v praxi nenastáva; `--rawfile` podľa plánu, v časti (a) 5 ciest s diakritikou a presný kľúč ako stráž.
+  - SPEC §4: existujúcu vetu o texte hookov (`--arg`, nie `jq -R`) som rozšíril na všetky skripty a `--rawfile`, druhú vetu nepridal.
+  - Proti skriptom pred zmenou (jq-1.7.1, macOS): celý pôvodný `plugins/dev/scripts/` → `FAIL 1/1` (`partial.json`); nové skripty len so starým `test-lock.sh` → FAIL (`test-lock.json`), len so starým `stats.sh` → FAIL (riadok pravidla); len so starým zápisom `pass.json` → PASS (viď vyššie).

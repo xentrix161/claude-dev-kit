@@ -384,10 +384,11 @@ fi
 if [ -z "$CFG_OVER" ] && [ "$mode" != stop ]; then
     if [ "$VERDICT" = PARTIAL ]; then
         # ok = kroky, ktoré by po vypnutí blokovaných dali PASS; steps úplné, lines len na zobrazenie.
-        printf '%s' "$STEPLINES" | grep '^! ' | head -n 5 \
-            | jq -Rn --argjson t "$(dk_now)" --arg m "$mode" --argjson ok "$((NOK + NKNOWN))" \
-                --arg s "$(printf '%s' "$BLOCKIDS" | awk 'NF && !s[$0]++')" \
-                '{time: $t, mode: $m, ok: $ok, steps: ($s | split("\n") | map(select(length > 0))), lines: [inputs]}' \
+        jq -n --argjson t "$(dk_now)" --arg m "$mode" --argjson ok "$((NOK + NKNOWN))" \
+            --arg s "$(printf '%s' "$BLOCKIDS" | awk 'NF && !s[$0]++')" \
+            --arg l "$(printf '%s' "$STEPLINES" | grep '^! ' | head -n 5)" \
+            '{time: $t, mode: $m, ok: $ok, steps: ($s | split("\n") | map(select(length > 0))),
+              lines: ($l | split("\n") | map(select(length > 0)))}' \
             2>/dev/null > "$DK_PDATA/partial.json.tmp.$$" && mv "$DK_PDATA/partial.json.tmp.$$" "$DK_PDATA/partial.json"
     else
         rm -f "$DK_PDATA/partial.json"
@@ -401,9 +402,9 @@ elif [ "$mode" = stop ] && { [ "$RC" = 0 ] || [ "$VERDICT" = PARTIAL ]; }; then
         2>/dev/null > "$SF.tmp.$$" && mv "$SF.tmp.$$" "$SF"
 elif [ "$RC" = 0 ]; then
     HEAD_SHA=$(dk_git rev-parse --verify -q HEAD 2>/dev/null)
-    jq -Rn --argjson t "$(dk_now)" --arg m "$mode" --arg h "$HEAD_SHA" \
-        '{time: $t, mode: $m, head: $h, blobs: ([inputs | select(length > 0) | split("\t") | {(.[0]): .[1]}] | add // {})}' \
-        < "$DK_TMP/blobs.snap" 2>/dev/null > "$DK_PDATA/pass.json.tmp.$$" && mv "$DK_PDATA/pass.json.tmp.$$" "$DK_PDATA/pass.json"
+    jq -n --argjson t "$(dk_now)" --arg m "$mode" --arg h "$HEAD_SHA" --rawfile b "$DK_TMP/blobs.snap" \
+        '{time: $t, mode: $m, head: $h, blobs: ($b | split("\n") | map(select(length > 0) | split("\t") | {(.[0]): .[1]}) | add // {})}' \
+        2>/dev/null > "$DK_PDATA/pass.json.tmp.$$" && mv "$DK_PDATA/pass.json.tmp.$$" "$DK_PDATA/pass.json"
 fi
 
 ls -1t "$DK_PDATA"/logs/check-*.log 2>/dev/null | tail -n +21 | while IFS= read -r f; do rm -f "$f"; done

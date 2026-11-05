@@ -29,10 +29,12 @@ SRC=""
 if [ -z "$SRC" ]; then echo "[dev-kit] zatiaľ žiadne rozhodnutia hookov ($LOG neexistuje)"; exit 0; fi
 
 since=$(( $(dk_now) - days * 86400 ))
-out=$(printf '%s\n' "$SRC" | while IFS= read -r f; do cat "$f"; done | jq -Rrn --argjson since "$since" --arg p "$DK_PROJECT" --argjson all "$all" '
+dk_tmpdir
+printf '%s\n' "$SRC" | while IFS= read -r f; do cat "$f"; done > "$DK_TMP/stats.jsonl" 2>/dev/null
+out=$(jq -rn --rawfile r "$DK_TMP/stats.jsonl" --argjson since "$since" --arg p "$DK_PROJECT" --argjson all "$all" '
   def cnt(d): map(select(.decision == d)) | length;
   def noisy: .decision == "block" or .decision == "deny" or .decision == "ask" or .decision == "warn";
-  [inputs | (try fromjson catch null) | select(type == "object") | select((.ts // 0) >= $since) | select($all or .project == $p)] as $e
+  [$r | split("\n") | .[] | (try fromjson catch null) | select(type == "object") | select((.ts // 0) >= $since) | select($all or .project == $p)] as $e
   | if ($e | length) == 0 then "E" else
     "H\u001f\($e | length)",
     ($e | group_by((.hook // "?") + " " + (.rule // "?"))
