@@ -71,4 +71,4 @@
 
 ## Odchýlky
 
-(dopĺňať pri implementácii)
+- C4: filter selftestu hľadá podreťazec v popise prípadu, nie v mene funkcie, takže `agent_memory` nevyberie nič (`FAIL 0/0`). Dôkaz preto s filtrom `'agent kitu'` (tri prípady `pre-edit: agent kitu …`): `CLAUDE_CONFIG_DIR=/nonexistent bash tests/selftest.sh 'agent kitu'` pred zmenou `FAIL 1/3` (pamäť → deny s cestou `/nonexistent/agent-memory/`), po zmene `PASS 3/3`; celý selftest s nastaveným `CLAUDE_CONFIG_DIR` `PASS`.

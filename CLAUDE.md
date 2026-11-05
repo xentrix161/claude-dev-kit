@@ -80,7 +80,7 @@ docs/SPEC.md                      kontrakt
 - Kit je nainštalovaný in-place z tejto pracovnej kópie: rozbitý skript v `plugins/dev/scripts/` hneď zasiahne hooky vo všetkých session a projektoch.
 - BSD grep číta `[^\s]` ako „nie spätná lomka, nie s" — v zátvorkách používaj `[:space:]`, `[:alnum:]_` (SPEC §3).
 - `claude plugin details` počíta aj skilly s `disable-model-invocation: true`, hoci ich popis v kontexte nie je — rozpočet stráži `tools/details.sh`.
-- Selftest musí bežať aj z hooku: premenné `CLAUDE_*` a `DEVKIT_DATA` si nastavuje sám a na `$HOME/.claude` nesmie siahnuť.
+- Selftest musí bežať aj z hooku: premenné `CLAUDE_*` (vrátane `CLAUDE_CONFIG_DIR`) a `DEVKIT_DATA` si nastavuje alebo ruší sám a na `$HOME/.claude` nesmie siahnuť.
 - `make` musí fungovať v GNU 3.81 aj BSD make — bez GNU funkcií.
 
 ## Compact instructions
