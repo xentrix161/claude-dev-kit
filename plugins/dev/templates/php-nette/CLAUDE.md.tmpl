@@ -49,7 +49,7 @@ Agent nemá TTY → `docker exec` **bez `-it`** (make ciele s `-it` padnú: „t
 | PHPStan | `{{run}}php vendor/bin/phpstan analyse -c {{phpstanConfig}} --memory-limit=1G` | `[OK] No errors` |
 | code style | `{{run}}php vendor/bin/phpcs -q -n --standard=PSR12 <súbory>` | žiadny výstup, exit 0 |
 | Latte | `{{run}}php vendor/bin/latte-lint <cesta>` | `Done (checked N files, found errors in 0)` |
-| migrácie | `{{run}}php vendor/bin/phinx migrate` | `All Done. Took 0.NNNNs` <!-- db:dibi --> |
+| čakajúce migrácie | `{{run}}php vendor/bin/phinx status` | všetky riadky `up`, exit 0 <!-- db:dibi --> |
 | mapovanie a schéma | `{{run}}php bin/console {{schemaValidateCmd}}` | `[OK] The mapping files are correct.` + `[OK] The database schema is in sync with the mapping files.` <!-- db:doctrine --> |
 | čakajúce migrácie | `{{run}}php bin/console {{migrationsCmd}}:up-to-date` | `[OK] Up-to-date! No migrations to execute.` <!-- db:doctrine --> |
 | prostredie | `{{startCommand}}` | {{startHealthyOutput}} |
