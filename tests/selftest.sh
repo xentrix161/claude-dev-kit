@@ -635,9 +635,10 @@ t_bash_commit_partial_explained() {
     | contains("commit gate") and contains("Posledná kontrola skončila PARTIAL:\n! lint: kontajner app-php nebeží\n! unit:")
       and contains("vypnutie krokov by dalo SKIP, nie PASS")
       and contains("navrhni používateľovi spustiť kontajner app-php a kontrolu zopakuj")
-      and contains("disabledRules commitGate v .claude/devkit.json (kontrola tajomstiev aj Stop bežia ďalej; zapíš to používateľovi)")
+      and contains("alebo mu navrhni dočasné vypnutie gate: disabledRules commitGate v .claude/devkit.json (kontrola tajomstiev aj Stop bežia ďalej; config nemeň sám).")
       and (contains("spusti kontajner") or contains("disabledRules step:") | not)
       and (split("\n") | last | startswith("Spusti kontrolu: bash"))' || return 1
+  want_not 'dočasne vypni' || return 1
   cfg '.container = "app-php" | .disabledRules = ["commitGate"]'
   pre_bash 'git commit -m "x"'
   want_allow_cfgnote "únik disabledRules commitGate" || return 1
@@ -655,8 +656,9 @@ t_bash_commit_partial_one_ok() {
   pre_bash 'git commit -m "x"'
   want_decision deny "1 ok" && want_json '.hookSpecificOutput.permissionDecisionReason
     | contains("! tests: príkaz sa nedá spustiť (exit 127)")
-      and contains("Únik: navrhni používateľovi odstrániť príčinu a kontrolu zopakuj, alebo krok dočasne vypni: disabledRules step:tests v .claude/devkit.json (zapíš to používateľovi).")
+      and contains("Únik: navrhni používateľovi odstrániť príčinu a kontrolu zopakuj, alebo mu navrhni dočasné vypnutie kroku: disabledRules step:tests v .claude/devkit.json (config nemeň sám, počkaj na jeho rozhodnutie).")
       and (contains("kontajner") or contains("commitGate") | not)' "1 ok" || return 1
+  want_not 'dočasne vypni' "1 ok" || return 1
   jq '.time -= 90000' "$PDATA/partial.json" > "$CASE/partial.json" && mv "$CASE/partial.json" "$PDATA/partial.json"
   pre_bash 'git commit -m "x"'
   want_decision deny "partial.json starší ako 24 h" && want_not 'PARTIAL' "partial.json starší ako 24 h" || return 1
@@ -678,7 +680,8 @@ t_bash_commit_partial_all_ids() {
   pre_bash 'git commit -m "x"'
   want_decision deny && want_json '.hookSpecificOutput.permissionDecisionReason
     | contains("! b5: ") and (contains("! b6: ") | not)
-      and contains("kroky dočasne vypni: disabledRules step:b1, step:b2, step:b3, step:b4, step:b5, step:b6, step:b7 v .claude/devkit.json")'
+      and contains("alebo mu navrhni dočasné vypnutie krokov: disabledRules step:b1, step:b2, step:b3, step:b4, step:b5, step:b6, step:b7 v .claude/devkit.json (config nemeň sám, počkaj na jeho rozhodnutie).")' || return 1
+  want_not 'dočasne vypni'
 }
 t_stop_partial_once() {
   new_case

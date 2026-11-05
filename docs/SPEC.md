@@ -403,12 +403,15 @@ target, which never equals the content `check.sh` hashed, so the gate would deny
    PARTIAL still blocks; the deny must say why and how to proceed: when it asks for a check (files without
    PASS or `--full`) and `partial.json` (§4.5) has `time` less than 24 h old, the reason adds before that
    final line `Posledná kontrola skončila PARTIAL:`, its `!` lines (≤ 5) and one escape line chosen by
-   `ok`. `ok` ≥ 1: `Únik: navrhni používateľovi <príčina> a kontrolu zopakuj, alebo krok|kroky dočasne
-   vypni: disabledRules step:<id>[, step:<id>…] v .claude/devkit.json (zapíš to používateľovi).` with
-   every id from `steps`. `ok` = 0 (always when the container is down — disabling the blocked steps would
-   give SKIP, never PASS): `Únik: vypnutie krokov by dalo SKIP, nie PASS — navrhni používateľovi <príčina>
-   a kontrolu zopakuj, alebo gate dočasne vypni: disabledRules commitGate v .claude/devkit.json (kontrola
-   tajomstiev aj Stop bežia ďalej; zapíš to používateľovi).` `<príčina>` = `spustiť kontajner <c>` when a
+   `ok`. `ok` ≥ 1: `Únik: navrhni používateľovi <príčina> a kontrolu zopakuj, alebo mu navrhni dočasné
+   vypnutie kroku|krokov: disabledRules step:<id>[, step:<id>…] v .claude/devkit.json (config nemeň sám,
+   počkaj na jeho rozhodnutie).` with every id from `steps` (`kroku` for one id, `krokov` for more).
+   `ok` = 0 (always when the container is down — disabling the blocked steps would give SKIP, never PASS):
+   `Únik: vypnutie krokov by dalo SKIP, nie PASS — navrhni používateľovi <príčina> a kontrolu zopakuj,
+   alebo mu navrhni dočasné vypnutie gate: disabledRules commitGate v .claude/devkit.json (kontrola
+   tajomstiev aj Stop bežia ďalej; config nemeň sám).` The text never tells Claude to change the config,
+   only to propose disabling to the user — the same as `commit/SKILL.md:97` (Claude itself never turns
+   off `commitGate` nor adds `disabledRules`). `<príčina>` = `spustiť kontajner <c>` when a
    line reads `kontajner <c> nebeží` for the configured container, else `odstrániť príčinu`. Never the
    imperative `spusti kontajner` — the `check` and `commit` skills forbid Claude to start containers.
    What the gate proves: the content of every committed code file passed `check.sh` in the working tree

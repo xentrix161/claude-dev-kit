@@ -333,7 +333,7 @@ dk__rkands() { # <príkaz>
 # Prečo posledná quick/full kontrola nedala PASS (partial.json z check.sh, < 24 h) a ako ďalej; inak nič.
 # Bez ok kroku by vypnutie blokovaných krokov dalo SKIP (check.sh exit 4) → únik je celý commitGate.
 dk_partial_note() {
-    local f="$DK_PDATA/partial.json" out t ok ids lines why what=krok
+    local f="$DK_PDATA/partial.json" out t ok ids lines why what=kroku
     [ -f "$f" ] || return 0
     out=$(jq -r '"\(.time // 0)", "\(.ok // 0)", ((.steps // []) | map("step:" + (tostring | gsub("[\n\r]"; " "))) | join(", ")),
         ((.lines // [])[:5][] | tostring | gsub("[\n\r]"; " "))' "$f" 2>/dev/null) || return 0
@@ -351,10 +351,10 @@ dk_partial_note() {
     fi
     printf 'Posledná kontrola skončila PARTIAL:\n%s\n' "$lines"
     if [ "$ok" -gt 0 ] && [ -n "$ids" ]; then
-        case "$ids" in *", "*) what=kroky ;; esac
-        printf 'Únik: navrhni používateľovi %s a kontrolu zopakuj, alebo %s dočasne vypni: disabledRules %s v .claude/devkit.json (zapíš to používateľovi).\n' "$why" "$what" "$ids"
+        case "$ids" in *", "*) what=krokov ;; esac
+        printf 'Únik: navrhni používateľovi %s a kontrolu zopakuj, alebo mu navrhni dočasné vypnutie %s: disabledRules %s v .claude/devkit.json (config nemeň sám, počkaj na jeho rozhodnutie).\n' "$why" "$what" "$ids"
     else
-        printf 'Únik: vypnutie krokov by dalo SKIP, nie PASS — navrhni používateľovi %s a kontrolu zopakuj, alebo gate dočasne vypni: disabledRules commitGate v .claude/devkit.json (kontrola tajomstiev aj Stop bežia ďalej; zapíš to používateľovi).\n' "$why"
+        printf 'Únik: vypnutie krokov by dalo SKIP, nie PASS — navrhni používateľovi %s a kontrolu zopakuj, alebo mu navrhni dočasné vypnutie gate: disabledRules commitGate v .claude/devkit.json (kontrola tajomstiev aj Stop bežia ďalej; config nemeň sám).\n' "$why"
     fi
 }
 

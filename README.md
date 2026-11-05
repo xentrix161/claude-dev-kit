@@ -35,7 +35,7 @@ Hooky spúšťajú príkazy z `.claude/devkit.json` (lint, kroky kontroly) tak, 
 | pri štarte session | Karta so stackom, stavom kontajnera, gitom, posledným handoffom a zmenou `devkit.json` od poslednej session. |
 | pred kompakciou | Do pokynov súhrnu pridá stav session: súbory, ktoré Claude menil, výsledok poslednej Stop kontroly a posledný PASS z `/dev:check`, zamknutý test a posledný handoff. Kompakciu nikdy nezastaví. |
 
-Nebežiaci kontajner ani chýbajúci nástroj nič nezablokujú, kontrola sa len preskočí. Commit kódu bez PASS však commit gate odmietne. Po kontrole s výsledkom PARTIAL vypíše kroky, ktoré neprebehli, a ponúkne únik: odstrániť príčinu (napríklad spustiť kontajner), alebo dočasne vypnúť cez `disabledRules` kroky, ktoré sa nedali spustiť — a keď neprebehol žiadny krok, celý `commitGate` (kontrola tajomstiev beží ďalej).
+Nebežiaci kontajner ani chýbajúci nástroj nič nezablokujú, kontrola sa len preskočí. Commit kódu bez PASS však commit gate odmietne. Po kontrole s výsledkom PARTIAL vypíše kroky, ktoré neprebehli, a ponúkne únik: odstrániť príčinu (napríklad spustiť kontajner), alebo navrhnúť používateľovi dočasné vypnutie cez `disabledRules` krokov, ktoré sa nedali spustiť — a keď neprebehol žiadny krok, celého `commitGate` (kontrola tajomstiev beží ďalej). Config Claude sám nemení.
 
 ## Príkazy
 
