@@ -3,6 +3,10 @@
 - Formát: `## <verzia> — <dátum>`, najnovšie hore; verzia = `version` v `plugins/dev/.claude-plugin/plugin.json`.
 - Posun pinu ECC (P3) zapíš ako odrážku: kusy + nový commit.
 
+## 0.4.1 — nevydané
+
+- `knownFailures`: riadok pytest `ERROR <cesta>.py[::<test>]` z krátkeho súhrnu (chyba fixture či setupu, chyba zberu modulu) je zlyhanie ako `FAILED <id>` — neznámy `ERROR` popri známych `FAILED` už nedá PASS. Vzor sa píše ako pri `FAILED` (`^tests/test_x\.py::test_w$`, pri chybe zberu cesta `^tests/test_conf\.py$`); `ERROR` bez cesty `.py` nie je identifikátor.
+
 ## 0.4.0 — 2026-11-04
 
 - Príklady bez domény konkrétneho projektu: `task-tldr` ukazuje zhrnutie z e-shopu (stavy objednávky, export, krok po nasadení), `ecc-change-impact` menuje odberateľa „iný tenant“.

@@ -2043,7 +2043,7 @@ app/B.php:2: y" ] || fail "dk_strip_paths: $(flat "$got")"
 
 # ---------------------------------------------------------------- medzery pokrytia (A9)
 
-# pytest: identifikátor z riadku „FAILED <id>“ krátkeho súhrnu (syntetický výstup vo formáte pytest 8)
+# pytest: identifikátor z riadkov „FAILED <id>“ a „ERROR <id>“ krátkeho súhrnu (syntetický výstup vo formáte pytest 8)
 t_check_known_failures_pytest() {
   new_case
   cat > "$CASE/pytest.out" <<'EOF'
@@ -2088,7 +2088,37 @@ EOF
   cfg --arg c "$c" --arg y "$y" --arg z "$z" \
     '.check.steps |= map(if .id == "unit" then .run = $c else . end) | .check.knownFailures = [{"step": "unit", "pattern": $y}, {"step": "unit", "pattern": $z}]'
   check --quick --project "$REPO"
-  want_rc 0 && want_out '✓ unit' && want_out '(známe zlyhania: 2)' && want_out 'PASS · 1 ok · 1 známe · 0 fail'
+  want_rc 0 && want_out '✓ unit' && want_out '(známe zlyhania: 2)' && want_out 'PASS · 1 ok · 1 známe · 0 fail' || return 1
+  # „ERROR <cesta>.py[::<test>]“ (fixture, setup, zber modulu) je zlyhanie; „ERROR:“ iného nástroja nie je id.
+  cat > "$CASE/pytest-err.out" <<'EOF'
+=========================== short test summary info ============================
+FAILED tests/test_x.py::test_y - assert 3 == 4
+ERROR tests/test_x.py::test_w - fixture 'db' not found
+ERROR: something else
+=================== 1 failed, 2 passed, 1 error in 0.05s =======================
+EOF
+  local w='^tests/test_x\.py::test_w$' cf='^tests/test_conf\.py$'
+  c="sh bin/replay $(q "$CASE/pytest-err.out") 1"
+  cfg --arg c "$c" --arg y "$y" \
+    '.check.steps |= map(if .id == "unit" then .run = $c else . end) | .check.knownFailures = [{"step": "unit", "pattern": $y}]'
+  check --quick --project "$REPO"
+  want_rc 1 "ERROR test_w nie je známe" && want_out '✗ unit' "ERROR test_w nie je známe" \
+    && want_out 'FAIL · 1 ok · 1 fail' "ERROR test_w nie je známe" || return 1
+  cfg --arg c "$c" --arg y "$y" --arg w "$w" \
+    '.check.steps |= map(if .id == "unit" then .run = $c else . end) | .check.knownFailures = [{"step": "unit", "pattern": $y}, {"step": "unit", "pattern": $w}]'
+  check --quick --project "$REPO"
+  want_rc 0 "ERROR test_w známe" && want_out '(známe zlyhania: 2)' "ERROR test_w známe" \
+    && want_out 'PASS · 1 ok · 1 známe · 0 fail' "ERROR test_w známe" || return 1
+  cat > "$CASE/pytest-coll.out" <<'EOF'
+=========================== short test summary info ============================
+ERROR tests/test_conf.py
+!!!!!!!!!!!!!!!!!!!! Interrupted: 1 error during collection !!!!!!!!!!!!!!!!!!!!
+EOF
+  c="sh bin/replay $(q "$CASE/pytest-coll.out") 2"
+  cfg --arg c "$c" --arg cf "$cf" \
+    '.check.steps |= map(if .id == "unit" then .run = $c else . end) | .check.knownFailures = [{"step": "unit", "pattern": $cf}]'
+  check --quick --project "$REPO"
+  want_rc 0 "chyba zberu, id = cesta" && want_out '(známe zlyhania: 1)' "chyba zberu, id = cesta"
 }
 # Predvolené vzory tajomstiev (lib.sh) bez secrets.patterns; hodnoty skladané, aby ich v repe nenašiel skener tajomstiev.
 SECRET_AKIA="AKIA""SELFTEST0000EXMP"
@@ -3159,7 +3189,7 @@ t "kontajner: on-edit číta container.state 30 s, check.sh vždy docker inspect
 t "check.sh: runFiles bez ext dostane do {files} len kódové súbory" t_check_runfiles_code_only
 t "check.sh --auto: fullWhen bez krokov len pre full → riadok „– full: rovnaké kroky ako quick“" t_check_auto_full_same_steps
 t "cesty so spätnou lomkou: on-edit, check.sh changedLinesOnly, dk_strip_paths (awk ENVIRON)" t_awk_backslash_paths
-t "check.sh: knownFailures z pytest „FAILED <id>“ (aj [param]) → známe, neznáme id → FAIL" t_check_known_failures_pytest
+t "check.sh: knownFailures z pytest „FAILED <id>“ (aj [param]) a „ERROR <cesta>[::<test>]“ → známe, neznáme id → FAIL" t_check_known_failures_pytest
 t "on-edit: predvolené vzory AKIA… a BEGIN … PRIVATE KEY → exit 2 s maskou ****" t_edit_secret_defaults
 t "pre-bash: predvolené vzory AKIA… a BEGIN … PRIVATE KEY → deny s maskou ****" t_bash_commit_secret_defaults
 t "stop-check: zmazaný celý test súbor (rm aj git rm) → pripomienka raz, nový súbor ticho" t_stop_removed_test_file

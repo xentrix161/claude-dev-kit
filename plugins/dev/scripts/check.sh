@@ -220,9 +220,11 @@ dk_known_ok() { # <step-id> <outfile> → 0 keď všetky zlyhania sú známe; po
     KNOWN_N=0
     pats=$(printf '%s' "$KNOWN" | awk -F"$DK_US" -v s="$id" '$1 == s { print $2 }')
     [ -n "$pats" ] || return 1
-    # PHPUnit „N) Trieda::metóda“, pytest „FAILED <id>“, Nette Tester „-- FAILED: [titulok | ]<cesta>[ <argumenty>]“,
-    # záznamy auditu; záznam s viacerými id je známy, keď vzor pokryje aspoň jedno z nich.
+    # PHPUnit „N) Trieda::metóda“, pytest „FAILED <id>“ a „ERROR <cesta>.py[::<test>]“,
+    # Nette Tester „-- FAILED: [titulok | ]<cesta>[ <argumenty>]“, záznamy auditu;
+    # záznam s viacerými id je známy, keď vzor pokryje aspoň jedno z nich.
     ids=$({ sed -nE 's/^[0-9]+\) ([^[:space:]]+::[^[:space:]]+).*/\1/p; s/^FAILED ([^[:space:]]+).*/\1/p
+        s/^ERROR ([^[:space:]]+\.py(::[^[:space:]]+)?)( .*)?$/\1/p
         /^-- FAILED: /{ s/^-- FAILED: //; s/^.* \| ([^[:space:]|]+\.phpt?( |$))/\1/; p;}' "$2"; dk_audit_ids "$2"; } | sort -u)
     [ -n "$ids" ] || return 1
     while IFS= read -r x; do

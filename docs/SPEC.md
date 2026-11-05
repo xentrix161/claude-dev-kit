@@ -210,7 +210,9 @@ Semantics:
   `guard:test-skip`), `lint:<ext>` (e.g. `lint:.php`), `step:<id>`, `pair:<id>`, `secrets`, `migrations`,
   `testLock`, `stopCheck`, `commitGate`, `testRemoved`. Hook messages print these ids (§4.2, §4.6).
 - `knownFailures`: when a step fails, extract failing identifiers from its output — only PHPUnit lines
-  `^[0-9]+\) <Class>::<method>`, pytest `^FAILED <id>` and Nette Tester `^-- FAILED: [<title> | ]<path>[ <args>]`;
+  `^[0-9]+\) <Class>::<method>`, pytest `^FAILED <id>` and `^ERROR <id>` (short summary; `<id>` is
+  `<path>::<test>` or, for a collection error, the path; an `ERROR` line whose first word is not a `.py` path
+  is not an identifier) and Nette Tester `^-- FAILED: [<title> | ]<path>[ <args>]`;
   other numbered lines are not identifiers. A Tester id is the path as Tester prints it (relative to the common
   directory of the tests that ran) plus the variant arguments (`method=<m>`, `dataprovider=<item>|<file>`); the
   title before the last ` | ` that is followed by a `.php`/`.phpt` path is dropped, otherwise the whole text
