@@ -2637,6 +2637,18 @@ t_templates_phinx() {
   pre_edit db/migrations/20260101000000_init.php
   want_decision ask "db/migrations"
 }
+# Phinx príkazy, ktoré menia DB, pýtajú potvrdenie len v php-nette (php-symfony Phinx nemá); status a create voľné.
+t_templates_phinx_ask() {
+  local T="$KIT/plugins/dev/templates" r
+  for r in 'Bash(*phinx migrate*)' 'Bash(*phinx rollback*)' 'Bash(*phinx seed:run*)' 'Bash(*phinx breakpoint*)'; do
+    jq -e --arg r "$r" '.permissions.ask | index($r)' "$T/php-nette/settings.json" >/dev/null 2>&1 ||
+      { fail "php-nette/settings.json: ask bez $r"; return 1; }
+    jq -e --arg r "$r" '.permissions.ask | index($r) | not' "$T/php-symfony/settings.json" >/dev/null 2>&1 ||
+      { fail "php-symfony/settings.json: ask má $r"; return 1; }
+  done
+  jq -e '[.permissions.ask[] | select(test("phinx (status|create|seed:create)"))] | length == 0' \
+    "$T/php-nette/settings.json" >/dev/null 2>&1 || fail "php-nette/settings.json: ask na phinx status/create"
+}
 
 # ---------------------------------------------------------------- audit závislostí (B14)
 # composer audit (Advisory ID + CVE) a pip-audit (ID + aliasy): vzor na jedno id pokryje záznam — SPEC §3
@@ -3258,6 +3270,7 @@ t "stop-check: prípona len z kroku quick/full (.css) Stop nespustí, commit gat
 t "check.sh: knownFailures z Nette Tester „-- FAILED:“ (id = cesta + method=/dataprovider=, bez titulku), nie chyba prostredia" t_check_known_failures_tester
 t "šablóna php-nette: krok tester, .phpt v lint a commitGate.ext, guardy debug-php a test-skip (Environment::skip) pre .phpt" t_templates_tester
 t "Phinx: _init, detekcia phinx.{php,json,yaml,yml}, db-dibi.md; migrations.paths s * (module/*/migrations) → ask len pri commitnutej" t_templates_phinx
+t "šablóna php-nette: ask na phinx migrate, rollback, seed:run a breakpoint (status, create voľné); php-symfony ich nemá" t_templates_phinx_ask
 t "check.sh: knownFailures zo zraniteľností composer audit a pip-audit (vzor na CVE alias pokryje záznam, ukotvenie platí)" t_check_known_failures_audit
 t "check.sh: audit — abandoned ostáva FAIL, Ignore reason a blok bez id, tabuľka, sieť = PARTIAL, pytest bez hlavičky bez id" t_check_audit_edges
 t "šablóny: krok audit len vo full so súhlasom v pláne initu; review a production-audit odkazujú na krok" t_templates_audit

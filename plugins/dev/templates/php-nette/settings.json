@@ -22,7 +22,11 @@
       "Bash(*schema-tool:*)",
       "Bash(*database:drop*)",
       "Bash(*dbal:run-sql*)",
-      "Bash(*fixtures:load*)"
+      "Bash(*fixtures:load*)",
+      "Bash(*phinx migrate*)",
+      "Bash(*phinx rollback*)",
+      "Bash(*phinx seed:run*)",
+      "Bash(*phinx breakpoint*)"
     ],
     "deny": [
       "Edit(/vendor/**)",

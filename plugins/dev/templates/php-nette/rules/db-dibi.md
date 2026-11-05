@@ -33,6 +33,7 @@ paths:
 
 - Každá zmena schémy, číselníka alebo triggera = nová migrácia (`YYYYMMDDHHMMSS_nazov.php`) v adresári z `paths.migrations` konfigurácie Phinx (predvolene `db/migrations/`).
 - Aplikovanú alebo commitnutú migráciu **neupravuj** — chybu oprav novou migráciou (hook sa pred úpravou pýta).
+- `phinx migrate`, `rollback` a `seed:run` len na výslovný pokyn (menia DB).
 - Vždy funkčný návrat: `down()`, alebo `change()` len s operáciami, ktoré Phinx vie vrátiť (`up()`/`down()` vedľa `change()` ignoruje); dátové migrácie idempotentné.
 - Zmena modelu alebo tabuľky bez migrácie → opýtaj sa, či ju používateľ chce.
 - Zmena stĺpcov tabuľky s triggermi → skontroluj triggery (`SHOW TRIGGERS LIKE 'tabuľka'`).
