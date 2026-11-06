@@ -3541,7 +3541,7 @@ t_evals_suite() {
       done
     done
   done
-  [ "$n" -ge 4 ] || { fail "evals: $n prípadov, čakal som 4"; return 1; }
+  [ "$n" -ge 5 ] || { fail "evals: $n prípadov, čakal som 5"; return 1; }
   [ -z "$(find "$EV/fixtures" -name prompt.md -o -name case.yaml)" ] ||
     { fail "evals/fixtures: prompt.md alebo case.yaml by sa načítal ako prípad"; return 1; }
   LC_ALL=C grep -q '^eval:' "$KIT/Makefile" && ! LC_ALL=C grep -Eq '^check:.* eval( |$)' "$KIT/Makefile" ||
@@ -3549,6 +3549,9 @@ t_evals_suite() {
   LC_ALL=C grep -qF 'scripts/test-lock.sh" lock' "$KIT/plugins/dev/skills/fix/SKILL.md" &&
     LC_ALL=C grep -qF 'scripts/check.sh" --auto' "$KIT/plugins/dev/skills/fix/SKILL.md" ||
     { fail "fix/SKILL.md: príkazy nesedia s gradermi fix-locked-test (test-lock.sh\" lock, check.sh\" --auto)"; return 1; }
+  LC_ALL=C grep -qF '(`feature/ABC-123-popis` → `ABC-123`)' "$KIT/plugins/dev/skills/commit/SKILL.md" &&
+    LC_ALL=C grep -qF 'riadok `Commit:` v Pravidlách `CLAUDE.md`' "$KIT/plugins/dev/skills/commit/SKILL.md" ||
+    { fail "commit/SKILL.md: pravidlo Commit: z CLAUDE.md a kľúč Jiry z vetvy (commit-style-jira)"; return 1; }
 
   ev_scaffold check-partial || return 1
   check --quick --project "$W"
@@ -3570,6 +3573,27 @@ t_evals_suite() {
   git -C "$W" commit -qm '[#12] feat: cart_item_count v košíku' &&
     LC_ALL=C grep -Eq '^\[#12\] feat: [^[:space:]]' "$W/.git/COMMIT_EDITMSG" ||
     { fail "commit-no-attribution: .git/COMMIT_EDITMSG"; return 1; }
+
+  ev_scaffold commit-style-jira || return 1
+  [ "$(git -C "$W" branch --show-current)" = feature/ABC-123-pocet-poloziek ] &&
+    [ "$(git -C "$W" log --format=%s | tr '\n' '|')" = 'ABC-100 Košík, ceny a objednávky|' ] &&
+    [ "$(git -C "$W" ls-files CLAUDE.md)" = CLAUDE.md ] &&
+    LC_ALL=C grep -q '^[0-9][0-9]*\. Commit: `ABC-123 výstih`' "$W/CLAUDE.md" &&
+    [ "$(git -C "$W" status --porcelain | tr '\n' '|')" = ' M lib/cart.sh| M tests/test_cart.sh|' ] ||
+    { fail "commit-style-jira: vetva, história, CLAUDE.md alebo zmeny: $(flat "$(git -C "$W" log --format=%s; git -C "$W" status --porcelain -b)")"; return 1; }
+  [ "$(ev_pattern "$EV/commit-style-jira/graders/message-format.md")" = '^ABC-123 \S' ] ||
+    { fail "commit-style-jira: message-format nie je ^ABC-123 \\S"; return 1; }
+  check --auto --project "$W" --files lib/cart.sh tests/test_cart.sh
+  want_rc 0 commit-style-jira || return 1
+  g add lib/cart.sh tests/test_cart.sh
+  pre_bash 'git commit -m "ABC-123 Počet kusov v košíku"'
+  want_rc 0 "commit-style-jira: gate po PASS" && want_no_stdout "commit-style-jira: gate po PASS" || return 1
+  git -C "$W" commit -qm 'ABC-123 Počet kusov v košíku' &&
+    LC_ALL=C grep -Eq '^ABC-123 [^[:space:]]' "$W/.git/COMMIT_EDITMSG" &&
+    ! LC_ALL=C grep -Eq "$(ev_pattern "$EV/commit-style-jira/graders/no-default-style.md")" "$W/.git/COMMIT_EDITMSG" ||
+    { fail "commit-style-jira: .git/COMMIT_EDITMSG"; return 1; }
+  printf '%s\n' '[#123] feat: počet' 'ABC-123 feat: počet' | LC_ALL=C grep -Ec "$(ev_pattern "$EV/commit-style-jira/graders/no-default-style.md")" |
+    LC_ALL=C grep -qx 2 || { fail "no-default-style nechytí [#123] feat: alebo ABC-123 feat:"; return 1; }
 
   ev_scaffold fix-locked-test || return 1
   [ -z "$(git -C "$W" status --porcelain)" ] || { fail "fix-locked-test: necommitnuté zmeny po scaffold"; return 1; }
@@ -4004,7 +4028,7 @@ t "check.sh: audit — abandoned ostáva FAIL, Ignore reason a blok bez id, tabu
 t "šablóny: krok audit len vo full so súhlasom v pláne initu; review a production-audit odkazujú na krok" t_templates_audit
 t "check.sh --config / DEVKIT_CONFIG: kópia s container \"\" beží na hoste, bez pass.json a partial.json, Stop berie config projektu" t_check_config
 t "check.sh --config: projekt bez devkit.json, neplatný JSON, chýbajúca hodnota, ten istý súbor a prázdne DEVKIT_CONFIG → markery" t_check_config_edges
-t "eval suite: prompt.md a gradery, fixture shop zo scaffold.sh (PARTIAL, commit gate, zámok testu, diff), make eval mimo check" t_evals_suite
+t "eval suite: prompt.md a gradery, fixture shop zo scaffold.sh (PARTIAL, commit gate, štýl commitu Jira z CLAUDE.md, zámok testu, diff), make eval mimo check" t_evals_suite
 t "pre-compact: hooks.json PreCompact; bez devkit.json, bez jq, s neplatným configom a bez stavu session exit 0 bez výstupu" t_pre_compact_silent
 t "pre-compact: plain text (nie JSON) — súbory session (8 + ďalšie), Stop len tejto session, pass.json, zámok a handoff < 24 h" t_pre_compact_facts
 t "hooks.json: Edit|Write|NotebookEdit bez MultiEdit, žiadny handler s if; agenti bez MultiEdit" t_hooks_tools_no_if

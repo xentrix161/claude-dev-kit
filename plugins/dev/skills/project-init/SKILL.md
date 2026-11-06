@@ -226,7 +226,7 @@ Stack: N = php-nette, S = php-symfony, P = python.
 | `{{projectDescription}}` | N S P | `description` v `composer.json`/`pyproject.toml`, prvý odsek `README.md` alebo `AGENTS.md` | otázka 4 |
 | `{{domainTerms}}` | N S P | glosár alebo zoznam pojmov v `CLAUDE.md`, `AGENTS.md`, `README.md` | zmaž |
 | `{{architectureNotes}}` `{{projectPitfalls}}` | N S P | vstupné body a vzory, resp. pasce z existujúceho `CLAUDE.md`/`AGENTS.md` | zmaž |
-| `{{commitStyle}}` | N S P | `git log --format=%s -50`: prefix úlohy, `typ:`, jazyk | otázka 4 |
+| `{{commitStyle}}` | N S P | `git log --format=%s -50`: tvar riadku s príkladom (`[#123] typ: výstih`, Jira `ABC-123 výstih`, `typ(scope): výstih`) a jazyk — `/dev:commit` podľa neho píše správy | otázka 4 |
 | `{{handoffDoc}}` | N S P | krok 1 handoff (`docs/handoff.md`) | — |
 | `{{testCredentialsFile}}` | N S | krok 1 testovací login | zmaž |
 | `{{container}}` `{{appRoot}}` | N S P | krok 1 kontajner: `container_name`, cieľ mountu koreňa repa | compose chýba → otázka 1; `container: ""` → oba `""`, riadok Docker v Stacku zmaž |

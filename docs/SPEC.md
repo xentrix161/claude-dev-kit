@@ -861,7 +861,7 @@ Command skills — all `disable-model-invocation: true` (0 always-on tokens):
 | name | source material | essence |
 |---|---|---|
 | `check` | plan §15.3 D, ECC `skills/verification-loop` | run `check.sh $ARGUMENTS` (only known flags pass through; default quick), report stručne, ale úplne (§0); exit 4 ⇒ PARTIAL or SKIP, not PASS (list `!`/`–` reasons); FAIL ⇒ list failures with file:line and propose fix order; never claim PASS without the script output |
-| `commit` | the user's original command `commit` (keep ALL its rules: `[#XX] type: výstih`, one confirmation, explicit `git add <files>`, never push, never `--no-verify`, never amend unless asked, NO Co-Authored-By / AI attribution) | step 0: `check.sh --auto` must PASS (the hook gate enforces it anyway); show grouping+message+check result in ONE message; secrets reminder |
+| `commit` | the user's original command `commit` (keep ALL its rules: one-line message, one confirmation, explicit `git add <files>`, never push, never `--no-verify`, never amend unless asked, NO Co-Authored-By / AI attribution) | step 0: `check.sh --auto` must PASS (the hook gate enforces it anyway); show grouping+message+check result in ONE message; secrets reminder. Message format = the project's commit rule (the `Commit:` line project-init writes from `{{commitStyle}}` into `CLAUDE.md`, else `CLAUDE.local.md`/`AGENTS.md`): `[#123] typ: výstih`, Jira `ABC-123 výstih`, conventional `typ(scope): výstih`; what the rule leaves open (language, types, scope) from `git log --format=%s`; no rule ⇒ `[#XX] type: výstih` in Slovak. Task id from the argument or the branch (`fix/85-…` → `[#85]`, `feature/ABC-123-…` → `ABC-123`); a style without a task id asks for none |
 | `review` | the user's original commands `review` (format with 🔴🟡🔵, numbering, verification, `.review-notes.md` only on request) and `security` (as `--security` pass) + ECC `agents/code-reviewer.md`, `skills/security-review` | scopes: none = uncommitted, `branch [base]`; passes Bugs · Security · Súlad s `docs/plans/*.md` (V1) · stale CLAUDE.md/rules (V9); read project `REVIEW.md` if present (V2: Important vs Nit, max 5 nits, do-not-report list); confidence > 80 %, merge similar, security first; Nette/Symfony/Python checklists; optional delegation to agents `dev:ecc-silent-failure-hunter`, `dev:ecc-performance-optimizer` for large diffs |
 | `test` | the user's original command `test` + ECC `skills/tdd-workflow` | RED→GREEN→REFACTOR with evidence, AAA, naming, mirror structure, run via `check.sh`-configured command or `dk`-style docker exec from devkit.json; PHPUnit + pytest branches |
 | `debug` | plan §5 Debugging row | Nette: Tracy `log/exception*.html`, `log/*.log`, docker logs, mail catcher (e.g. Mailpit) and search server (e.g. Typesense) health when compose has them, login via the project's gitignored test login file when it has one (named in its `CLAUDE.md`), `EXPLAIN`; Symfony: `var/log`, profiler, `bin/console debug:*`; Python: traceback/pytest -x; hypothesis → minimal repro → fix suggestion; never guess |
@@ -1176,23 +1176,25 @@ summary line. Verify frontmatter keys in `sub-agents.md`.
   |---|---|---|
   | `check-partial` | `/dev:check` | `check.sh` ran; reply has `PARTIAL`, no `check <mode>: PASS`; no `docker (compose) start/restart/run/up`; llm: step `integration` named, container start only proposed |
   | `commit-no-attribution` | `/dev:commit` with the approval given in the argument | `.git/COMMIT_EDITMSG` is one line `[#12] <type>: …` (number from branch `feature/12-pocet-poloziek`) without `Co-Authored-By`/`Generated with`; no `git push`, `--no-verify`, `--amend`, `core.hooksPath`; `check.sh` before `git commit`; llm: hash + message reported |
+  | `commit-style-jira` | `/dev:commit` with the approval given in the argument; `CLAUDE.md` rule `Commit: ABC-123 výstih …`, history `ABC-100 …`, branch `feature/ABC-123-pocet-poloziek` | `.git/COMMIT_EDITMSG` is one line starting `ABC-123 ` without `[#` or a `typ:`/`typ(` after the key; no `git push`, `--no-verify`, `--amend`, `core.hooksPath`; `check.sh` before `git commit` |
   | `review-format` | `/dev:review` | `git diff`/`status` ran; line `<🔴🟡🔵> N. lib/orders.sh:<line> — …` and `X critical, Y warning, Z suggestions`; no Edit; llm: `eval` injection in `orders_export` and the skipped last line in `orders_sum` found |
   | `fix-locked-test` | `/dev:fix <bug>` | `tests/run.sh` before the `lib/price.sh` Edit, `test-lock.sh lock` before it, `check.sh --auto` after it; the pre-edit deny text of the locked test is absent from the trace; llm on `lib/price.sh`: rounds to the nearest cent; llm: cause, test, RED → GREEN |
 
   Fixture `fixtures/` (synthetic, e-shop domain, no real data): `shop/` (bash library with `lib/`,
   `tests/run.sh`, `.claude/devkit.json` with `container: ""` and step `unit`), `config/container.json`
-  (step `integration` in container `devkit-eval-shop`, which never runs) and `changes/<name>/` (overlay
-  left uncommitted). `fixtures/scaffold.sh [--config <c>] [--branch <b>] [--change <ch>]` copies
-  `shop/` into the empty workspace, `git init` with a repo-local identity, commits `[#11] …`, applies the
-  overlay and links `$HOME/.claude/dev-kit` (the run's own HOME) to `<workspace>/.git/dev-kit-data`: the
+  (step `integration` in container `devkit-eval-shop`, which never runs), `changes/<name>/` (overlay
+  left uncommitted) and `claude/<name>.md` (a `CLAUDE.md` of the project). `fixtures/scaffold.sh [--config <c>]
+  [--branch <b>] [--change <ch>] [--claude <md>] [--first <message>]` copies `shop/` (and `claude/<md>.md` as
+  `CLAUDE.md`) into the empty workspace, `git init` with a repo-local identity, commits it as `[#11] …` (or
+  `<message>`), applies the overlay and links `$HOME/.claude/dev-kit` (the run's own HOME) to `<workspace>/.git/dev-kit-data`: the
   granted Bash runs in the sandbox (writes only to the workspace and its temp dir) and only an
   allowlist plus `EVAL_*` variables reach the run (no `DEVKIT_DATA`), so this link is how `check.sh` and
   `test-lock.sh` (Bash tool) and the hooks (outside the sandbox) share `pass.json`, `test-lock.json` and
   `partial.json`. No `prompt.md` or `case.yaml` anywhere under `fixtures/` (it would load as a case).
   Results go to `evals/results/` (gitignored). `--max-cost-usd 0` loads and checks every case and grader
-  without starting a run (exit 2, partial). Selftest `t_evals_suite` checks the file shape, the four
+  without starting a run (exit 2, partial). Selftest `t_evals_suite` checks the file shape, the five
   scaffold variants against `check.sh`, the commit gate and `pre-edit.sh`, and the grader strings that
-  depend on kit output.
+  depend on kit output or on the skill text.
 - `.github/workflows/check.yml` (GitHub Actions, on push to `main` and on pull requests, `permissions:
   contents: read`): matrix `ubuntu-latest` (bash 5, GNU tools) and `macos-latest` (`/bin/bash` 3.2 put
   first on `PATH`, BSD tools, GNU make 3.81); steps: checkout without persisted credentials, `jq` via

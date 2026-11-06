@@ -1,7 +1,7 @@
 ---
 name: commit
-description: "Commit s jedným potvrdením: najprv check.sh --auto, potom v jednej správe skupina súborov, jednoriadková message [#XX] type: výstih a výsledok kontroly. Nikdy nepushuje, bez AI atribúcie."
-argument-hint: "[#úloha] [poznámka k zmene]"
+description: "Commit s jedným potvrdením: najprv check.sh --auto, potom v jednej správe skupina súborov, jednoriadková message podľa pravidla o commitoch v CLAUDE.md (inak [#XX] typ: výstih) a výsledok kontroly. Nikdy nepushuje, bez AI atribúcie."
+argument-hint: "[#úloha | ABC-123] [poznámka k zmene]"
 disable-model-invocation: true
 allowed-tools:
   - 'Bash(bash "${CLAUDE_PLUGIN_ROOT}/scripts/check.sh" *)'
@@ -17,7 +17,8 @@ Spusti paralelne:
 - `git status` (nikdy `-uall`)
 - `git diff --staged` a `git diff`
 - `git branch --show-current` (číslo úlohy)
-- `git log --oneline -5` (len kvôli prefixu `[#XX]`, nie kvôli štýlu)
+- `git log --format=%s -10` (tvar a jazyk správ, ktoré pravidlo nepovie — nie ich dĺžka)
+- pravidlo o commitoch projektu: riadok `Commit:` v Pravidlách `CLAUDE.md` (zapisuje ho `/dev:project-init`), prípadne v `CLAUDE.local.md` alebo `AGENTS.md`; nemáš ho v kontexte → nájdi ho v týchto súboroch (Grep `Commit`)
 
 Žiadne zmeny → oznám to jednou vetou a skonči.
 
@@ -25,9 +26,10 @@ Skupina = súbory tejto úlohy podľa konverzácie. Cudzie zmeny (iná session, 
 
 ## Krok 2: Číslo úlohy
 
-- Z argumentu `$ARGUMENTS`, ak obsahuje `#123` alebo samostatné číslo.
-- Inak z vetvy, keď je číslo zjavne číslo úlohy (`fix/85-...` → `[#85]`, `feature-123` → `[#123]`, `914` → `[#914]`).
-- Nenájdené alebo nejasné (číslo je súčasť názvu: `php84-upgrade`, `redesign_2026`) → spýtaj sa **v kroku 4 spolu** s návrhom, nie v samostatnom kole.
+- Z argumentu `$ARGUMENTS`, ak obsahuje `#123`, samostatné číslo alebo kľúč Jiry `ABC-123`.
+- Inak z vetvy, keď je číslo zjavne číslo úlohy (`fix/85-...` → `[#85]`, `feature-123` → `[#123]`, `914` → `[#914]`) alebo kľúč Jiry (`feature/ABC-123-popis` → `ABC-123`).
+- Tvar podľa štýlu správy (nižšie): `[#85]` pri prefixe úlohy, `ABC-123` pri Jire; štýl bez čísla úlohy ho nepotrebuje — nepýtaj sa naň.
+- Nenájdené alebo nejasné (číslo je súčasť názvu: `php84-upgrade`, `redesign_2026`; vetva má iný druh čísla, než štýl čaká) → spýtaj sa **v kroku 4 spolu** s návrhom, nie v samostatnom kole.
 
 ## Krok 3: Kontrola (pred návrhom)
 
@@ -62,13 +64,19 @@ Počkaj na jedno „ok". Odpoveď s úpravou (iná message, bez súboru X) = ok 
 
 ## Message — vždy jeden riadok
 
+Tvar riadku určuje pravidlo o commitoch projektu (krok 1). Čo pravidlo nepovie (jazyk, zoznam typov, scope), doplň podľa posledných commitov v tom istom štýle. Bez pravidla platí `[#XX] typ: výstih` po slovensky.
+
+| Štýl | Tvar | Číslo úlohy | Príklad |
+|---|---|---|---|
+| prefix úlohy (bez pravidla) | `[#XX] typ: výstih`, typ = feat/fix/refactor/chore/docs | `[#85]` z argumentu alebo vetvy | `[#85] feat: CSV WinLatin2 export v toolbari` |
+| Jira | `ABC-123 výstih` | kľúč z argumentu alebo vetvy | `ABC-123 CSV export v toolbari` |
+| conventional commits | `typ(scope): výstih`; scope, keď ho pravidlo alebo história má | len keď ho pravidlo alebo história má | `fix(export): kódovanie CSV vo Windows` |
+
+- Jazyk: podľa pravidla, inak podľa histórie, bez oboch po slovensky; technické pojmy, názvy fieldov a funkcií môžu ostať v angličtine
 - Jeden riadok, rozkazovací spôsob, ideálne ≤ 72 znakov
-- Formát: `[#XX] type: výstih` (type = feat/fix/refactor/chore/docs)
-- Po slovensky; technické pojmy, názvy fieldov a funkcií môžu ostať v angličtine
-- ŽIADNE telo, odrážky ani viacvetové súvetia
-- NEkopíruj dlhý štýl existujúcich commitov — drž len prefixovú konvenciu `[#XX]`
+- ŽIADNE telo, odrážky ani viacvetové súvetia — ani keď ich majú staršie commity; z histórie preber len tvar riadku
+- Pravidlo projektu mení len tvar riadku; zákazy v časti Pravidlá platia vždy
 - Napíš ju sám, nepýtaj ju od používateľa
-- Príklad: `[#85] feat: CSV WinLatin2 export v toolbari`
 
 ## Krok 5: Commit
 
@@ -78,7 +86,7 @@ Počkaj na jedno „ok". Odpoveď s úpravou (iná message, bez súboru X) = ok 
 
 ```bash
 git commit -m "$(cat <<'EOF'
-[#XX] type: výstih
+<jednoriadková správa>
 EOF
 )"
 ```
