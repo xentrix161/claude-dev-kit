@@ -1,6 +1,6 @@
 # dev kit 0.5.0 — šablóny, proces vydania, nové príkazy
 
-- Vetva: `main` · Dátum: 2026-11-06 · Stav: schválený
+- Vetva: `main` · Dátum: 2026-11-06 · Stav: hotový
 - Zdroj: sekcia „Mimo rozsahu“ plánu `dev-kit-0.4.2.md` (analýza 4 agentov z 2026-11-06); dotazník 2026-11-06: rozsah = šablóny + proces + lacné novinky Claude Code; hook Bash bez `onFailure: block` (timeout 60 s + výkon); nové príkazy `/dev:mr` aj `/dev:deps`; pripínanie verzie v marketplace sa nerieši (kit zatiaľ nikto nemá nainštalovaný).
 
 ## Ako s týmto plánom pracovať
