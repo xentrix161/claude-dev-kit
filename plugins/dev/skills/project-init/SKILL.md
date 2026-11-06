@@ -99,7 +99,7 @@ Zhrnutie detekcie: každé zistenie jedným riadkom s dôkazom; hodnoty `{{…}}
 
 ### Oprávnenia v pláne
 
-- Zdroj `${CLAUDE_PLUGIN_ROOT}/templates/<stack>/settings.json`: `permissions.ask` = brány nad zdieľaným prostredím, `permissions.deny` = vendor cesty.
+- Zdroj `${CLAUDE_PLUGIN_ROOT}/templates/<stack>/settings.json`: `permissions.ask` = brány nad zdieľaným prostredím, deštruktívnymi príkazmi git a docker a zmenou závislostí, `permissions.deny` = vendor cesty.
 - Make ciele obchádzajú brány šablóny: ciele, ktoré `Makefile` naozaj má a ktoré zastavia či prestavia kontajnery alebo menia DB či index (napr. `stop`, `down`, `restart`, `rebuild`, `destroy`, `init`, `db-import`, `db-migrate`, `*-reset`, `*-baseline`, `fixtures`), navrhni do `ask` ako `Bash(make <cieľ>*)`.
 - Cieľ: tím → `.claude/settings.json`; lokálne → vždy `.claude/settings.local.json` (vylúčenie z gitu rieši Lokálne alebo tím).
 - Zlúčenie len pridáva, zachová poradie, nič nemaže, do `allow` nič nedáva (neexistujúci cieľ = `{}`):

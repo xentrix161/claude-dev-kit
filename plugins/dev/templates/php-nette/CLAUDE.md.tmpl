@@ -97,13 +97,14 @@ libs/  {{migrationsDir}}  tests/  www/
 5. Zmena entity = nová Doctrine migrácia (`{{migrationsCmd}}:diff` len so súhlasom, `up()`/`down()` skontroluj); vydanú migráciu neupravuj; `{{migrationsCmd}}:migrate` (aj `--dry-run`) len na pokyn. <!-- db:doctrine -->
 6. Zmena modelu alebo tabuľky bez migrácie → opýtaj sa, či ju chcem.
 7. Vendor kód `vendor/`{{vendorFrontendPaths}} sa needituje — override patrí do vlastného súboru.
-8. Nová funkcionalita → test; oprava bugu → test, ktorý by bug odhalil.
-9. Komentáre krátke alebo žiadne: len čo z kódu nevidno; bez histórie, meraní a produkčných dát.
-10. `app/config/config.local.neon` nikdy necommituj ani nevypisuj.
-11. Commit: {{commitStyle}}; `git push` len na výslovný pokyn.
-12. Zmena zastará tento súbor alebo `.claude/rules/` → uprav ich v tom istom commite.
-13. Detaily v `.claude/rules/` (php-core, nette, latte-frontend, db-dibi, tests) — načítajú sa podľa cesty. <!-- db:dibi -->
-13. Detaily v `.claude/rules/` (php-core, nette, latte-frontend, db-doctrine, tests) — načítajú sa podľa cesty. <!-- db:doctrine -->
+8. Novú závislosť (`composer require`) pridaj len so súhlasom; `composer.json` a `composer.lock` commitni spolu.
+9. Nová funkcionalita → test; oprava bugu → test, ktorý by bug odhalil.
+10. Komentáre krátke alebo žiadne: len čo z kódu nevidno; bez histórie, meraní a produkčných dát.
+11. `app/config/config.local.neon` nikdy necommituj ani nevypisuj.
+12. Commit: {{commitStyle}}; `git push` len na výslovný pokyn.
+13. Zmena zastará tento súbor alebo `.claude/rules/` → uprav ich v tom istom commite.
+14. Detaily v `.claude/rules/` (php-core, nette, latte-frontend, db-dibi, tests) — načítajú sa podľa cesty. <!-- db:dibi -->
+14. Detaily v `.claude/rules/` (php-core, nette, latte-frontend, db-doctrine, tests) — načítajú sa podľa cesty. <!-- db:doctrine -->
 
 ## Pasce
 

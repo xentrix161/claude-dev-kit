@@ -2933,6 +2933,26 @@ t_templates_phinx_ask() {
     "$T/php-nette/settings.json" >/dev/null 2>&1 || fail "php-nette/settings.json: ask na phinx status/create"
 }
 
+# settings.json šablón: ask na deštruktívne git a docker príkazy vo všetkých stackoch, composer v php, alembic/manage.py
+# v python; git restore voľný (/dev:commit používa --staged), položky ask bez duplicít — SPEC §7
+t_templates_ask_destructive() {
+  local T="$KIT/plugins/dev/templates" st want s
+  for st in php-nette php-symfony python; do
+    want='["Bash(git reset --hard*)", "Bash(git clean *)", "Bash(git stash drop*)", "Bash(git stash clear*)", "Bash(git branch -D *)",
+      "Bash(docker volume rm *)", "Bash(docker volume prune*)", "Bash(docker system prune*)"]'
+    case "$st" in
+      php-*) want="$want + [\"Bash(*composer require *)\", \"Bash(*composer update*)\", \"Bash(*composer remove *)\"]" ;;
+      python) want="$want + [\"Bash(*alembic upgrade *)\", \"Bash(*manage.py migrate*)\"]" ;;
+    esac
+    s=$(jq -r "($want) as \$w | .permissions.ask as \$a
+      | ([\$w[] | . as \$r | select((\$a | index(\$r)) == null) | \"chýba \(\$r)\"]
+        + [\$a[] | select(test(\"git restore\")) | \"má \(.)\"]
+        + (if (\$a | length) != (\$a | unique | length) then [\"duplicitné položky\"] else [] end))[]" \
+      "$T/$st/settings.json" 2>&1)
+    [ -z "$s" ] || { fail "$st/settings.json: $(flat "$s")"; return 1; }
+  done
+}
+
 # ---------------------------------------------------------------- audit závislostí (B14)
 # composer audit (Advisory ID + CVE) a pip-audit (ID + aliasy): vzor na jedno id pokryje záznam — SPEC §3
 t_check_known_failures_audit() {
@@ -3619,6 +3639,7 @@ t "pre-compact: plain text (nie JSON) — súbory session (8 + ďalšie), Stop l
 t "hooks.json: Edit|Write|NotebookEdit bez MultiEdit, žiadny handler s if; agenti bez MultiEdit" t_hooks_tools_no_if
 t "karta, Stop a pre-compact: text pre Clauda najviac 9 000 znakov UTF-16 s „…“ (dlhý handoff a say)" t_hook_text_cap
 t "partial.json, pass.json, test-lock.json a stats.sh: diakritika cez hranicu bloku čítania jq bez U+FFFD" t_jq_multibyte
+t "šablóny: ask na git reset --hard, clean, stash drop/clear, branch -D a docker volume/system prune, composer (php), alembic upgrade a manage.py migrate (python); git restore nie (D9)" t_templates_ask_destructive
 
 wait
 for f in "$RES"/*; do

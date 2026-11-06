@@ -5,11 +5,21 @@
       "Bash(git push *)",
       "Bash(git checkout *)",
       "Bash(git switch *)",
+      "Bash(git reset --hard*)",
+      "Bash(git clean *)",
+      "Bash(git stash drop*)",
+      "Bash(git stash clear*)",
+      "Bash(git branch -D *)",
       "Bash(docker stop *)",
       "Bash(docker restart *)",
       "Bash(docker compose *down*)",
+      "Bash(docker volume rm *)",
+      "Bash(docker volume prune*)",
+      "Bash(docker system prune*)",
       "Bash(*alembic downgrade *)",
-      "Bash(*manage.py flush*)"
+      "Bash(*alembic upgrade *)",
+      "Bash(*manage.py flush*)",
+      "Bash(*manage.py migrate*)"
     ],
     "deny": [
       "Edit(/.venv/**)",
