@@ -1,6 +1,6 @@
 # dev kit 0.4.2 — diery v ochrane a robustnosť
 
-- Vetva: `main` · Dátum: 2026-11-06 · Stav: schválený
+- Vetva: `main` · Dátum: 2026-11-06 · Stav: hotový
 - Zdroj: analýza 4 agentov Opus 5.5 z 2026-11-06 (architektúra skriptov, onboarding, možnosti Claude Code, testy a kvalita); feedback kolegu z 2026-11-05; rozhodnutie používateľa „rozsah nechávam na teba“ → 0.4.2 = len opravy a poistky, zvyšok 0.5.0.
 
 ## Ako s týmto plánom pracovať
