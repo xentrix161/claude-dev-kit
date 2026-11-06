@@ -80,4 +80,4 @@
 - Proces: `make release` s poistkami a `make tag` po zelenom CI, eval pre únik z gate a `project-init`, selftest na rotáciu logov a `stats --project`, minimá git ≥ 2.31 a jq v README, upstream ECC pin pri python-testing, výkon pre-bash pri tisíckach súborov.
 
 ## Odchýlky
-- (zatiaľ žiadne)
+- D5: skrátený zoznam končí riadkom `… ďalšie súbory: N` (ako doterajšie zoznamy kitu: `… ďalšie nálezy: N` v on-edit a pre-bash), nie `… a ďalších N`. Skracujú sa všetky zoznamy bloku (nálezy tajomstiev, súbory, riadky `!` z PARTIAL), najprv najdlhší; samotný orez na konci len keď to nestačí. Pri viacerých repách s deny má blok menej ako 12 riadkov, aby celý text ostal ≤ 20 (SPEC §0). `--files` dostáva kódové súbory commitu (tie, ktoré gate overuje); `dk_deny` text nijako neskracuje (žiadny `dk_cap`), jediný orez bol `head -n 20`, ten je preč.

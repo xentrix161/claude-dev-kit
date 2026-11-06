@@ -335,6 +335,58 @@ dk__rkands() { # <príkaz>
     done
 }
 
+# Položky zoznamu pre dk__fit: \x1f<najviac>\x1f<text riadku „… <text>: N“>\x1f<riadok>.
+dk__items() { # <najviac> <ďalšie …> <riadky>
+    local l
+    while IFS= read -r l; do
+        [ -n "$l" ] && printf '%s%s%s%s%s%s\n' "$DK_US" "$1" "$DK_US" "$2" "$DK_US" "$l"
+    done <<EOF
+$3
+EOF
+    return 0
+}
+
+# Blok repa na najviac <max> riadkov: zoznamy najprv po svoj strop, potom skracuje najdlhší (pri zhode neskorší)
+# s riadkom „… ďalšie …: N“, nakoniec orez. Riadok „Spusti kontrolu“ sa pridáva až za blok (SPEC §4.4).
+dk__fit() { # <max>
+    DK_AWK_MAX=$1 awk '
+        BEGIN { US = "\037"; max = ENVIRON["DK_AWK_MAX"] + 0 }
+        {   n++
+            if (substr($0, 1, 1) != US) { T[n] = $0; pr = 0; fixed++; next }
+            s = substr($0, 2); i = index(s, US); cap = substr(s, 1, i - 1) + 0; s = substr(s, i + 1)
+            i = index(s, US); lab = substr(s, 1, i - 1); T[n] = substr(s, i + 1)
+            if (pr == 0 || RL[pr] != lab) { pr = ++nr; RL[pr] = lab; RC[pr] = cap; RN[pr] = 0 }
+            R[n] = pr; RN[pr]++ }
+        END {
+            for (r = 1; r <= nr; r++) S[r] = (RN[r] < RC[r]) ? RN[r] : RC[r]
+            for (;;) {
+                tot = fixed; for (r = 1; r <= nr; r++) tot += S[r] + (S[r] < RN[r])
+                if (tot <= max) break
+                b = 0; for (r = 1; r <= nr; r++) if (S[r] > 1 && (b == 0 || S[r] >= S[b])) b = r
+                if (b == 0) break
+                S[b]--
+            }
+            out = 0
+            for (i = 1; i <= n; i++) {
+                if (!(i in R)) { O[++out] = T[i]; continue }
+                r = R[i]; k[r]++
+                if (k[r] <= S[r]) O[++out] = T[i]
+                if (k[r] == RN[r] && S[r] < RN[r]) O[++out] = "… " RL[r] ": " (RN[r] - S[r])
+            }
+            # Orez nenechá na konci nadpis zoznamu („…:“) bez položiek.
+            if (out > max) { out = max; while (out > 1 && O[out] ~ /:$/) out-- }
+            for (i = 1; i <= out; i++) print O[i]
+        }'
+}
+
+# Slovo pre shell: bezpečné znaky ostanú, inak v apostrofoch.
+dk__shq() {
+    case "$1" in
+        ''|*[!A-Za-z0-9._/@+=,:-]*) printf "'%s'" "$(printf '%s' "$1" | sed "s/'/'\\\\''/g")" ;;
+        *) printf '%s' "$1" ;;
+    esac
+}
+
 # Prečo posledná quick/full kontrola nedala PASS (partial.json z check.sh, < 24 h) a ako ďalej; inak nič.
 # Bez ok kroku by vypnutie blokovaných krokov dalo SKIP (check.sh exit 4) → únik je celý commitGate.
 dk_partial_note() {
@@ -354,7 +406,8 @@ dk_partial_note() {
     if [ -n "${DK_CONTAINER:-}" ]; then
         case "$lines" in *": kontajner $DK_CONTAINER nebeží"*) why="spustiť kontajner $DK_CONTAINER" ;; esac
     fi
-    printf 'Posledná kontrola skončila PARTIAL:\n%s\n' "$lines"
+    printf 'Posledná kontrola skončila PARTIAL:\n'
+    dk__items 5 'ďalšie riadky' "$lines"
     if [ "$ok" -gt 0 ] && [ -n "$ids" ]; then
         case "$ids" in *", "*) what=krokov ;; esac
         printf 'Únik: navrhni používateľovi %s a kontrolu zopakuj, alebo mu navrhni dočasné vypnutie %s: disabledRules %s v .claude/devkit.json (config nemeň sám, počkaj na jeho rozhodnutie).\n' "$why" "$what" "$ids"
@@ -461,25 +514,32 @@ EOF
         [ -n "$dir" ] || continue
         dk_set_project "$dir" ""
         [ -n "$DK_CFG" ] || continue
-        DK_EDENY=""
+        DK_EDENY="" DK_ERUN=""
         dk_eval_repo "$t0"
-        [ -n "$DK_EDENY" ] || continue
+        [ -n "$DK_EDENY$DK_ERUN" ] || continue
         nden=$((nden + 1))
         printf '%s\n%s\n' "$DK_PROJECT" "$DK_EDENY" > "$DK_TMP/deny.$nden"
+        printf '%s' "$DK_ERUN" > "$DK_TMP/run.$nden"
     done <<EOF
 $repos
 EOF
     [ "$nden" -gt 0 ] || return 0
-    local deny="" s i=0
+    local deny="" s i=0 per b run
     s=$(dk__snips U); [ -z "$s" ] || deny="$deny[dev-kit] cieľ \`cd\`/\`git -C\` sa nedal určiť ($s) — použi doslovnú cestu$DK_NL"
     s=$(dk__snips N); [ -z "$s" ] || deny="$deny[dev-kit] nie je isté, či \`cd\` pred commitom prebehne ($s) — kontrola zahŕňa aj jeho cieľ; spoj cd s commitom cez && alebo použi git -C <cesta>$DK_NL"
     s=$(dk__snips R); [ -z "$s" ] || deny="$deny[dev-kit] príkaz s commitom sa nedal rozložiť ($s) — spusti git commit samostatným príkazom$DK_NL"
+    # Blok repa ≤ 12 riadkov, pri viacerých repách menej, aby text ostal ≤ 20 riadkov; „Spusti kontrolu“ za orezom.
+    per=$(( (20 - $(printf '%s' "$deny" | grep -c .)) / nden ))
     while [ "$i" -lt "$nden" ]; do
         i=$((i + 1))
         hdr=""; [ "$nden" -le 1 ] || hdr="[dev-kit] repo $(sed -n 1p "$DK_TMP/deny.$i"):$DK_NL"
-        deny="$deny$hdr$(sed 1d "$DK_TMP/deny.$i")$DK_NL"
+        run=$(cat "$DK_TMP/run.$i")
+        b=$per; [ -z "$hdr" ] || b=$((b - 1)); [ -z "$run" ] || b=$((b - 1))
+        [ "$b" -le 12 ] || b=12
+        [ "$b" -ge 1 ] || b=1
+        deny="$deny$hdr$(sed 1d "$DK_TMP/deny.$i" | grep -v '^$' | dk__fit "$b")$DK_NL${run:+$run$DK_NL}"
     done
-    dk_deny "$(printf '%s' "$deny" | grep -v '^$' | head -n 20)"
+    dk_deny "$(printf '%s' "$deny" | grep -v '^$')"
     return 0
 }
 
@@ -748,8 +808,7 @@ $pats
 EOF
         fi
         if [ "$nsec" -gt 0 ]; then
-            deny="$deny[dev-kit] commit zablokovaný$when — tajomstvo alebo zakázaný súbor ($nsec):$DK_NL$(printf '%s' "$sfind" | head -n 8)$DK_NL"
-            [ "$nsec" -gt 8 ] && deny="${deny}… ďalšie nálezy: $((nsec - 8))$DK_NL"
+            deny="$deny[dev-kit] commit zablokovaný$when — tajomstvo alebo zakázaný súbor ($nsec):$DK_NL$(dk__items 8 'ďalšie nálezy' "$sfind")$DK_NL"
             if [ "$DK_SEC_HINT" = 0 ]; then
                 deny="${deny}Hodnotu nevypisuj ani sám neodstraňuj — nahlás používateľovi súbor:riadok a počkaj na jeho rozhodnutie (súbor z commitu: git restore --staged <súbor>; falošný poplach: secrets.allow v .claude/devkit.json).$DK_NL"
                 DK_SEC_HINT=1
@@ -762,7 +821,7 @@ EOF
 
     # 2. Commit gate. Kľúč obsahu (hash kódových blobov) zoskupí pokusy o ten istý commit pre /dev:stats.
     if [ "$gate_on" = 1 ]; then
-        local code="" pmode="" pblobs="" bad="" nbad=0 fullg="" e gmsg="" ckey="" rerun=0 again
+        local code="" pmode="" pblobs="" bad="" nbad=0 fullg="" e gmsg="" ckey="" rerun=0 again fl
         if [ "$partial" = 1 ]; then
             gmsg="[dev-kit] čiastočný stage (git add -p/-i/-e) v tom istom príkaze ako commit sa nedá overiť — stage-uj zvlášť, potom commit zopakuj.$DK_NL"
         fi
@@ -811,8 +870,7 @@ EOF
 $code
 EOF
             if [ "$nbad" -gt 0 ]; then
-                gmsg="$gmsg[dev-kit] commit gate$when: $(dk_plural "$nbad" súbor súbory súborov) bez PASS z /dev:check pre presne tento obsah:$DK_NL$(printf '%s' "$bad" | head -n 8)$DK_NL"
-                [ "$nbad" -gt 8 ] && gmsg="${gmsg}… ďalšie súbory: $((nbad - 8))$DK_NL"
+                gmsg="$gmsg[dev-kit] commit gate$when: $(dk_plural "$nbad" súbor súbory súborov) bez PASS z /dev:check pre presne tento obsah:$DK_NL$(dk__items 8 'ďalšie súbory' "$bad")$DK_NL"
                 rerun=1
             fi
             if [ -n "$fullg" ] && [ "$pmode" != full ]; then
@@ -826,7 +884,17 @@ EOF
                 [ -z "$note" ] || gmsg="$gmsg$note$DK_NL"
                 cmode=--auto; [ -n "$fullg" ] && cmode=--full
                 again="commit zopakuj"; [ -z "$DK_CONT" ] || again="zopakuj $DK_CONT"
-                gmsg="${gmsg}Spusti kontrolu: bash \"$DK_SCRIPTS/check.sh\" $cmode --project \"$DK_PROJECT\" (to isté robí /dev:check), pri PASS $again."
+                # Najviac 8 kódových súborov commitu → --files: cudzí rozpracovaný súbor kontrolu nezhodí.
+                fl=""
+                if [ "$(printf '%s' "$code" | grep -c .)" -le 8 ]; then
+                    while IFS="$DK_TAB" read -r f b; do
+                        [ -n "$f" ] && fl="$fl $(dk__shq "$f")"
+                    done <<EOF
+$code
+EOF
+                    fl=" --files$fl"
+                fi
+                DK_ERUN="Spusti kontrolu: bash \"$DK_SCRIPTS/check.sh\" $cmode --project \"$DK_PROJECT\"$fl (to isté robí /dev:check), pri PASS $again."
             fi
             deny="$deny$gmsg"
             dk_log pre-bash commitGate deny "$ckey" $(( $(dk_ms) - t0 ))

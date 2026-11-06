@@ -406,8 +406,11 @@ target, which never equals the content `check.sh` hashed, so the gate would deny
    equals the to-be-committed blob for EVERY code file (deleted files must be recorded as `"-"`). Also if
    any code file matches `check.fullWhen` and `pass.json.mode` ≠ `full` ⇒ deny `zmena v <glob> vyžaduje
    /dev:check --full`. Deny reason lists up to 8 files and ends with `Spusti kontrolu: bash "<scripts>/check.sh"
-   --auto|--full --project "<P>" (to isté robí /dev:check), pri PASS commit zopakuj.` — command skills
-   have `disable-model-invocation`, so Claude must get a command it can run itself.
+   --auto|--full --project "<P>"[ --files <f>…] (to isté robí /dev:check), pri PASS commit zopakuj.` — command
+   skills have `disable-model-invocation`, so Claude must get a command it can run itself. `--files` lists the
+   code files of the commit when there are at most 8 (a name with a character outside `A-Za-z0-9._/@+=,:-` in
+   single quotes), so an unrelated work-in-progress file does not fail the check; `pass.json` then holds exactly
+   those blobs (§4.5).
    PARTIAL still blocks; the deny must say why and how to proceed: when it asks for a check (files without
    PASS or `--full`) and `partial.json` (§4.5) has `time` less than 24 h old, the reason adds before that
    final line `Posledná kontrola skončila PARTIAL:`, its `!` lines (≤ 5) and one escape line chosen by
@@ -425,7 +428,14 @@ target, which never equals the content `check.sh` hashed, so the gate would deny
    What the gate proves: the content of every committed code file passed `check.sh` in the working tree
    (together with the other uncommitted changes present at that time) — not that the resulting commit tree
    passes. A commit hidden in `sh -c '…'` / `bash -c '…'` is not recognised (§4.4 Known limitations).
-3. Deny ⇒ JSON `permissionDecision":"deny"` with reason, exit 0. Allow ⇒ exit 0 silently. Exception (R3):
+3. Length and order of the deny text: the `U`/`N`/`R` lines (§4.4.1), then per repo the header (more than one
+   repo), the block (secrets, then gate) and last the `Spusti kontrolu: …` line, which is added after the block
+   is cut and never cut itself. A block has at most 12 lines; when more repos deny, fewer, so the whole text stays
+   ≤ 20 lines (`(20 − U/N/R lines) / repos`, minus the header and the `Spusti` line, at least 1). Lists keep
+   their cap (secret findings 8, files 8, `!` lines 5) and the longest one is shortened first (on a tie the later
+   one), each with `… ďalšie nálezy|súbory|riadky: N`; only when no list can shrink below 1 item is the block cut
+   at the end, dropping a trailing list heading (a line ending with `:`).
+4. Deny ⇒ JSON `permissionDecision":"deny"` with reason, exit 0. Allow ⇒ exit 0 silently. Exception (R3):
    when the commit's repo has a config, `dk_cfg_trust note` (§4.1) reports its change once per session — the
    deny JSON gets a top-level `systemMessage` (`dk_cfg_note`), an allow prints `{"systemMessage": …}` alone
    (no decision, the normal permission flow continues); the gate and the secrets check are unchanged. Log;

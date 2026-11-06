@@ -718,6 +718,49 @@ t_bash_commit_partial_all_ids() {
       and contains("alebo mu navrhni dočasné vypnutie krokov: disabledRules step:b1, step:b2, step:b3, step:b4, step:b5, step:b6, step:b7 v .claude/devkit.json (config nemeň sám, počkaj na jeho rozhodnutie).")' || return 1
   want_not 'dočasne vypni'
 }
+# Deny pri PARTIAL s veľa súbormi: blok repa ≤ 12 riadkov, „Spusti kontrolu“ vždy posledný; ≤ 8 súborov → --files.
+t_bash_gate_deny_tail() {
+  new_case
+  cfg '.check.steps |= map(select(.id == "unit")) | .check.steps += [range(1; 8) as $i | {"id": "b\($i)", "run": "vendor/bin/b\($i)", "modes": ["quick", "full"]}]'
+  local i=1 reason cmd rc
+  while [ $i -le 9 ]; do put "app/F$i.php" "<?php \$f$i = 1;"; i=$((i + 1)); done
+  add app/models/UserModel.php '$h = 8;'
+  put config/settings.ini 'password = "SuperSecret123"'
+  g add -A
+  check --full --project "$REPO"
+  want_rc 4 "check PARTIAL" || return 1
+  pre_bash 'git commit -m "x"'
+  want_decision deny "10 súborov" && want_json '.hookSpecificOutput.permissionDecisionReason | split("\n") as $l
+    | ($l | length) <= 13 and ($l | map(select(startswith("Spusti kontrolu"))) | length) == 1
+      and ($l | last | startswith("Spusti kontrolu: bash") and contains(" --full --project ") and (contains("--files") | not))
+      and any($l[]; contains("config/settings.ini:1")) and any($l[]; startswith("… ďalšie súbory: "))
+      and any($l[]; startswith("Únik: ")) and any($l[]; . == "Posledná kontrola skončila PARTIAL:")' "10 súborov" || return 1
+  cp -Rp "$REPO" "$CASE/r2"
+  pre_bash "git commit -m x && git -C '$CASE/r2' commit -m y"
+  want_decision deny "2 repá" && want_json '.hookSpecificOutput.permissionDecisionReason | split("\n") as $l
+    | ($l | length) <= 20 and ($l | last | startswith("Spusti kontrolu: bash"))
+      and ([range(0; $l | length) as $i | select($l[$i] | startswith("[dev-kit] repo ")) | $i] as $h
+        | ($h | length) == 2 and $h[0] == 0 and ($l[$h[1] - 1] | startswith("Spusti kontrolu: bash")))' "2 repá" || return 1
+  cfg .
+  g reset -q
+  rm -f "$REPO/config/settings.ini"
+  put 'app/a b.php' '<?php $ab = 1;'
+  g add app/F1.php 'app/a b.php'
+  put app/Wip.php '<?php $w = 1; // LINTERR'
+  pre_bash 'git commit -m "x"'
+  want_decision deny "2 súbory" || return 1
+  reason=$(printf '%s' "$OUT" | jq -r '.hookSpecificOutput.permissionDecisionReason')
+  cmd=$(printf '%s\n' "$reason" | tail -n 1 | sed -n 's|^Spusti kontrolu: \(.*\) (to isté robí /dev:check), pri PASS commit zopakuj\.$|\1|p')
+  case "$cmd" in *" --auto --project "*" --files "*"'app/a b.php'"*app/F1.php*|*" --auto --project "*" --files "*app/F1.php*"'app/a b.php'"*) ;;
+    *) fail "2 súbory: posledný riadok bez --files 'app/a b.php' app/F1.php: $(printf '%s\n' "$reason" | tail -n 1)"; return 1 ;; esac
+  check --auto --project "$REPO"
+  want_rc 1 "check bez --files (cudzí app/Wip.php)" || return 1
+  (cd "$REPO" && bash -c "$cmd") < /dev/null > "$CASE/sugg.out" 2>&1
+  rc=$?
+  [ "$rc" = 0 ] || { fail "navrhnutý príkaz: exit $rc: $(flat "$(cat "$CASE/sugg.out")")"; return 1; }
+  pre_bash 'git commit -m "x"'
+  want_rc 0 "commit po navrhnutej kontrole" && want_not 'permissionDecision' "commit po navrhnutej kontrole"
+}
 t_stop_partial_once() {
   new_case
   cfg '.check.steps += [{"id": "tests", "run": "vendor/bin/phpunit", "modes": ["stop"]}]'
@@ -3177,6 +3220,7 @@ t "pre-bash: commit po check PARTIAL → deny" t_bash_commit_after_partial
 t "pre-bash: PARTIAL, nebežiaci kontajner (0 ok) → deny s únikom commitGate, ten commit pustí" t_bash_commit_partial_explained
 t "pre-bash: PARTIAL s 1 ok krokom → únik step:<id>, ten dá PASS; partial.json > 24 h mlčí" t_bash_commit_partial_one_ok
 t "pre-bash: PARTIAL so 7 blokovanými krokmi → 5 riadkov, únik so všetkými 7 id" t_bash_commit_partial_all_ids
+t "pre-bash: deny pri PARTIAL a 10 súboroch ≤ 13 riadkov, „Spusti kontrolu“ posledný (aj pri 2 repách, spolu ≤ 20); ≤ 8 súborov → --files, cudzí súbor kontrolu nezhodí (D5)" t_bash_gate_deny_tail
 t "pre-bash: git commit -am bez PASS → deny, po PASS → allow" t_bash_commit_all_flag
 t "pre-bash: zmena a git add po PASS → deny" t_bash_commit_restaged
 t "pre-bash: commit len .md → allow" t_bash_commit_docs_only
