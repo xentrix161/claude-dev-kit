@@ -1101,4 +1101,7 @@ documentation and `ConsolePrinter`), `composer-audit-plain.txt` (Composer `Audit
 `pip-audit-columns.txt` (pip-audit columns format with `--aliases on`); secret
 samples for the template patterns are `tests/fixtures/secret-samples.txt`. Required cases: see the list
 in the builder prompt. Prints `PASS n/n` and exits non-zero on any failure. Runs < 20 s: cases run in subshells,
-`DK_SELFTEST_JOBS` at a time (default 4; `1` = sequential), results printed in order.
+`DK_SELFTEST_JOBS` at a time (default the CPU count, `getconf _NPROCESSORS_ONLN`, at least 4, no upper cap; `1` =
+sequential), results printed in list order. The longest cases (the `cmd-parse` tables and others that run
+`pre-bash.sh` or `check.sh` in a loop) come first in the list, so none of them starts last. Each case deletes its own
+temp dirs when it ends (not with `DK_SELFTEST_KEEP`), so the cleanup runs in parallel too.

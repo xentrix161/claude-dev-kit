@@ -14,6 +14,7 @@
 - Stop kontrola vidí aj kód zmenený cez Bash (`sed`, `git checkout`, generátor): úvodná karta pri štarte session zapíše značku `sessions/<id>.t0` a Stop skontroluje okrem súborov z editov aj zmenené kódové súbory novšie ako ona (lint, kroky, guardy aj odtlačok stavu). Session spustená pred aktualizáciou značku nemá a kontroluje len súbory z editov ako doteraz.
 - Zámok testu (`/dev:fix`) stráži aj zmenu cez Bash: `test-lock.sh lock` uloží do `test-lock.json` blob každého zamknutého testu (`blobs`; opätovný lock pôvodný blob nemení) a `check.sh` v každom režime vrátane Stop hlási test s iným obsahom riadkom `! test <cesta> zmenený počas /dev:fix (zámok)` a verdiktom FAIL — bez PASS commit gate commit nepustí. Cesta von je vrátiť test alebo `/dev:fix --unlock`; zámok bez blobov (pred aktualizáciou) sa neporovnáva.
 - `check.sh --files` (aj `/dev:commit` a príkaz z hlášky commit gate): krok s `runFiles` kontroluje v quick/full/auto len zadané súbory s jeho príponou, aj keď má `run` — napr. `phpstan` zo šablón už pri commite skupiny neanalyzuje celý projekt. Bez súboru jeho prípony je krok preskočený (`– <id>: žiadne zmenené súbory`). Bez `--files` beží `run` nad celým projektom ako doteraz; Stop sa nemení.
+- Selftest kitu (`tests/selftest.sh`): súbežnosť podľa počtu CPU bez stropu 8 (najmenej 4, `DK_SELFTEST_JOBS` má prednosť), najdlhšie prípady (tabuľky `cmd-parse`, `pre-bash.sh` či `check.sh` v cykle) štartujú prvé a každý prípad maže svoje dočasné adresáre hneď po skončení, nie až záverečný cleanup.
 
 ## 0.4.1 — 2026-11-05
 

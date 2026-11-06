@@ -3,7 +3,7 @@
 # Použitie: bash tests/selftest.sh [podreťazec názvu prípadu]
 #   DK_SELFTEST_KEEP=1          ponechá dočasné adresáre (cesta sa vypíše)
 #   DK_SELFTEST_SCRIPTS=<dir>   testuje skripty z iného adresára (napr. nainštalovaný plugin)
-#   DK_SELFTEST_JOBS=<n>        počet súbežných prípadov (predvolene počet CPU, 4 až 8; 1 = postupne)
+#   DK_SELFTEST_JOBS=<n>        počet súbežných prípadov (predvolene počet CPU, najmenej 4; 1 = postupne)
 # Každý prípad: vlastné git repo (mktemp -d), DEVKIT_DATA, CLAUDE_PROJECT_DIR, devkit.json s container "".
 
 KIT=$(cd "$(dirname "$0")/.." && pwd -P)
@@ -103,6 +103,8 @@ git -C "$TPL" add -A && git -C "$TPL" commit -qm init || { echo "FAIL: git commi
 # new_case [nocfg] — čerstvá kópia fixture; nastaví CASE REPO DATA PDATA SID
 new_case() {
   CASE=$(mktemp -d "$ROOT/case.XXXXXX")
+  CASES="$CASES$CASE
+"
   REPO="$CASE/repo"
   DATA="$CASE/data"
   cp -Rp "$TPL" "$REPO"
@@ -3330,11 +3332,10 @@ t_jq_multibyte() {
 
 N=0
 NF=0
-# Súbežnosť: počet CPU (4 až 8), DK_SELFTEST_JOBS má prednosť.
+# Súbežnosť: počet CPU (najmenej 4), DK_SELFTEST_JOBS má prednosť.
 CPUS=$(getconf _NPROCESSORS_ONLN 2>/dev/null || echo 4)
 case "$CPUS" in ''|*[!0-9]*) CPUS=4 ;; esac
 [ "$CPUS" -ge 4 ] || CPUS=4
-[ "$CPUS" -le 8 ] || CPUS=8
 JOBS=${DK_SELFTEST_JOBS:-$CPUS}
 case "$JOBS" in ''|*[!0-9]*|0) JOBS=1 ;; esac
 RES="$ROOT/results"
@@ -3349,18 +3350,37 @@ t() { # t <názov> <funkcia>
   case "$1" in *"$FILTER"*) ;; *) return 0 ;; esac
   N=$((N + 1))
   (
-    REASON="" BADUTF="" DOCKER_OK="" CASE=""
+    REASON="" BADUTF="" DOCKER_OK="" CASE="" CASES=""
     if "$2" && [ -z "$BADUTF" ] && host_only; then
       echo "ok - $1"
     else
       [ -z "$BADUTF" ] || REASON="výstup nie je platné UTF-8 ($BADUTF)${REASON:+; $REASON}"
       echo "not ok - $1: ${REASON:-bez dôvodu}"
     fi
+    # Mazanie adresárov prípadu súbežne s ostatnými, nie až v cleanup.
+    [ -n "${DK_SELFTEST_KEEP:-}" ] || printf '%s' "$CASES" | while IFS= read -r d; do [ -n "$d" ] && rm -rf "$d"; done
   ) > "$RES/$(printf '%04d' "$N")" 2>&1 &
   while [ "$(jobs -rp | wc -l | tr -d ' ')" -ge "$JOBS" ]; do sleep 0.05; done
 }
 
 [ -d "$S" ] || echo "# varovanie: chýba $S — všetky prípady zlyhajú"
+
+# Najdlhšie prípady (tabuľky cmd-parse, pre-bash.sh či check.sh v cykle) idú prvé, aby sa na ne nečakalo na konci.
+t "pre-bash parser (1/6): tabuľka cmd-parse.tsv — báza, kandidáti a riadky U/N/R" t_cmd_parse_1
+t "pre-bash parser (2/6): tabuľka cmd-parse.tsv — báza, kandidáti a riadky U/N/R" t_cmd_parse_2
+t "pre-bash parser (3/6): tabuľka cmd-parse.tsv — báza, kandidáti a riadky U/N/R" t_cmd_parse_3
+t "pre-bash parser (4/6): tabuľka cmd-parse.tsv — báza, kandidáti a riadky U/N/R" t_cmd_parse_4
+t "pre-bash parser (5/6): tabuľka cmd-parse.tsv — báza, kandidáti a riadky U/N/R" t_cmd_parse_5
+t "pre-bash parser (6/6): tabuľka cmd-parse.tsv — báza, kandidáti a riadky U/N/R" t_cmd_parse_6
+t "pre-bash parser fail closed (1/3): tabuľka cmd-parse-closed.tsv — každý riadok deny" t_cmd_parse_closed_1
+t "pre-bash parser fail closed (2/3): tabuľka cmd-parse-closed.tsv — každý riadok deny" t_cmd_parse_closed_2
+t "pre-bash parser fail closed (3/3): tabuľka cmd-parse-closed.tsv — každý riadok deny" t_cmd_parse_closed_3
+t "pre-bash: nerozriešený cieľ cd / -C → cwd session a riadok „sa nedal určiť“ s úryvkom" t_bash_cd_unresolved_note
+t "pre-bash: git -C / cd --, -P na iné repo bez devkit.json → allow" t_bash_cd_other_repo_allow
+t "pre-bash: globálne prepínače gitu, env priradenia a obaly pred commit → deny (D17)" t_bash_detect_global_opts
+t "pre-bash: rebase|merge|cherry-pick|revert|am --continue = commit staged súborov (tajomstvo, gate, git add pred ním) (D1)" t_bash_continue_gate
+t "test-lock.sh: blob testu pri lock; zmena cez Bash → check --stop/--auto/--quick FAIL s riadkom zámku, Stop blok, commit deny; opätovný lock blob nemení; po unlock PASS (D3)" t_test_lock_bash_change
+t "pre-bash: deny pri PARTIAL a 10 súboroch ≤ 13 riadkov, „Spusti kontrolu“ posledný (aj pri 2 repách, spolu ≤ 20); ≤ 8 súborov → --files, cudzí súbor kontrolu nezhodí (D5)" t_bash_gate_deny_tail
 
 t "on-edit: chyba lintera na pridanom riadku → exit 2, [dev-kit] a rel:riadok" t_edit_lint_added
 t "on-edit: php -l „on line N“ na pridanom riadku → exit 2" t_edit_parse_error
@@ -3389,7 +3409,6 @@ t "pre-bash: commit po check PARTIAL → deny" t_bash_commit_after_partial
 t "pre-bash: PARTIAL, nebežiaci kontajner (0 ok) → deny s únikom commitGate, ten commit pustí" t_bash_commit_partial_explained
 t "pre-bash: PARTIAL s 1 ok krokom → únik step:<id>, ten dá PASS; partial.json > 24 h mlčí" t_bash_commit_partial_one_ok
 t "pre-bash: PARTIAL so 7 blokovanými krokmi → 5 riadkov, únik so všetkými 7 id" t_bash_commit_partial_all_ids
-t "pre-bash: deny pri PARTIAL a 10 súboroch ≤ 13 riadkov, „Spusti kontrolu“ posledný (aj pri 2 repách, spolu ≤ 20); ≤ 8 súborov → --files, cudzí súbor kontrolu nezhodí (D5)" t_bash_gate_deny_tail
 t "pre-bash: git commit -am bez PASS → deny, po PASS → allow" t_bash_commit_all_flag
 t "pre-bash: zmena a git add po PASS → deny" t_bash_commit_restaged
 t "pre-bash: commit len .md → allow" t_bash_commit_docs_only
@@ -3399,16 +3418,12 @@ t "pre-bash: tajomstvo na pridanom riadku → deny s file:line, bez hodnoty" t_b
 t "pre-bash: tajomstvo v secrets.allow (tests/fixtures/) → allow" t_bash_commit_secret_allow
 t "pre-bash: 'cd sub && git commit' aj 'git -C sub commit' sú commit" t_bash_detect_cd_commit
 t "pre-bash: 'git commit-tree' nie je commit" t_bash_detect_commit_tree
-t "pre-bash: rebase|merge|cherry-pick|revert|am --continue = commit staged súborov (tajomstvo, gate, git add pred ním) (D1)" t_bash_continue_gate
-t "pre-bash: globálne prepínače gitu, env priradenia a obaly pred commit → deny (D17)" t_bash_detect_global_opts
 t "pre-bash: 'git stage X && git commit' sa započíta ako add" t_bash_stage_alias
 t "pre-bash: cd \"\$CLAUDE_PROJECT_DIR\" sa rozvinie" t_bash_cd_var_project
 t "pre-bash: reťaz relatívnych cd sa skladá kumulatívne" t_bash_cd_chain_relative
 t "pre-bash: nerozriešiteľné cd → cwd session (fail closed)" t_bash_cd_unresolvable_fallback
 t "pre-bash: cd za commitom repo nemení" t_bash_cd_after_commit
 t "pre-bash: cd na cestu s medzerou v úvodzovkách" t_bash_cd_quoted_space
-t "pre-bash: git -C / cd --, -P na iné repo bez devkit.json → allow" t_bash_cd_other_repo_allow
-t "pre-bash: nerozriešený cieľ cd / -C → cwd session a riadok „sa nedal určiť“ s úryvkom" t_bash_cd_unresolved_note
 t "pre-bash: cd \"\$(pwd)\", \$PWD, \`pwd\` = aktuálna báza; cd v \$(…) s commitom" t_bash_cd_pwd_base
 t "pre-bash: viacriadkový príkaz s dvoma commitmi → oba segmenty" t_bash_multiline_commits
 t "pre-bash: git add -f / --force ignorovaného zakázaného súboru → deny s maskou" t_bash_add_force_forbidden
@@ -3417,15 +3432,6 @@ t "pre-bash: git add -p v tom istom príkaze → deny aj po PASS" t_bash_add_pat
 t "pre-bash: názov súboru v úvodzovkách gitu → deny" t_bash_quoted_name
 t "pre-bash: zástupný text ukotvený na celú hodnotu (SEC-15)" t_bash_secret_placeholder_anchor
 t "pre-bash: telo heredocu správy commitu sa nečíta ako príkazy" t_bash_heredoc_message
-t "pre-bash parser (1/6): tabuľka cmd-parse.tsv — báza, kandidáti a riadky U/N/R" t_cmd_parse_1
-t "pre-bash parser (2/6): tabuľka cmd-parse.tsv — báza, kandidáti a riadky U/N/R" t_cmd_parse_2
-t "pre-bash parser (3/6): tabuľka cmd-parse.tsv — báza, kandidáti a riadky U/N/R" t_cmd_parse_3
-t "pre-bash parser (4/6): tabuľka cmd-parse.tsv — báza, kandidáti a riadky U/N/R" t_cmd_parse_4
-t "pre-bash parser (5/6): tabuľka cmd-parse.tsv — báza, kandidáti a riadky U/N/R" t_cmd_parse_5
-t "pre-bash parser (6/6): tabuľka cmd-parse.tsv — báza, kandidáti a riadky U/N/R" t_cmd_parse_6
-t "pre-bash parser fail closed (1/3): tabuľka cmd-parse-closed.tsv — každý riadok deny" t_cmd_parse_closed_1
-t "pre-bash parser fail closed (2/3): tabuľka cmd-parse-closed.tsv — každý riadok deny" t_cmd_parse_closed_2
-t "pre-bash parser fail closed (3/3): tabuľka cmd-parse-closed.tsv — každý riadok deny" t_cmd_parse_closed_3
 t "check.sh --quick: všetko PASS → exit 0, riadky krokov, log, pass.json s blobmi" t_check_quick_pass
 t "check.sh: zlyhaný krok → exit 1, ≤ 20 riadkov, ✗ krok" t_check_fail
 t "check.sh: chýbajúci requires → SKIP riadok" t_check_skip_missing
@@ -3455,7 +3461,6 @@ t "session-card: 1. a 2. riadok, pripomienka údržby (chýba / > 30 dní)" t_ca
 t "session-card: údržba kitu len s tools/upstream.sh vedľa skriptov, cesta z umiestnenia" t_card_maintenance_checkout_only
 t "session-card --record-handoff → posledný handoff (len < 24 h)" t_card_handoff
 t "test-lock.sh: lock/status/unlock, karta aj pre-edit" t_test_lock_roundtrip
-t "test-lock.sh: blob testu pri lock; zmena cez Bash → check --stop/--auto/--quick FAIL s riadkom zámku, Stop blok, commit deny; opätovný lock blob nemení; po unlock PASS (D3)" t_test_lock_bash_change
 t "stats.sh: súhrn decisions.jsonl" t_stats
 t "lib.sh dk_glob_match: vzory z SPEC §3" t_glob
 t "lib.sh dk_workdir: worktree pod .claude/worktrees/x" t_worktree_workdir
