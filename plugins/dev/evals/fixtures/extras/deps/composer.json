@@ -1,0 +1,13 @@
+{
+    "name": "example/shop",
+    "description": "Syntetický e-shop pre eval kitu",
+    "type": "project",
+    "require": {
+        "php": ">=8.2",
+        "acme/money": "^1.2",
+        "acme/slugify": "^3.1"
+    },
+    "autoload": {
+        "psr-4": {"Shop\\": "src/"}
+    }
+}

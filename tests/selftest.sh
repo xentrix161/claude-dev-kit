@@ -3541,7 +3541,7 @@ t_evals_suite() {
       done
     done
   done
-  [ "$n" -ge 6 ] || { fail "evals: $n prípadov, čakal som 6"; return 1; }
+  [ "$n" -ge 7 ] || { fail "evals: $n prípadov, čakal som 7"; return 1; }
   [ -z "$(find "$EV/fixtures" -name prompt.md -o -name case.yaml)" ] ||
     { fail "evals/fixtures: prompt.md alebo case.yaml by sa načítal ako prípad"; return 1; }
   LC_ALL=C grep -q '^eval:' "$KIT/Makefile" && ! LC_ALL=C grep -Eq '^check:.* eval( |$)' "$KIT/Makefile" ||
@@ -3633,7 +3633,38 @@ t_evals_suite() {
   OUT=$(cd "$W" && bash "$CASE/verdict.sh" 2>&1)
   printf '%s\n' "$OUT" | LC_ALL=C grep -q '^{"file":"pass.json",.*"mode":"full","head":"'"$(git -C "$W" rev-parse HEAD)"'"' &&
     printf '%s\n' "$OUT" | LC_ALL=C grep -q '^check-full-[0-9]*\.log$' ||
-    fail "mr/SKILL.md: príkaz na verdikt nenašiel pass.json a log: $(flat "$OUT")"
+    { fail "mr/SKILL.md: príkaz na verdikt nenašiel pass.json a log: $(flat "$OUT")"; return 1; }
+
+  # deps-one-package: atrapa bin/composer (outdated, update jedného balíka, hromadný update odmietne), vendor/ mimo gitu;
+  # commit len composer.lock prejde commit gate po check.sh --full a gradery na súbory sedia s výsledkom.
+  local d lock pat
+  ev_scaffold deps-one-package || return 1
+  d=$W
+  [ "$(git -C "$d" branch --show-current)" = chore/31-zavislosti ] && [ -z "$(git -C "$d" status --porcelain)" ] &&
+    [ -x "$d/bin/composer" ] && [ -f "$d/vendor/acme/slugify/CHANGELOG.md" ] && [ -z "$(git -C "$d" ls-files vendor)" ] &&
+    LC_ALL=C grep -qF '`bin/composer <príkaz>`' "$d/CLAUDE.md" ||
+    { fail "deps-one-package: vetva, čistý strom, bin/composer, vendor/ mimo gitu alebo wrapper v CLAUDE.md: $(flat "$(git -C "$d" status --porcelain -b)")"; return 1; }
+  OUT=$(cd "$d" && bin/composer outdated --direct --format=json 2>&1)
+  [ "$(printf '%s' "$OUT" | jq -c '[.installed[] | "\(.name) \(.version) \(.latest)"]' 2>&1)" = '["acme/money 1.2.0 2.0.0","acme/slugify 3.1.0 3.2.0"]' ] ||
+    { fail "deps-one-package: outdated $(flat "$OUT")"; return 1; }
+  ! (cd "$d" && bin/composer update --with-dependencies) >/dev/null 2>&1 && [ -z "$(git -C "$d" status --porcelain)" ] ||
+    { fail "deps-one-package: atrapa pustila composer update bez balíka"; return 1; }
+  (cd "$d" && bin/composer update acme/slugify --with-dependencies) >/dev/null 2>&1 &&
+    [ "$(git -C "$d" status --porcelain)" = ' M composer.lock' ] && LC_ALL=C grep -q '^## 3\.2\.0 ' "$d/vendor/acme/slugify/CHANGELOG.md" ||
+    { fail "deps-one-package: update acme/slugify: $(flat "$(git -C "$d" status --porcelain)")"; return 1; }
+  lock=$(LC_ALL=C tr '\n' ' ' < "$d/composer.lock")
+  for g in lock-updated money-untouched; do
+    pat=$(ev_pattern "$EV/deps-one-package/graders/$g.md" | sed 's/\\s\*/[[:space:]]*/g')
+    printf '%s' "$lock" | LC_ALL=C grep -Eq "$pat" || { fail "deps-one-package: grader $g nesedí s composer.lock"; return 1; }
+  done
+  check --full --project "$d"
+  want_rc 0 deps-one-package || return 1
+  g add composer.lock
+  pre_bash 'git commit -m "[#31] chore: aktualizácia acme/slugify 3.1.0 → 3.2.0"'
+  want_rc 0 "deps-one-package: gate" && want_no_stdout "deps-one-package: gate" || return 1
+  git -C "$d" commit -qm '[#31] chore: aktualizácia acme/slugify 3.1.0 → 3.2.0' &&
+    LC_ALL=C grep -Eq "$(ev_pattern "$EV/deps-one-package/graders/commit-message.md" | sed 's/\[\^\\n\]\*/.*/g')" "$d/.git/COMMIT_EDITMSG" ||
+    fail "deps-one-package: commit-message nesedí s .git/COMMIT_EDITMSG"
 }
 
 # ---------------------------------------------------------------- PreCompact (B12)
@@ -4107,7 +4138,7 @@ t "check.sh: audit — abandoned ostáva FAIL, Ignore reason a blok bez id, tabu
 t "šablóny: krok audit len vo full so súhlasom v pláne initu; review a production-audit odkazujú na krok" t_templates_audit
 t "check.sh --config / DEVKIT_CONFIG: kópia s container \"\" beží na hoste, bez pass.json a partial.json, Stop berie config projektu" t_check_config
 t "check.sh --config: projekt bez devkit.json, neplatný JSON, chýbajúca hodnota, ten istý súbor a prázdne DEVKIT_CONFIG → markery" t_check_config_edges
-t "eval suite: prompt.md a gradery, fixture shop zo scaffold.sh (PARTIAL, commit gate, štýl commitu Jira z CLAUDE.md, zámok testu, diff, vetva s migráciou a pass.json pre /dev:mr), make eval mimo check" t_evals_suite
+t "eval suite: prompt.md a gradery, fixture shop zo scaffold.sh (PARTIAL, commit gate, štýl commitu Jira z CLAUDE.md, zámok testu, diff, vetva s migráciou a pass.json pre /dev:mr, atrapa composeru pre /dev:deps), make eval mimo check" t_evals_suite
 t "pre-compact: hooks.json PreCompact; bez devkit.json, bez jq, s neplatným configom a bez stavu session exit 0 bez výstupu" t_pre_compact_silent
 t "pre-compact: plain text (nie JSON) — súbory session (8 + ďalšie), Stop len tejto session, pass.json, zámok a handoff < 24 h" t_pre_compact_facts
 t "hooks.json: Edit|Write|NotebookEdit bez MultiEdit, žiadny handler s if; agenti bez MultiEdit" t_hooks_tools_no_if

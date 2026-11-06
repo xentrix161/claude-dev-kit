@@ -1,0 +1,25 @@
+{
+    "_readme": [
+        "Syntetický lock súbor fixtúry eval deps-one-package."
+    ],
+    "content-hash": "6c1f0b2e9d8a7c6b5a4f3e2d1c0b9a87",
+    "packages": [
+        {
+            "name": "acme/money",
+            "version": "1.2.0",
+            "type": "library",
+            "description": "Peniaze v centoch"
+        },
+        {
+            "name": "acme/slugify",
+            "version": "3.1.0",
+            "type": "library",
+            "description": "Slugy z názvov produktov"
+        }
+    ],
+    "packages-dev": [],
+    "minimum-stability": "stable",
+    "platform": {
+        "php": ">=8.2"
+    }
+}

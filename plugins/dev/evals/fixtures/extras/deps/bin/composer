@@ -1,0 +1,107 @@
+#!/usr/bin/env bash
+# Atrapa composer pre eval deps-one-package, bez siete: outdated, update <balík>, audit, show, install, validate.
+# Hromadný update bez mena balíka odmietne a lock nezmení.
+set -u
+cd "$(dirname "$0")/.." || exit 1
+
+ver() { jq -r --arg p "$1" '.packages[] | select(.name == $p) | .version' composer.lock; }
+json="" prev=""
+for a in "$@"; do
+    case "$prev $a" in *--format=json|"--format json"|"-f json") json=1 ;; esac
+    prev=$a
+done
+
+slugify_changelog() {
+    cat > vendor/acme/slugify/CHANGELOG.md <<'MD'
+# Changelog
+
+## 3.2.0 — 2026-10-20
+
+### Pridané
+- `Slugify::slugify()` má parameter `$separator` (predvolene `-`).
+
+### Zastarané
+- `Slugify::create()` je zastarané — použi `new Slugify()`; vo verzii 4.0 bude odstránené.
+
+## 3.1.0 — 2026-06-02
+
+### Opravené
+- Znaky `ľ`, `ĺ` a `ŕ` sa prevádzajú na `l` a `r`.
+
+## 3.0.0 — 2026-01-15
+
+### Zmenené
+- Minimálna verzia PHP je 8.2.
+MD
+}
+
+case "${1:-}" in
+    outdated)
+        m=$(ver acme/money) s=$(ver acme/slugify)
+        if [ -n "$json" ]; then
+            jq -n --arg m "$m" --arg s "$s" '{installed: ([
+                {name: "acme/money", "direct-dependency": true, version: $m, latest: "2.0.0",
+                 "latest-status": "update-possible", description: "Peniaze v centoch", abandoned: false},
+                {name: "acme/slugify", "direct-dependency": true, version: $s, latest: "3.2.0",
+                 "latest-status": "semver-safe-update", description: "Slugy z názvov produktov", abandoned: false}
+              ] | map(select(.version != .latest)))}'
+        else
+            [ "$m" = 2.0.0 ] || printf 'acme/money   %s ~ 2.0.0 Peniaze v centoch\n' "$m"
+            [ "$s" = 3.2.0 ] || printf 'acme/slugify %s ! 3.2.0 Slugy z názvov produktov\n' "$s"
+        fi
+        ;;
+    update|upgrade|u)
+        shift
+        pk=""
+        for a in "$@"; do
+            case "$a" in -*) ;; *) pk="$pk $a" ;; esac
+        done
+        if [ -z "$pk" ]; then
+            echo "atrapa composer: update bez mena balíka by aktualizoval všetky balíky — fixtúra ho odmieta" >&2
+            exit 1
+        fi
+        echo "Loading composer repositories with package information"
+        echo "Updating dependencies"
+        for p in $pk; do
+            case "$p" in
+                acme/slugify)
+                    if [ "$(ver acme/slugify)" = 3.2.0 ]; then
+                        echo "Nothing to modify in lock file"
+                    else
+                        jq --indent 4 '(.packages[] | select(.name == "acme/slugify") | .version) = "3.2.0"' \
+                            composer.lock > composer.lock.tmp &&
+                            mv composer.lock.tmp composer.lock || exit 1
+                        slugify_changelog
+                        echo "Lock file operations: 0 installs, 1 update, 0 removals"
+                        echo "  - Upgrading acme/slugify (3.1.0 => 3.2.0)"
+                        echo "Writing lock file"
+                        echo "Installing dependencies from lock file (including require-dev)"
+                        echo "Package operations: 0 installs, 1 update, 0 removals"
+                        echo "  - Upgrading acme/slugify (3.1.0 => 3.2.0)"
+                        echo "Generating autoload files"
+                    fi
+                    ;;
+                acme/money) echo "Nothing to modify in lock file" ;;
+                *) echo "Package \"$p\" listed for update is not locked." >&2; exit 1 ;;
+            esac
+        done
+        ;;
+    require|remove)
+        echo "atrapa composer: $1 mení composer.json — fixtúra ho nepodporuje" >&2
+        exit 1
+        ;;
+    audit)
+        if [ -n "$json" ]; then echo '{"advisories": [], "abandoned": []}'; else echo "No security vulnerability advisories found."; fi
+        ;;
+    show)
+        if [ -n "${2:-}" ] && [ "${2#-}" = "$2" ]; then
+            printf 'name     : %s\nversions : * %s\n' "$2" "$(ver "$2")"
+        else
+            jq -r '.packages[] | "\(.name) \(.version) \(.description)"' composer.lock
+        fi
+        ;;
+    install|i) echo "Installing dependencies from lock file (including require-dev)"; echo "Nothing to install, update or remove" ;;
+    validate) echo "./composer.json is valid" ;;
+    --version|-V) echo "Composer version 2.8.4 (atrapa fixtúry eval)" ;;
+    *) echo "atrapa composer: príkaz '${1:-}' fixtúra nepozná (outdated, update <balík>, audit, show, install, validate)" >&2; exit 1 ;;
+esac

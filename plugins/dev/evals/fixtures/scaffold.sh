@@ -5,11 +5,12 @@
 # ($HOME/.claude/dev-kit) preto vedú do .git/dev-kit-data, kde ich vidí check.sh aj hooky.
 # scaffold.sh [--config <meno v config/>] [--branch <vetva>] [--change <meno v changes/>]
 #             [--claude <meno v claude/> (CLAUDE.md v prvom commite)] [--first <správa prvého commitu>]
+#             [--extra <meno v extras/> (súbory v prvom commite; dot-gitignore → .gitignore)]
 #             [--feature <vetva z prvého commitu>] [--commit <meno v changes/>=<správa>]… [--checked quick|full]
 # --commit commitne zmenu na vetve (v poradí argumentov), --checked potom spustí check.sh (musí dať PASS, zapíše pass.json).
 set -eu
 FIX=$(cd "$(dirname "$0")" && pwd -P)
-config="" branch="main" change="" claude="" first="[#11] feat: košík, ceny a objednávky" feature="" commits="" checked=""
+config="" branch="main" change="" claude="" first="[#11] feat: košík, ceny a objednávky" feature="" commits="" checked="" extra=""
 while [ $# -gt 0 ]; do
     case "$1" in
         --config) config=${2:?}; shift ;;
@@ -21,6 +22,7 @@ while [ $# -gt 0 ]; do
         --commit) commits="$commits${2:?}
 "; shift ;;
         --checked) checked=${2:?}; shift ;;
+        --extra) extra=${2:?}; shift ;;
         *) echo "scaffold.sh: neznámy argument $1" >&2; exit 2 ;;
     esac
     shift
@@ -29,6 +31,10 @@ done
 cp -R "$FIX/shop/." .
 [ -z "$config" ] || cp "$FIX/config/$config.json" .claude/devkit.json
 [ -z "$claude" ] || cp "$FIX/claude/$claude.md" CLAUDE.md
+if [ -n "$extra" ]; then
+    cp -R "$FIX/extras/$extra/." .
+    [ ! -f dot-gitignore ] || mv dot-gitignore .gitignore
+fi
 git init -q
 git symbolic-ref HEAD "refs/heads/$branch"
 git config user.name "shop eval"

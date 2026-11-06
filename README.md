@@ -50,6 +50,7 @@ Nebežiaci kontajner ani chýbajúci nástroj nič nezablokujú, kontrola sa len
 | `/dev:commit` | kontrola, zoskupenie zmien a jednoriadková správa podľa pravidla o commitoch v `CLAUDE.md` projektu (bez neho `[#XX] typ: výstih`); nikdy nerobí push |
 | `/dev:review [branch [base]] [--security]` | review diffu: bugy, bezpečnosť, súlad s plánom, zastarané `CLAUDE.md` |
 | `/dev:mr [base]` | popis PR/MR vetvy (Čo, Prečo, Ako overiť, Riziká, Po nasadení) z diffu, plánu, posledného `/dev:check` a migrácií, s review agentmi; PR/MR cez `gh` či `glab` vytvorí len so súhlasom, push nikdy |
+| `/dev:deps [balík]` | jedna závislosť naraz: zastarané balíky, update, changelog novej verzie, `/dev:check --full` a commit súborov závislostí; nikdy hromadný `composer update` |
 | `/dev:fix` | repro test → zámok testu → oprava kódu → kontrola |
 | `/dev:test` | test najprv: RED → GREEN → REFACTOR (PHPUnit, Nette Tester, pytest) |
 | `/dev:debug` | logy a stav prostredia → hypotéza → minimálny repro → návrh opravy |
