@@ -593,17 +593,21 @@ flags in any order; `--files` consumes paths until the next `--` flag.
   Stop mode files = session files list ∪ `dk_session_newer` (§4.1; code changed outside on-edit since the session
   started), existing only.
 - `--files` narrows the file set in every mode (quick/full/auto/stop); `pass.json` then records exactly
-  those blobs, so `/dev:commit` can check only its group.
+  those blobs, so `/dev:commit` can check only its group. In quick/full/auto a step with `runFiles` then runs
+  `runFiles` over that set even when it has `run` (command choice below).
 - Steps = config steps whose `modes` contain the mode (stop/quick/full; auto resolves first), and whose
   rule `step:<id>` is enabled. For each: `requires` (on the host), unknown `runtime` (blocked), then for a
   container step (effective runtime, §3) the container checks (with reason); a `runtime: host` step
-  skips them and calls neither `docker` nor `dk_workdir`; if `run` exists
+  skips them and calls neither `docker` nor `dk_workdir`. Command: explicit `--files` and mode ≠ stop and
+  `runFiles` exists ⇒ `runFiles` over the `--files` set filtered by `ext` (a step without `ext`: its code files,
+  `dk_is_code`; none ⇒ SKIP `žiadne zmenené súbory`, `run` does not stand in), so `/dev:commit` with
+  `--files` checks only its group; else if `run` exists
   and mode ≠ stop ⇒ run whole; else if `runFiles` exists ⇒ files filtered by `ext` (none ⇒ SKIP
   `žiadne zmenené súbory`; a step without `ext` gets only code files, `dk_is_code`, in stop mode only the
   Stop code files of §4.6 step 3), substitute
-  `{files}`; in stop mode prefer `runFiles` when files exist, else
-  `run` (for steps without ext, e.g. unit tests, always `run`). `changedLinesOnly` (`true` | `"stop"`,
-  §3) filters like on-edit.
+  `{files}`; in stop mode (with or without `--files`) prefer `runFiles` when files exist, else
+  `run` (for steps without ext, e.g. unit tests, always `run`). A step without `runFiles` runs `run` whole
+  with `--files` too. `changedLinesOnly` (`true` | `"stop"`, §3) filters like on-edit.
 - Two kinds of skipped step. **Not applicable** (line `– <id>: <reason>`, verdict unaffected): missing
   `requires`, no changed files for its `ext`, tool output `No files were checked` without any finding
   line (`nástroj nič neskontroloval (No files were checked)`). **Blocked** — the step should run but could

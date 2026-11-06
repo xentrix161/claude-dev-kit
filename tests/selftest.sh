@@ -2193,6 +2193,32 @@ t_check_runfiles_code_only() {
   check --quick --project "$REPO"
   want_rc 4 "len nekódové zmeny" && want_out '– files: žiadne zmenené súbory' "len nekódové zmeny"
 }
+t_check_files_prefers_runfiles() {
+  new_case
+  cfg --arg r 'mkdir -p .marks && : > .marks/ran-run' --arg f 'mkdir -p .marks && printf "%s\n" {files} > .marks/ran-files' \
+    '.check.steps = [{"id": "stan", "run": $r, "runFiles": $f, "ext": [".php"], "modes": ["stop", "quick", "full"]},
+      {"id": "nx", "run": $r, "runFiles": $f, "modes": ["quick"]}]'
+  add app/Foo.php '$d = 1;'
+  add app/Old.php '$d = 2;'
+  g add app/Foo.php
+  check --quick --project "$REPO" --files app/Foo.php README.md
+  want_rc 0 "--files" && want_out 'check quick: PASS · 2 ok' "--files" || return 1
+  [ ! -e "$REPO/.marks/ran-run" ] || { fail "--files: bežal run namiesto runFiles"; return 1; }
+  [ "$(cat "$REPO/.marks/ran-files" 2>/dev/null)" = app/Foo.php ] ||
+    { fail "--files: {files} = $(flat "$(cat "$REPO/.marks/ran-files" 2>&1)")"; return 1; }
+  want_jfile "$PDATA/pass.json" '.blobs | keys == ["README.md", "app/Foo.php"]' || return 1
+  pre_bash 'git commit -m "x"'
+  want_allow "commit po check --files" || return 1
+  rm -rf "$REPO/.marks"
+  check --quick --project "$REPO"
+  want_rc 0 "bez --files" && want_file "$REPO/.marks/ran-run" "bez --files" || return 1
+  [ ! -e "$REPO/.marks/ran-files" ] || { fail "bez --files: bežal runFiles namiesto run"; return 1; }
+  rm -rf "$REPO/.marks"
+  check --quick --project "$REPO" --files README.md
+  want_rc 4 "--files bez .php" && want_out '– stan: žiadne zmenené súbory' "--files bez .php" \
+    && want_out '– nx: žiadne zmenené súbory' "--files bez .php" || return 1
+  [ ! -d "$REPO/.marks" ] || fail "--files bez .php: krok bežal ($(ls "$REPO/.marks" | tr '\n' ' '))"
+}
 t_check_auto_full_same_steps() {
   new_case
   cfg '.check.steps |= map(select(.id != "fullonly"))'
@@ -3475,6 +3501,7 @@ t "pre-bash: symlink .php v stage aj cez git add → commit gate ho nežiada" t_
 t "lib.sh dk_err: errors.log nad 1 MB → posledných 500 riadkov" t_err_log_rotation
 t "kontajner: on-edit číta container.state 30 s, check.sh vždy docker inspect" t_container_state_cache
 t "check.sh: runFiles bez ext dostane do {files} len kódové súbory" t_check_runfiles_code_only
+t "check.sh --files: krok s run aj runFiles spustí runFiles nad --files (pass.json presne ich, commit prejde), bez --files run; bez súboru prípony SKIP (D11)" t_check_files_prefers_runfiles
 t "check.sh --auto: fullWhen bez krokov len pre full → riadok „– full: rovnaké kroky ako quick“" t_check_auto_full_same_steps
 t "cesty so spätnou lomkou: on-edit, check.sh changedLinesOnly, dk_strip_paths (awk ENVIRON)" t_awk_backslash_paths
 t "check.sh: knownFailures z pytest „FAILED <id>“ (aj [param]) a „ERROR <cesta>[::<test>]“ → známe, neznáme id → FAIL" t_check_known_failures_pytest

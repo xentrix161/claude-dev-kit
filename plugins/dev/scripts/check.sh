@@ -267,7 +267,12 @@ while IFS=$DK_US read -r tag id req run runf exts modes cl rt <&3; do
             dk_skip "$id" "žiadne zmenené súbory"; continue
         fi
     fi
-    if [ "$mode" != stop ] && [ -n "$run" ]; then
+    # Výslovné --files: krok s runFiles kontroluje len ich, aj keď má run.
+    if [ "$files_set" = 1 ] && [ "$mode" != stop ] && [ -n "$runf" ]; then
+        [ -n "$exts" ] || targets=$(dk_files_for "")
+        [ -n "$targets" ] || { dk_skip "$id" "žiadne zmenené súbory"; continue; }
+        cmd=$runf
+    elif [ "$mode" != stop ] && [ -n "$run" ]; then
         cmd=$run
     elif [ -n "$runf" ] && [ -n "$exts" ] && [ -n "$targets" ]; then
         cmd=$runf
