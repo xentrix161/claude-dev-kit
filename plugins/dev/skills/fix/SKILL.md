@@ -54,7 +54,7 @@ bash "${CLAUDE_PLUGIN_ROOT}/scripts/test-lock.sh" lock <cesta/k/Testu.php> --pro
 
 - Cesta relatívna ku koreňu projektu; zámok vyprší sám (predvolene 6 h).
 - Bez `.claude/devkit.json` hooky nebežia a zámok len informuje — pravidlo needitovať test platí rovnako.
-- Odteraz test needituj — ani cez Bash (`sed`, presmerovanie, `cp`, `git checkout`). Hook edit odmietne.
+- Odteraz test needituj — ani cez Bash (`sed`, presmerovanie, `cp`, `git checkout`). Hook edit odmietne; zmenu oproti zamknutému obsahu `check.sh` aj Stop hlásia ako FAIL (`! test <cesta> zmenený počas /dev:fix (zámok)`).
 - Test nevypínaj ani inde: `markTestSkipped`/`Environment::skip`/`pytest.skip`, vyradenie v `phpunit.xml*`/`conftest.py`, `check.knownFailures`, `disabledRules`.
 - Ukáže sa, že je zlý samotný test → zastav a vysvetli prečo. Odomknúť môže len používateľ (`/dev:fix --unlock`); sám spúšťaš `test-lock.sh unlock` len po zelenej kontrole v §4.
 
@@ -69,6 +69,7 @@ bash "${CLAUDE_PLUGIN_ROOT}/scripts/test-lock.sh" lock <cesta/k/Testu.php> --pro
 bash "${CLAUDE_PLUGIN_ROOT}/scripts/check.sh" --auto --project "${CLAUDE_PROJECT_DIR}"
 ```
 
+- `1` FAIL s riadkom `! test … (zámok)` → vráť test do zamknutého stavu; keď to nejde, zastav a nahlás to používateľovi (odomknutie len cez `/dev:fix --unlock`).
 - `1` FAIL → oprav kód (nie test) a zopakuj; zlyhania mimo tvojich zmien len nahlás. Po 2 neúspešných kolách zastav, nahlás stav (čo padá, hypotéza) a navrhni /clear s presnejším zadaním; test ostáva zamknutý.
 - `3` bez devkit.json → spusti celú unit sadu zjavným príkazom projektu; zelená → odomkni ako pri `0`. Spomeň `/dev:project-init`.
 - `4` neúplné overenie (`PARTIAL` alebo `SKIP`) → nahlás dôvod (kontajner, nástroje), PASS netvrď, test nechaj zamknutý.

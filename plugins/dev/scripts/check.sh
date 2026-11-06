@@ -62,17 +62,19 @@ fi
 if [ -z "$DK_CFG" ]; then echo "[dev-kit] chýba .claude/devkit.json — spusti /dev:project-init"; exit 3; fi
 if ! dk_cfg_read '((.check.steps // [])[] | "S\u001f\(.id|s)\u001f\(.requires|s)\u001f\(.run|s)\u001f\(.runFiles|s)\u001f\((.ext // []) | join(","))\u001f\((.modes // ["quick","full"]) | join(","))\u001f\(.changedLinesOnly // false | s)\u001f\(.runtime|s)"),
     ((.check.fullWhen // [])[] | "W\u001f\(.|s)"),
-    ((.check.knownFailures // [])[] | "F\u001f\(.step|s)\u001f\(.pattern|s)")'; then
+    ((.check.knownFailures // [])[] | "F\u001f\(.step|s)\u001f\(.pattern|s)"),
+    "T\u001f\(.testLock.ttlHours // 6 | s)"'; then
     echo "[dev-kit] $CFG_SHOW nie je platný JSON → jq . $CFG_SHOW"
     exit 3
 fi
 mkdir -p "$DK_PDATA/logs" "$DK_PDATA/sessions" 2>/dev/null
 
-FULLW="" KNOWN=""
+FULLW="" KNOWN="" TTL=6
 while IFS=$DK_US read -r tag a b; do
     case "$tag" in
         W) FULLW="$FULLW$a$DK_NL" ;;
         F) KNOWN="$KNOWN$a$DK_US$b$DK_NL" ;;
+        T) TTL=$a ;;
     esac
 done <<EOF
 $DK_CFG_OUT
@@ -353,8 +355,26 @@ done 3<<EOF
 $DK_CFG_OUT
 EOF
 
+# Zámok testu (/dev:fix): obsah iný ako pri zamknutí (zmena cez Bash, mimo pre-edit) = FAIL v každom režime,
+# lebo pass.json z quick či full odomyká commit. Cesta von je len vrátenie testu alebo /dev:fix --unlock.
+LOCKLINES="" NLOCK=0
+if dk_rule_on testLock && [ -f "$DK_PDATA/test-lock.json" ] && dk_lock_read "$TTL"; then
+    jq -r '(.blobs // {}) | if type == "object" then to_entries[] | "\(.key)\u001f\(.value)" else empty end' \
+        "$DK_PDATA/test-lock.json" 2>/dev/null > "$DK_TMP/lock.want"
+    (set -f; IFS=$DK_NL; dk_blobs $DK_LOCK_FILES) > "$DK_TMP/lock.cur"
+    while IFS=$DK_US read -r f b; do
+        [ -n "$f" ] && [ -n "$b" ] || continue
+        case "$DK_NL$DK_LOCK_FILES" in *"$DK_NL$f$DK_NL"*) ;; *) continue ;; esac
+        cur=$(DK_AWK_P="$f" awk -F'\t' 'BEGIN { p = ENVIRON["DK_AWK_P"] } $1 == p { print $2; exit }' "$DK_TMP/lock.cur" 2>/dev/null)
+        [ "${cur:--}" = "$b" ] && continue
+        LOCKLINES="${LOCKLINES}! test $f zmenený počas /dev:fix (zámok)$DK_NL"
+        NLOCK=$((NLOCK + 1))
+        printf '\n=== zámok testu: %s · blob %s → %s\n' "$f" "$b" "${cur:--}" 2>/dev/null >> "$LOG"
+    done < "$DK_TMP/lock.want"
+fi
+
 TOTAL=$(( $(dk_ms) - T0 ))
-if [ "$NFAIL" -gt 0 ]; then VERDICT=FAIL RC=1
+if [ "$NFAIL" -gt 0 ] || [ "$NLOCK" -gt 0 ]; then VERDICT=FAIL RC=1
 elif [ "$NBLOCK" -gt 0 ]; then VERDICT=PARTIAL RC=4
 elif [ $((NOK + NKNOWN)) -gt 0 ]; then VERDICT=PASS RC=0
 else VERDICT=SKIP RC=4
@@ -374,6 +394,7 @@ $DK_CFG_OUT
 EOF
     [ "$same" = 0 ] || STEPLINES="– full: rovnaké kroky ako quick$DK_NL$STEPLINES"
 fi
+STEPLINES="$LOCKLINES$STEPLINES"
 
 # Markery a log pred výpisom: zatvorený stdout (SIGPIPE) ich nesmie zahodiť.
 # PARTIAL nikdy nezapíše pass.json: v quick/full ide do partial.json (vysvetlenie v commit gate),
@@ -417,7 +438,7 @@ PER=$BUDGET
 {
     kn=""
     [ "$NKNOWN" -gt 0 ] && kn=" · $NKNOWN známe"
-    printf '[dev-kit] check %s: %s · %s ok%s · %s fail · %s skip · %s s\n' "$mode" "$VERDICT" "$NOK" "$kn" "$NFAIL" "$NSKIP" "$(dk_fmt_s "$TOTAL")"
+    printf '[dev-kit] check %s: %s · %s ok%s · %s fail · %s skip · %s s\n' "$mode" "$VERDICT" "$NOK" "$kn" "$((NFAIL + NLOCK))" "$NSKIP" "$(dk_fmt_s "$TOTAL")"
     printf '%s' "$STEPLINES" | head -n 17
     if [ -n "$FAILSTEPS" ] && [ "$BUDGET" -gt 1 ]; then
         while IFS=$DK_US read -r id k; do

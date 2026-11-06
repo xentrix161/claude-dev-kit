@@ -31,7 +31,7 @@ Hooky spúšťajú príkazy z `.claude/devkit.json` (lint, kroky kontroly) tak, 
 | po každom edite | Lint a guardy na debug výpis (aj `console.log`), `die()`, `{!$var}`, `@`, SQL skladané reťazcom a priradenie do `innerHTML`. Pridané riadky prehľadá aj na tajomstvá. Claude nález opraví hneď. |
 | na konci ťahu | Testy a analýza nad kódom, ktorý Claude v session zmenil (aj cez Bash, napr. `sed` či `git checkout`); súbory, ktoré kontrolujú len kroky `/dev:check` (napr. `.js`, `.css`), ich nespustia. Kým padajú, Claude nemôže skončiť; rovnaké zlyhanie zablokuje koniec ťahu najviac 2×, pri treťom už len upozorní. |
 | pred commitom | Commit prejde len s PASS z `/dev:check` pre presne ten obsah. Tajomstvá a lokálne configy (`config.local.neon`, `.env`) neprejdú. |
-| pred editom | Súbory zo `secrets.forbidFiles` (lokálne configy, `.env`) Claude needituje. Pred zmenou už commitnutej migrácie sa Claude spýta. Počas `/dev:fix` je test zamknutý, takže Claude opraví kód, nie test. |
+| pred editom | Súbory zo `secrets.forbidFiles` (lokálne configy, `.env`) Claude needituje. Pred zmenou už commitnutej migrácie sa Claude spýta. Počas `/dev:fix` je test zamknutý, takže Claude opraví kód, nie test; zmenu testu cez Bash kontrola hlási ako FAIL. |
 | pri štarte session | Karta so stackom, stavom kontajnera, gitom, posledným handoffom a zmenou `devkit.json` od poslednej session. Šablóny skopírované zo staršej verzie kitu pripomenie raz za session (`/dev:project-init --sync`). |
 | pred kompakciou | Do pokynov súhrnu pridá stav session: súbory, ktoré Claude menil, výsledok poslednej Stop kontroly a posledný PASS z `/dev:check`, zamknutý test a posledný handoff. Kompakciu nikdy nezastaví. |
 

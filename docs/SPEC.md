@@ -97,7 +97,7 @@ $DK_DATA/errors.log                               # dk_err; over 1 MB trimmed to
 $DK_DATA/maintenance.json                         # {"lastUpstreamCheck": <epoch>} written by tools/upstream.sh
 $DK_DATA/projects/<phash>/pass.json               # commit-gate PASS marker
 $DK_DATA/projects/<phash>/partial.json            # last quick/full check ended PARTIAL (§4.5), explained by the commit gate (§4.4)
-$DK_DATA/projects/<phash>/test-lock.json          # V3
+$DK_DATA/projects/<phash>/test-lock.json          # V3: locked tests and their blobs (§4.8)
 $DK_DATA/projects/<phash>/container.state         # "<epoch> <running|down> <container>", dk_container_ok cache (30 s)
 $DK_DATA/projects/<phash>/config.hash             # blob hash of the devkit.json last seen by the card, on-edit or pre-bash (dk_cfg_trust, §4.1)
 $DK_DATA/projects/<phash>/config.cmds.json        # its commands as a sorted JSON array of labelled strings (DK_JQ_CMDS, §4.1)
@@ -357,6 +357,7 @@ per added line that matches; used by on-edit), `dk_data_dir` (creates `$DK_DATA`
   the target rel path (parent resolved physically, compared case-insensitively) is in its `files` ⇒ deny
   via JSON on stdout, exit 0:
   `{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"[dev-kit] Test <rel> je zamknutý počas /dev:fix — oprav kód, nie test. Odomknúť môže používateľ: /dev:fix --unlock"}}`.
+  A change outside Edit/Write (Bash) is caught by the blob comparison in `check.sh` (§4.5).
 - Committed migration (V4, rule `migrations`): target matches `migrations.paths` AND exists in HEAD
   (`git cat-file -e HEAD:<rel>`; a path typed in another letter case that is the same file on a
   case-insensitive FS resolves to the indexed name first) ⇒ `permissionDecision":"ask"` with reason
@@ -623,7 +624,14 @@ flags in any order; `--files` consumes paths until the next `--` flag.
   relevant output lines each (`DK_EXCERPT_RE`: PHPUnit, pytest, Tester `-- FAILED:` and its `Failed:` lines,
   `file:line` findings, errors, audit `Found <n> …`, `Package:`/`Advisory ID:`/`CVE:`/`Title:` and `pip-audit`
   rows; total cap 20), then the `config:` line of an override run, then `log: <path>`.
-- Verdict and exit: some FAIL ⇒ FAIL, 1; else some blocked step ⇒ PARTIAL, 4; else ≥1 `ok` or `známe`
+- Test lock (rule `testLock`, every mode incl. stop, because a quick or full `pass.json` unlocks the commit): an
+  active lock (`dk_lock_read`, ttl `testLock.ttlHours`) whose `blobs[<rel>]` (§4.8) differs from the current blob of
+  that locked file (`dk_blobs`, missing = `-`) ⇒ line `! test <rel> zmenený počas /dev:fix (zámok)` before the step
+  lines, counted in `<n> fail`, verdict FAIL (exit 1), and the old and new blob in the log. FAIL, not PARTIAL: a
+  changed test is a result about the code, not a step that could not run, and PARTIAL would offer `disabledRules
+  step:<id>` as the way out. The steps still run. pre-edit stays the first defense (§4.3); this catches a change via
+  Bash. The only ways out are restoring the test or `/dev:fix --unlock`. A lock without `blobs` is not compared.
+- Verdict and exit: some FAIL or changed locked test ⇒ FAIL, 1; else some blocked step ⇒ PARTIAL, 4; else ≥1 `ok` or `známe`
   ⇒ PASS, 0; else (nothing ran) ⇒ SKIP, 4. 3 = config error. Exit 4 = incomplete verification — never
   report it as PASS. CI treats every exit other than 0 as a failed job.
 - On exit 0 in quick/full: write `pass.json` = `{"time":…,"mode":"quick|full","head":"<sha>","blobs":{"<rel>":"<blob sha or ->"}}`
@@ -664,8 +672,8 @@ flags in any order; `--files` consumes paths until the next `--` flag.
    to `hash` in the session's `stop.json` with last result PASS or PARTIAL; the same failing hash already
    reached the 3× cap. State is per session, so another session's result never resets this one's counter.
    Replay: the same failing hash with `fails` 1–2, a non-empty stored `reason` and an unchanged `ctx`
-   (git blob hash over `devkit.json`, HEAD and the blobs of `dk_changed_files`, so a fix outside the
-   session files or a new `knownFailures`/`disabledRules` entry runs the check again) ⇒ step 4 (check
+   (git blob hash over `devkit.json`, HEAD, `test-lock.json` and the blobs of `dk_changed_files`, so a fix outside
+   the session files, a new `knownFailures`/`disabledRules` entry or an unlock runs the check again) ⇒ step 4 (check
    and guards) is skipped and step 5 blocks again from the stored `reason`; the header says
    `výsledok predošlej kontroly — súbory session sa nezmenili`. A `stop.json` without `reason` or `ctx`
    (older version) runs the check.
@@ -743,7 +751,10 @@ flags in any order; `--files` consumes paths until the next `--` flag.
 
 ### 4.8 `test-lock.sh` (called by /dev:fix)
 `test-lock.sh lock <rel>… [--project P]` | `unlock [--project P]` | `status [--project P]`. Writes
-`test-lock.json` `{"files":[…],"time":…,"ttlHours":…}`. Prints one Slovak line. Exit 0.
+`test-lock.json` `{"files":[…],"time":…,"ttlHours":…,"blobs":{"<rel>":"<blob or ->"}}`: `blobs` = `dk_blobs` of each
+locked file in the working tree at lock time; a lock while another is active adds the new files and keeps the stored
+blob of every file already locked (locking again never accepts a change). `check.sh` compares them (§4.5); `unlock`
+deletes the file. Prints one Slovak line. Exit 0.
 
 ### 4.9 `stats.sh` (V8, called by /dev:stats)
 `stats.sh [--days 30] [--project P|--all]` → scope = project from `pwd` (or `--project`) by default,

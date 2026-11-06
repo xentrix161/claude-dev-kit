@@ -1134,6 +1134,42 @@ t_test_lock_roundtrip() {
   pre_edit tests/FooTest.php
   want_allow "pre-edit po unlock"
 }
+t_test_lock_bash_change() {
+  new_case
+  local blob line='! test tests/FooTest.php zmenený počas /dev:fix (zámok)'
+  card
+  add tests/FooTest.php '$repro = 1;'
+  on_edit tests/FooTest.php
+  want_allow "on-edit testu" || return 1
+  run test-lock lock tests/FooTest.php --project "$REPO"
+  blob=$(git -C "$REPO" hash-object tests/FooTest.php)
+  want_jfile "$PDATA/test-lock.json" '.blobs == {"tests/FooTest.php": $b}' --arg b "$blob" || return 1
+  check --stop --session "$SID" --project "$REPO"
+  want_rc 0 "nezmenený zamknutý test" || return 1
+  add tests/FooTest.php '$hack = 1;'
+  check --stop --session "$SID" --project "$REPO"
+  want_rc 1 "--stop" && want_out "$line" "--stop" && want_out 'check stop: FAIL' "--stop" || return 1
+  stop_check
+  want_json '.decision == "block" and (.reason | contains("! test tests/FooTest.php zmenený počas /dev:fix (zámok)"))' "Stop" ||
+    return 1
+  rm -f "$PDATA/pass.json"
+  check --auto --project "$REPO"
+  want_rc 1 "--auto" && want_out "$line" "--auto" && want_out '1 fail' "--auto" || return 1
+  [ ! -f "$PDATA/pass.json" ] || { fail "--auto pri zmenenom zamknutom teste zapísal pass.json"; return 1; }
+  pre_bash 'git add tests/FooTest.php && git commit -m x'
+  want_decision deny "commit po FAIL" || return 1
+  run test-lock lock tests/OtherTest.php --project "$REPO"
+  want_jfile "$PDATA/test-lock.json" '.blobs["tests/FooTest.php"] == $b and .blobs["tests/OtherTest.php"] == "-"' --arg b "$blob" || return 1
+  check --quick --project "$REPO"
+  want_rc 1 "--quick po opätovnom lock" && want_out "$line" "--quick po opätovnom lock" || return 1
+  run test-lock unlock --project "$REPO"
+  check --auto --project "$REPO"
+  want_rc 0 "--auto po unlock" || return 1
+  stop_check true
+  want_rc 0 "Stop po unlock" && want_no_block "Stop po unlock" || return 1
+  pre_bash 'git add tests/FooTest.php && git commit -m x'
+  want_rc 0 "commit po unlock" && want_not 'permissionDecision' "commit po unlock"
+}
 t_stats() {
   new_case
   # záznamy cez dk_log z lib.sh — formát riadku (ts…) určuje implementácia
@@ -3393,6 +3429,7 @@ t "session-card: 1. a 2. riadok, pripomienka údržby (chýba / > 30 dní)" t_ca
 t "session-card: údržba kitu len s tools/upstream.sh vedľa skriptov, cesta z umiestnenia" t_card_maintenance_checkout_only
 t "session-card --record-handoff → posledný handoff (len < 24 h)" t_card_handoff
 t "test-lock.sh: lock/status/unlock, karta aj pre-edit" t_test_lock_roundtrip
+t "test-lock.sh: blob testu pri lock; zmena cez Bash → check --stop/--auto/--quick FAIL s riadkom zámku, Stop blok, commit deny; opätovný lock blob nemení; po unlock PASS (D3)" t_test_lock_bash_change
 t "stats.sh: súhrn decisions.jsonl" t_stats
 t "lib.sh dk_glob_match: vzory z SPEC §3" t_glob
 t "lib.sh dk_workdir: worktree pod .claude/worktrees/x" t_worktree_workdir

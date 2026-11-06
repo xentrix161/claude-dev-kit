@@ -42,11 +42,19 @@ case "$cmd" in
 $files
 EOF
         if [ -z "$rels" ]; then echo "[dev-kit] použitie: test-lock.sh lock <cesta/k/testu>… [--project P]"; exit 0; fi
-        if dk_lock_read "$TTL"; then rels="$DK_LOCK_FILES$rels"; fi
+        # Blob pri zamknutí (check.sh porovná, či sa test nezmenil cez Bash); už zamknutý test si nechá pôvodný.
+        old='{}'
+        if dk_lock_read "$TTL"; then
+            rels="$DK_LOCK_FILES$rels"
+            old=$(jq -c '.blobs // {} | if type == "object" then . else {} end' "$LF" 2>/dev/null) || old='{}'
+        fi
         rels=$(printf '%s' "$rels" | grep -v '^$' | awk '!seen[$0]++')
+        blobs=$(set -f; IFS=$DK_NL; dk_blobs $rels)
         now=$(dk_now)
-        if jq -n --arg f "$rels" --argjson t "$now" --argjson h "$TTL" \
-            '{files: ($f | split("\n") | map(select(length > 0))), time: $t, ttlHours: $h}' 2>/dev/null > "$LF.tmp" && mv "$LF.tmp" "$LF"; then
+        if jq -n --arg f "$rels" --argjson t "$now" --argjson h "$TTL" --arg b "$blobs" --argjson o "$old" \
+            '{files: ($f | split("\n") | map(select(length > 0))), time: $t, ttlHours: $h,
+              blobs: (($b | split("\n") | map(select(length > 0) | split("\t") | {(.[0]): .[1]}) | add // {}) + $o)}' \
+            2>/dev/null > "$LF.tmp" && mv "$LF.tmp" "$LF"; then
             echo "[dev-kit] test zamknutý: $(dk_list "$rels") (do $(dk_fmt_time $((now + TTL * 3600)))) — oprav kód, nie test; odomknutie: /dev:fix --unlock$NOTE"
         else
             echo "[dev-kit] zámok sa nepodarilo zapísať do $LF"
