@@ -10,7 +10,7 @@ claude plugin marketplace add xentrix161/claude-dev-kit
 claude plugin install dev@dev-kit --scope user
 ```
 
-Novú verziu stiahneš príkazom `claude plugin update dev@dev-kit`. Potrebuješ Claude Code 2.1.308+ a `jq`, `docker` len pre projekty s kontajnerom.
+Novú verziu stiahneš príkazom `claude plugin update dev@dev-kit`. Potrebuješ Claude Code 2.1.314+ (staršie nespúšťajú hook pre Bash pri nástroji Monitor, commit tak obíde commit gate) a `jq`, `docker` len pre projekty s kontajnerom.
 
 ## Zapnutie v projekte
 

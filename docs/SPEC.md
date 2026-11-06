@@ -38,6 +38,8 @@ version is only in `plugins/dev/.claude-plugin/plugin.json`, changes per version
      longer text is replaced by a file path and a 2 000-character preview, and `additionalContext` should be
      facts, not imperative instructions (`hooks.md`, JSON output and Add context for Claude) ⇒ `dk_cap`
      (§4) and factual card, reminder and PreCompact lines (§4.6, §4.7, §4.10).
+  8. Up to 2.1.313, hooks with matcher `Bash` did not run for the Monitor tool, so a `git commit` started from
+     Monitor bypassed `pre-bash.sh` (commit gate, secrets) ⇒ `DK_MIN_CC` = 2.1.314, the card warns on older (§4.7).
 - Language: everything a human or Claude reads at runtime (hook messages, skill bodies, agent prompts,
   README, templates) is **Slovak with full diacritics**. Code identifiers, commands and paths stay as is.
 - Style of user-facing output „stručne, ale úplne“ (the user's global response-style rule, restated here):

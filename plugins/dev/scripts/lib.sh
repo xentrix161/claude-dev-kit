@@ -39,8 +39,8 @@ DK_RE_COMMIT="$DK_RE_GITPFX[[:space:]]+commit([[:space:]]|\$)"
 DK_RE_COMMIT_CONT="$DK_RE_GITPFX[[:space:]]+(rebase|merge|cherry-pick|revert|am)([[:space:]]+[^;&|]*)?--continue"
 DK_RE_ADD="$DK_RE_GITPFX[[:space:]]+(add|stage)([[:space:]]|\$)"
 
-# Najstaršia podporovaná verzia Claude Code (úvodná karta upozorní na staršiu).
-DK_MIN_CC=2.1.308
+# Najstaršia podporovaná verzia Claude Code (úvodná karta upozorní na staršiu); SPEC §0 predpoklad 8.
+DK_MIN_CC=2.1.314
 
 # Predvolené vzory tajomstiev (POSIX ERE, (?i) = bez ohľadu na veľkosť písmen).
 DK_SECRET_DEFAULTS='(?i)(password|passwd|heslo|secret|api[_-]?key|token)["'"'"']?[[:space:]]*(=>|[:=])[[:space:]]*["'"'"'][^"'"'"'[:space:]]{6,}

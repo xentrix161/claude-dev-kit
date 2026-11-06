@@ -61,7 +61,7 @@ chmod +x "$ROOT/fakebin/docker"
 # Atrapa claude: --version vypíše DK_FAKE_CC_VERSION (úvodná karta kontroluje verziu, skutočný claude sa nespúšťa).
 cat > "$ROOT/fakebin/claude" <<'EOF'
 #!/bin/sh
-case "$1" in --version) echo "${DK_FAKE_CC_VERSION:-2.1.308} (Claude Code)" ;; esac
+case "$1" in --version) echo "${DK_FAKE_CC_VERSION:-2.1.314} (Claude Code)" ;; esac
 exit 0
 EOF
 chmod +x "$ROOT/fakebin/claude"
@@ -1870,7 +1870,15 @@ t_card_cc_version() {
   case "$SYSMSG" in *'claude update'*) ;; *) fail "systemMessage bez claude update: $(flat "$RAW")"; return 1 ;; esac
   export DK_FAKE_CC_VERSION=9.9.9
   card
-  want_out 'Claude Code 2.0.9' "verzia sa kontroluje raz za deň (cache)"
+  want_out 'Claude Code 2.0.9' "verzia sa kontroluje raz za deň (cache)" || return 1
+  rm -f "$DATA"/cc-version.*
+  export DK_FAKE_CC_VERSION=2.1.313
+  card
+  want_rc 0 "2.1.313" && want_out 'Claude Code 2.1.313 je starší ako 2.1.314 → claude update' "2.1.313" || return 1
+  rm -f "$DATA"/cc-version.*
+  export DK_FAKE_CC_VERSION=2.1.314
+  card
+  want_rc 0 "2.1.314" && want_not 'je starší ako' "2.1.314"
 }
 # R3: zmena devkit.json → karta raz, on-edit a pre-bash raz za session (systemMessage); hooky bežia ďalej
 t_cfg_trust() {
@@ -3319,7 +3327,7 @@ t "session-card: systemMessage len s upozorneniami" t_card_warning_system_messag
 t "session-card: bez jq → statický JSON so systemMessage" t_card_no_jq_json
 t "session-card: container bez docker binárky → chýba docker" t_card_no_docker_binary
 t "session-card: python worktree bez .venv/ → upozornenie (D20)" t_card_worktree_venv
-t "session-card: stará verzia Claude Code, kontrola raz za deň" t_card_cc_version
+t "session-card: stará verzia Claude Code (pod 2.1.314), kontrola raz za deň" t_card_cc_version
 t "devkit.json zmenený (R3): karta raz, on-edit a pre-bash systemMessage raz za session, hooky bežia ďalej" t_cfg_trust
 t "šablóny: ukotvené deny, bez \\s/\\w v [...], vzorky tajomstiev, rules (paths, Pasce, ≤ 60), značky db:" t_templates_lint
 t "stop-check: check.sh exit 3 / 2 → pripomienka „nedala spustiť“, skip namiesto pass, bez bloku" t_stop_check_not_run
