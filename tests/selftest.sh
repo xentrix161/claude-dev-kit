@@ -413,6 +413,19 @@ t_pre_edit_migration_new() {
   pre_edit db/migrations/20260202000000_add.php
   want_allow
 }
+t_edit_forbid_files() {
+  new_case
+  pre_edit .env
+  want_decision deny ".env" && want_out '[dev-kit] .env je v secrets.forbidFiles — tajomstvá sa needitujú cez Claude' ".env" \
+    && want_logged pre-edit forbidFiles deny || return 1
+  pre_edit app/config/.ENV
+  want_decision deny "app/config/.ENV (iná veľkosť písmen)" || return 1
+  pre_edit .env.example
+  want_allow ".env.example" || return 1
+  cfg '.disabledRules = ["secrets"]'
+  pre_edit .env
+  want_allow "disabledRules secrets"
+}
 j_agent_file() { # <agent_type> <file-abs> — Edit volaný zo subagenta
   j_file PreToolUse "$2" | jq -c --arg a "$1" '. + {agent_id: "agent-selftest", agent_type: $a}'
 }
@@ -3216,6 +3229,7 @@ t "pre-edit: aktívny zámok testu → deny" t_pre_edit_lock_deny
 t "pre-edit: iný súbor pri aktívnom zámku → ticho" t_pre_edit_lock_other_file
 t "pre-edit: expirovaný zámok → ticho" t_pre_edit_lock_expired
 t "pre-edit: commitnutá migrácia → ask" t_pre_edit_migration_committed
+t "pre-edit: Edit/Write súboru zo secrets.forbidFiles → deny (aj iná veľkosť písmen), .env.example a disabledRules secrets → ticho (D4)" t_edit_forbid_files
 t "pre-edit: nová necommitnutá migrácia → ticho" t_pre_edit_migration_new
 t "pre-edit: agent kitu zapisuje do projektu → deny aj bez configu" t_pre_edit_agent_project_deny
 t "pre-edit: agent kitu zapisuje do svojej pamäte → ticho" t_pre_edit_agent_memory_allow

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# PreToolUse (Edit|Write|NotebookEdit): agenti kitu len do svojej pamäte (deny), zamknutý test počas /dev:fix (deny),
-# commitnutá migrácia (ask).
+# PreToolUse (Edit|Write|NotebookEdit): agenti kitu len do svojej pamäte (deny), secrets.forbidFiles (deny),
+# zamknutý test počas /dev:fix (deny), commitnutá migrácia (ask).
 . "$(dirname "$0")/lib.sh" || exit 0
 DK_HOOK=pre-edit
 
@@ -27,25 +27,36 @@ dk_main() {
     esac
     [ -n "$DK_CFG" ] || return 0
     [ -n "$DK_FILE" ] || return 0
-    local t0 rel tag a ttl=6 migs=""
+    local t0 rel tag a ttl=6 migs="" forbid="" lrel
     t0=$(dk_ms)
     rel=$(dk_rel "$DK_FILE")
     [ -n "$rel" ] || return 0
 
-    dk_cfg_read '"T\u001f\(.testLock.ttlHours // 6 | s)", ((.migrations.paths // [])[] | "M\u001f\(.|s)")' || return 0
+    dk_cfg_read '"T\u001f\(.testLock.ttlHours // 6 | s)", ((.migrations.paths // [])[] | "M\u001f\(.|s)"),
+        ((.secrets.forbidFiles // [])[] | "F\u001f\(.|s)")' || return 0
     while IFS=$DK_US read -r tag a; do
         case "$tag" in
             T) ttl=$a ;;
             M) [ -n "$a" ] && migs="$migs$a$DK_NL" ;;
+            F) [ -n "$a" ] && forbid="$forbid$a$DK_NL" ;;
         esac
     done <<EOF
 $DK_CFG_OUT
 EOF
+    lrel=$(printf '%s' "$rel" | tr '[:upper:]' '[:lower:]')
+
+    # Rovnaké pravidlo ako tajomstvá v commite (disabledRules secrets vypne oboje).
+    if [ -n "$forbid" ] && dk_rule_on secrets \
+        && dk_first_glob "$lrel" "$(printf '%s' "$forbid" | tr '[:upper:]' '[:lower:]')" >/dev/null; then
+        dk_log pre-edit forbidFiles deny "$rel" $(( $(dk_ms) - t0 ))
+        dk_decide deny "[dev-kit] $rel je v secrets.forbidFiles — tajomstvá sa needitujú cez Claude"
+        return 0
+    fi
 
     # Bez ohľadu na veľkosť písmen: APFS je case-insensitive a Tests/FooTest.php je ten istý súbor.
     if [ -f "$DK_PDATA/test-lock.json" ] && dk_rule_on testLock && dk_lock_read "$ttl"; then
         case "$DK_NL$(printf '%s' "$DK_LOCK_FILES" | tr '[:upper:]' '[:lower:]')$DK_NL" in
-            *"$DK_NL$(printf '%s' "$rel" | tr '[:upper:]' '[:lower:]')$DK_NL"*)
+            *"$DK_NL$lrel$DK_NL"*)
                 dk_log pre-edit testLock deny "$rel" $(( $(dk_ms) - t0 ))
                 dk_decide deny "[dev-kit] Test $rel je zamknutý počas /dev:fix — oprav kód, nie test. Odomknúť môže používateľ: /dev:fix --unlock"
                 return 0
@@ -54,7 +65,7 @@ EOF
     fi
 
     if [ -n "$migs" ] && dk_rule_on migrations \
-        && dk_first_glob "$(printf '%s' "$rel" | tr '[:upper:]' '[:lower:]')" "$(printf '%s' "$migs" | tr '[:upper:]' '[:lower:]')" >/dev/null; then
+        && dk_first_glob "$lrel" "$(printf '%s' "$migs" | tr '[:upper:]' '[:lower:]')" >/dev/null; then
         local mrel=$rel real
         # Iná veľkosť písmen (APFS): skutočný názov z indexu, ak ide o ten istý súbor.
         if ! dk_git cat-file -e "HEAD:./$rel" 2>/dev/null; then

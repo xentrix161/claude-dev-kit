@@ -256,7 +256,7 @@ Project dir = `$CLAUDE_PROJECT_DIR`, fallback `.cwd` from input, fallback `pwd`.
 worktree of the same repo wins over `--project`/`CLAUDE_PROJECT_DIR` (scripts called from skills and
 hooks); `--project` of another repo is honoured. Skills keep passing `--project "${CLAUDE_PROJECT_DIR}"` and need no worktree workarounds.
 No handler has an `if` field: one permission rule without negation cannot express a filter that is safe for
-every project (pre-edit guards any path — `agentReadOnly`, `forbidFiles`, locks — and on-edit scans every
+every project (pre-edit guards any Edit/Write target, not reads — `agentReadOnly`, `forbidFiles`, locks — and on-edit scans every
 file for secrets, while the `lint` map is per project), and on Stop, SessionStart or PreCompact a handler with
 `if` would never run (§0 assumption 4). Text for Claude and the user — `additionalContext`, `systemMessage`
 of session-card and stop-check, the PreCompact stdout — goes through jq `dk_cap` (`DK_JQ_CAP`, §4.1): at most
@@ -343,6 +343,10 @@ per added line that matches; used by on-edit), `dk_data_dir` (creates `$DK_DATA`
   containing `..`) ⇒ deny, reason `[dev-kit] agent <agent_type> je len na čítanie — zapisovať smie iba do
   svojej pamäte v <dir>. Opravu navrhni v odpovedi.`, logged as `agentReadOnly deny`. Not switchable via
   `disabledRules`. Other agents and the main session are not affected.
+- Forbidden files (rule `secrets`, the same id as the commit check §4.4, so `disabledRules secrets` turns off both):
+  the target rel path matches a `secrets.forbidFiles` glob (`dk_first_glob`, compared case-insensitively like the test
+  lock) ⇒ deny, reason `[dev-kit] <rel> je v secrets.forbidFiles — tajomstvá sa needitujú cez Claude`, logged as
+  `forbidFiles deny`. Checked before the test lock. Only Edit/Write/NotebookEdit; reading the file is not guarded.
 - Test lock (V3, rule `testLock`): if `test-lock.json` exists, not expired (`ttlHours`, default 6) and
   the target rel path (parent resolved physically, compared case-insensitively) is in its `files` ⇒ deny
   via JSON on stdout, exit 0:
