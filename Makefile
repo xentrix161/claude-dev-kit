@@ -1,5 +1,5 @@
 # dev-kit — údržba kitu. Kompatibilné s GNU make 3.81+ aj BSD make (bez GNU funkcií).
-# Detail: README.md, sekcie Údržba a Vydanie.
+# Detail: docs/DEVELOPMENT.md, sekcie Údržba, Eval suite a Vydanie.
 
 CLAUDE ?= claude
 PLUGIN = plugins/dev
@@ -57,7 +57,7 @@ selftest:
 details:
 	@CLAUDE="$(CLAUDE)" BUDGET="$(BUDGET)" bash tools/details.sh $(PLUGIN)
 
-# Eval suite plugins/dev/evals: model aj sudca stoja tokeny, preto nie je v check (README, Údržba).
+# Eval suite plugins/dev/evals: model aj sudca stoja tokeny, preto nie je v check (docs/DEVELOPMENT.md, Eval suite).
 # Sonnet pre agentov aj sudcu: predvolený model účtu býva drahší a sudca haiku dáva falošné FAIL.
 EVAL_MODEL ?= sonnet
 EVAL_JUDGE ?= sonnet

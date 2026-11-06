@@ -32,7 +32,7 @@ Editor (VS Code, PhpStorm) podľa nej dopĺňa kľúče a hlási neznámy kľú�
 - Nastavený `container`: príkaz beží cez `docker exec -i -w <appRoot>/<cesta projektu v repe> <container> sh -c "<príkaz>"`. Kontajner musí mountovať koreň hlavného checkoutu do `appRoot`; worktree mimo mountu krok preskočí (`worktree mimo mountu kontajnera`).
 - Nebežiaci kontajner nič neblokuje: lint po edite sa ticho preskočí, krok kontroly skončí `! <id>: kontajner <c> nebeží` a kontrola PARTIAL (pozri nižšie).
 - Jeden krok či lint na hostiteľovi aj pri nastavenom kontajneri: `"runtime": "host"`.
-- CI bez kontajnera projektu: kópia configu s `"container": ""` cez `check.sh --config` (README, sekcia CI).
+- CI bez kontajnera projektu: kópia configu s `"container": ""` cez `check.sh --config` (README, sekcia CI projektu).
 
 ## Kroky kontroly — `check`
 

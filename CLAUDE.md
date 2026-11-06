@@ -27,12 +27,13 @@ Spúšťaj z koreňa repa.
 | celý strom skriptov | `make guards` | `[dev-kit] guards: PASS · N skriptov` (bez shellcheck v PATH aj `shellcheck: skip`) |
 | rozpočet kontextu | `make details` | `[dev-kit] always-on ~N tok. ≤ 3000 …` |
 | eval suite (pred vydaním) | `make eval` | tabuľka `WITH · W/OUT · Δ`, `WITH` 1.00 |
-| vydanie | `make release VERSION=x.y.z` | postup v `README.md`, sekcia Vydanie |
+| vydanie | `make release VERSION=x.y.z` | postup v `docs/DEVELOPMENT.md`, sekcia Vydanie |
 | tag po zelenom CI | `make tag` | tag `dev--vX.Y.Z` na origin; inak hláška, prečo nie (strom, push, CI, `gh`) |
 
 - `FAIL N/M`, `not ok - …` alebo chyba validate = nie je hotovo.
 - `SKIP` ani `PARTIAL` v `/dev:check` nie je PASS — povedz to výslovne.
 - `make eval` stojí tokeny — spúšťaj ho len na pokyn používateľa.
+- Postupy správcu (CI kitu, eval suite, údržba, vydanie): `docs/DEVELOPMENT.md`; `README.md` je pre kolegu, ktorý kit používa.
 
 ## Overovanie práce
 
@@ -58,6 +59,7 @@ tests/selftest.sh                 kontrakty skriptov, každý prípad vo vlastno
 tools/                            details.sh (rozpočet), upstream.sh (ECC)
 docs/SPEC.md                      kontrakt
 docs/devkit-json.md               referencia devkit.json pre ľudí (každý kľúč schémy, t_devkit_schema)
+docs/DEVELOPMENT.md               správca kitu: CI kitu, eval, údržba, vydanie (README je pre kolegu)
 .github/workflows/check.yml       CI kitu: validate, guards a selftest na ubuntu-latest a macos-latest
 ```
 
@@ -77,7 +79,7 @@ docs/devkit-json.md               referencia devkit.json pre ľudí (každý kľ
 10. Verzia len v `plugins/dev/.claude-plugin/plugin.json`; bez jej zvýšenia kolegovia zmenu nedostanú.
 11. Komentáre krátke alebo žiadne: len čo z kódu nevidno; bez histórie a meraní.
 12. Commit: slovensky, `typ: výstih` (`feat`, `fix`, `docs`, …); `git push` len na výslovný pokyn.
-13. Zmena zastará tento súbor, `README.md` alebo `REVIEW.md` → uprav ich v tom istom commite.
+13. Zmena zastará tento súbor, `README.md`, `docs/DEVELOPMENT.md`, `docs/devkit-json.md` alebo `REVIEW.md` → uprav ich v tom istom commite.
 
 ## Pasce
 

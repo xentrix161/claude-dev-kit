@@ -80,7 +80,7 @@ KIT/
   tests/selftest.sh  tests/fixtures/…   # deterministic, no docker, no network
   tools/upstream.sh                     # P3: diff of pinned ECC pieces vs upstream
   tools/details.sh                      # inventory + always-on budget (§5)
-  Makefile  README.md  CHANGELOG.md  LICENSE  docs/SPEC.md  docs/devkit-json.md (§3, for humans)
+  Makefile  README.md  CHANGELOG.md  LICENSE  docs/SPEC.md  docs/devkit-json.md (§3, for humans)  docs/DEVELOPMENT.md
   .github/workflows/check.yml           # kit CI: validate + selftest on Linux and macOS (§9)
 ```
 Version lives only in `plugin.json` (never in the marketplace entry). The kit's own code is MIT (`LICENSE`);
@@ -1006,8 +1006,9 @@ resolve check findings (`knownFailures`, baseline, `changedLinesOnly`, dropping 
 7. Team vs local (decided in the plan, phase 1): local ⇒ add `.claude/rules/`, `.claude/devkit.json` etc., `CLAUDE.local.md`, `.claude/worktrees/`, an
    untracked `handoffDoc` and `docs/plans/` to `.git/info/exclude` (local mode puts nothing from the kit into git), and `.claude/rules/`, `CLAUDE.local.md`, `REVIEW.md`, `docs/plans/` to `.worktreeinclude` (so
    new worktrees get the untracked files); local mode never creates a new `CLAUDE.md` — the filled skeleton
-   goes to `CLAUDE.local.md`; team ⇒ leave for commit (do not commit yourself) and propose
-   `.claude/worktrees/` for `.gitignore`.
+   goes to `CLAUDE.local.md`; team ⇒ leave for commit (do not commit yourself), propose
+   `.claude/worktrees/` for `.gitignore` and add an untracked `handoffDoc` (one person's work state) to
+   `.git/info/exclude` — the only exclude line of team mode; a tracked one is only named.
    Settings: the merge only adds and keeps the project's values (`permissions.ask`/`deny` items, existing keys,
    `"dev@dev-kit": false` included). `plansDirectory: "docs/plans"` goes to the target of either mode
    (`.claude/settings.json` in team mode, `.claude/settings.local.json` locally); `extraKnownMarketplaces`
@@ -1023,7 +1024,9 @@ resolve check findings (`knownFailures`, baseline, `changedLinesOnly`, dropping 
    when the frontend detection of point 1 finds the tool, together with its extensions for `commitGate.ext`;
    a new `tester` step only when point 1 finds Nette Tester, together with `.phpt` for `lint` and `commitGate.ext`;
    a new `migration` step only when `phpunit.xml*` defines the suite (point 1);
-   A missing `$schema` in `devkit.json` is proposed with the template's URL (§3).
+   A missing `$schema` in `devkit.json` is proposed with the template's URL (§3). Missing lines of point 7 are
+   proposed for the mode (`.claude/devkit.json` tracked = team): team ⇒ `.claude/worktrees/` in `.gitignore` and an
+   untracked `handoffDoc` in `info/exclude`.
    Settings: a missing `plansDirectory`, and in team mode (`.claude/devkit.json` tracked) `extraKnownMarketplaces.dev-kit`
    and `enabledPlugins["dev@dev-kit"]` in `.claude/settings.json`, are proposed; a different existing value is only
    listed; `attribution` is never proposed by `--sync`.
@@ -1140,11 +1143,18 @@ summary line. Verify frontmatter keys in `sub-agents.md`.
   whose content was derived from ECC (fix, learn, check, project-init); ECC commit `b92f181`, date
   adopted `2026-10-27`, except `skills/ecc-python-testing/` (`skills/python-testing` at `25278e7d`, adopted
   `2026-10-28` from an upstream update). `tools/upstream.sh` reads the columns by position.
-- `README.md` (Slovak, stručne, ale úplne (§0)), written for a colleague first: what it is, install from
-  the GitHub marketplace + requirements, project setup (`/dev:project-init`), what the hooks do,
-  commands table, noisy hook and disabling (`/dev:stats`, `disabledRules`, `claude plugin disable`), then
-  kit development (clone, `make check`, maintenance, release flow `make release`, commit, push, `make tag`
-  after green CI) and license.
+- `README.md` (Slovak, stručne, ale úplne (§0)), only for a colleague who uses the kit: what it is, install from
+  the GitHub marketplace + requirements, first run in a project (`/dev:project-init`, `--full` baseline), team mode
+  (the shared settings turn the plugin and the commit gate on for everyone who trusts the folder; `handoffDoc`
+  stays personal in `.git/info/exclude`), what the hooks do (the gate guards only commands Claude runs, not the
+  terminal), commands table with when to use `/dev:review` vs the built-in `/code-review` and `/security-review`,
+  Claude in Chrome for `/dev:debug` and `/dev:test` (one sentence, docs link), noisy hook and disabling
+  (`/dev:stats`, `disabledRules`, `claude plugin disable`), the project's CI with `check.sh`, a link to
+  `docs/DEVELOPMENT.md` and the license. Jargon (`PARTIAL`, `knownFailures`) is explained where it first appears;
+  `make eval` is not mentioned. `docs/devkit-json.md` (§3) is linked.
+- `docs/DEVELOPMENT.md` (Slovak): kit development for the maintainer — working copy (clone, in-place marketplace,
+  `make check`), context budget (`make details`), kit CI, maintenance (noisy rule, Claude Code updates, ECC
+  upstream), eval suite (`make eval`), release flow (`make release`, commit, push, `make tag` after green CI).
 - `CHANGELOG.md`: `## 0.1.0 — 2026-10-27` initial.
 - `Makefile`: `check` (= `claude plugin validate --strict plugins/dev` + `claude plugin validate
   --strict .` + `guards` + `selftest` + `details` when installed), `guards` (every `*.sh` under

@@ -1,5 +1,5 @@
 # CI kitu na Linuxe aj na macOS: ciele make check po jednom, validate --strict, guards a selftest povinne.
-# Runner nie je prihlásený a plugin details bez prihlásenia počíta iný odhad tokenov (README, Vývoj kitu).
+# Runner nie je prihlásený a plugin details bez prihlásenia počíta iný odhad tokenov (docs/DEVELOPMENT.md, CI kitu).
 name: check
 
 on:
