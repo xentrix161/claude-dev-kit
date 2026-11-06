@@ -140,13 +140,15 @@ make check                                        # validate --strict, guardy, s
 ### Vydanie
 
 ```bash
-make release VERSION=0.2.0             # verzia v plugin.json, validate --strict, tag --dry-run
-# doplň CHANGELOG.md: ## 0.2.0 — RRRR-MM-DD
+make release VERSION=0.5.0             # poistky, verzia v plugin.json, dátum v CHANGELOG, validate --strict, tag --dry-run
 git add plugins/dev/.claude-plugin/plugin.json CHANGELOG.md
-git commit -m "vydanie dev 0.2.0"
+git commit -m "vydanie dev 0.5.0"
 git push
-claude plugin tag --push plugins/dev   # tag dev--v0.2.0, overí zhodu s marketplace
+make tag                               # po zelenom CI: tag dev--v0.5.0 na origin
 ```
+
+- `make release` zmení verziu, až keď je strom čistý, vetva je `main`, verzia je vyššia ako posledný tag `dev--v*`, `CHANGELOG.md` má sekciu `## 0.5.0 — nevydané` a prejde `make check`; inak skončí s hláškou bez zmeny súboru. Potom nahradí `— nevydané` dnešným dátumom. Keď `claude plugin validate --strict` alebo `tag --dry-run` zlyhá, `plugin.json` aj `CHANGELOG.md` vráti.
+- `make tag` taguje len čistý strom, ktorého `HEAD` je po `git fetch` zhodný s `origin/main` a CI pre ten commit skončilo `success` (`gh run list`). Bežiace alebo zlyhané CI tag odmietne. Bez `gh` taguj ručne: `claude plugin tag --push plugins/dev`. GitHub Release kit nevytvára, vydanie je len tag.
 
 Verzia je len v `plugins/dev/.claude-plugin/plugin.json`. Bez jej zvýšenia ostatní novú verziu nedostanú; inštalácia z lokálnej cesty verziu ignoruje.
 

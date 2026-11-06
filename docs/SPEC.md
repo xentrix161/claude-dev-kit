@@ -1062,8 +1062,8 @@ summary line. Verify frontmatter keys in `sub-agents.md`.
 - `README.md` (Slovak, stručne, ale úplne (§0)), written for a colleague first: what it is, install from
   the GitHub marketplace + requirements, project setup (`/dev:project-init`), what the hooks do,
   commands table, noisy hook and disabling (`/dev:stats`, `disabledRules`, `claude plugin disable`), then
-  kit development (clone, `make check`, maintenance, release flow with version bump +
-  `claude plugin tag --push`) and license.
+  kit development (clone, `make check`, maintenance, release flow `make release`, commit, push, `make tag`
+  after green CI) and license.
 - `CHANGELOG.md`: `## 0.1.0 — 2026-10-27` initial.
 - `Makefile`: `check` (= `claude plugin validate --strict plugins/dev` + `claude plugin validate
   --strict .` + `guards` + `selftest` + `details` when installed), `guards` (every `*.sh` under
@@ -1071,7 +1071,16 @@ summary line. Verify frontmatter keys in `sub-agents.md`.
   `.claude/devkit.json` via `grep -nIE` over whole files — a finding or a missing guard fails —, and `shellcheck -S
   warning -e SC1087,SC1111,SC2034` only when `shellcheck` is on `PATH`, otherwise the line `shellcheck: skip`;
   healthy output `[dev-kit] guards: PASS · N skriptov`), `selftest`, `upstream`, `release
-  VERSION=x.y.z` (bump plugin.json, remind CHANGELOG, `claude plugin tag --dry-run plugins/dev`), `eval`
+  VERSION=x.y.z` (refuses with exit 2 and one `[dev-kit]` line, before any file changes: a dirty tree (`git status
+  --porcelain`), a branch other than `main`, an existing tag `dev--v<VERSION>`, a version not above the highest
+  `dev--v<x.y.z>` tag (`sort -t. -k1,1n -k2,2n -k3,3n`, no `sort -V`), no `## <VERSION> ` section in `CHANGELOG.md`;
+  then `make check`; then bumps plugin.json, `claude plugin validate --strict plugins/dev` (failure ⇒ `git checkout`
+  of plugin.json, exit 1), replaces the heading `## <VERSION> — nevydané` with `## <VERSION> — <date +%Y-%m-%d>` and
+  runs `claude plugin tag --dry-run --force plugins/dev` (failure ⇒ plugin.json and CHANGELOG.md restored, exit 1)),
+  `tag` (exit 2 with one `[dev-kit]` line unless: clean tree, `HEAD` = `origin/main` after `git fetch -q origin`,
+  `gh` on `PATH` (else `nainštaluj gh alebo taguj ručne: claude plugin tag --push plugins/dev`), `gh run list --commit
+  <HEAD> --json conclusion,status` first run `completed`/`success` (no run, running or failed CI each named); then
+  `claude plugin tag --push plugins/dev`; no GitHub Release, the release is the tag), `eval`
   (= `claude plugin eval plugins/dev --ablation with-without --scaffold --allow-tools Bash Edit Write
   $(EVAL_ARGS)`; not part of `check` — every agent run and every `llm` judge call costs tokens).
 - `plugins/dev/evals/` — eval suite of the command skills for `claude plugin eval` (docs `plugin-evals.md`).

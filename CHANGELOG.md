@@ -3,6 +3,10 @@
 - Formát: `## <verzia> — <dátum>`, najnovšie hore; verzia = `version` v `plugins/dev/.claude-plugin/plugin.json`.
 - Posun pinu ECC (P3) zapíš ako odrážku: kusy + nový commit.
 
+## 0.5.0 — nevydané
+
+- Vývoj kitu: `make release VERSION=x.y.z` má poistky — pred zmenou `plugin.json` odmietne (exit 2) špinavý strom, inú vetvu ako `main`, verziu nie vyššiu ako posledný tag `dev--v*` a chýbajúcu sekciu `## x.y.z — nevydané` v `CHANGELOG.md`, potom spustí `make check`. Nadpis `— nevydané` nahradí dnešným dátumom; keď `claude plugin validate --strict` alebo `tag --dry-run` zlyhá, `plugin.json` aj `CHANGELOG.md` vráti. Nový cieľ `make tag` spustí `claude plugin tag --push plugins/dev` až na čistom strome, keď je `HEAD` po `git fetch` zhodný s `origin/main` a CI preň skončilo `success` (`gh run list`); bežiace či zlyhané CI odmietne, bez `gh` poradí ručný tag. Postup v README, sekcia Vydanie.
+
 ## 0.4.2 — 2026-11-06
 
 - Commit gate a kontrola tajomstiev: `git rebase|merge|cherry-pick|revert|am … --continue` je commit staged súborov (aj tých z `git add` v tom istom príkaze), napr. `GIT_EDITOR=true git rebase --continue` už gate neobíde. Repo sa určí ako pri `git commit` (`cd`, `-C`), hláška menuje príkaz (`commit gate pred git rebase --continue: …`, `pri PASS zopakuj git rebase --continue`). Commit, ktorý git spustí sám z editora či skriptu (`GIT_EDITOR`, `exec` v `rebase -i`), hook nevidí.

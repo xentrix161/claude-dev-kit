@@ -28,6 +28,7 @@ Spúšťaj z koreňa repa.
 | rozpočet kontextu | `make details` | `[dev-kit] always-on ~N tok. ≤ 3000 …` |
 | eval suite (pred vydaním) | `make eval` | tabuľka `WITH · W/OUT · Δ`, `WITH` 1.00 |
 | vydanie | `make release VERSION=x.y.z` | postup v `README.md`, sekcia Vydanie |
+| tag po zelenom CI | `make tag` | tag `dev--vX.Y.Z` na origin; inak hláška, prečo nie (strom, push, CI, `gh`) |
 
 - `FAIL N/M`, `not ok - …` alebo chyba validate = nie je hotovo.
 - `SKIP` ani `PARTIAL` v `/dev:check` nie je PASS — povedz to výslovne.
