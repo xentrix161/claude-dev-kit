@@ -3,6 +3,7 @@ name: explain
 description: "Vysvetlí kód (súbor, triedu, metódu, riadky): Čo to robí, Ako to funguje, Závislosti, Riziká pri zmene. Hĺbka podľa požiadavky, so súbor:riadok odkazmi."
 argument-hint: "<súbor | trieda | metóda | súbor:od-do> [--detail]"
 disable-model-invocation: true
+disallowed-tools: Edit, Write, NotebookEdit
 ---
 
 # Explain

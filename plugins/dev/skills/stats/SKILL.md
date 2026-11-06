@@ -3,6 +3,7 @@ name: stats
 description: "Štatistika rozhodnutí hookov dev-kitu za obdobie (bloky, zamietnutia, rýchlosť). Nájde hlučné pravidlá a navrhne úpravu .claude/devkit.json; bez súhlasu nič nemení."
 argument-hint: "[--days N] [--all]"
 disable-model-invocation: true
+disallowed-tools: Edit, Write, NotebookEdit
 allowed-tools:
   - 'Bash(bash "${CLAUDE_PLUGIN_ROOT}/scripts/stats.sh" *)'
 ---
@@ -13,14 +14,19 @@ Hooky sa nevypínajú plošne, ladí sa jedno pravidlo. Komunikuj po slovensky.
 
 ## 1. Beh
 
-- Argumenty: `$ARGUMENTS`; skriptu odovzdaj len `--days N` (predvolene 30) a `--all` (všetky projekty).
-- Bez `--all`:
+Výstup skriptu pri spustení príkazu (30 dní, tento projekt):
+
+!`bash "${CLAUDE_PLUGIN_ROOT}/scripts/stats.sh" --project "${CLAUDE_PROJECT_DIR}" || true`
+
+- Argumenty: `$ARGUMENTS`. Bez `--days` a `--all` vyhodnoť výstup vyššie a skript znova nespúšťaj.
+- S `--days N` alebo `--all` (všetky projekty) ho spusti sám, odovzdaj mu len tieto voľby:
 
 ```bash
 bash "${CLAUDE_PLUGIN_ROOT}/scripts/stats.sh" --days <N> --project "${CLAUDE_PROJECT_DIR}"
 ```
 
 - S `--all`: `bash "${CLAUDE_PLUGIN_ROOT}/scripts/stats.sh" --days <N> --all` (bez `--project`).
+- Namiesto výstupu hláška o vypnutom spúšťaní príkazov → spusti skript sám.
 - Žiadne rozhodnutia → `zatiaľ žiadne rozhodnutia hookov` a koniec. Projekt bez `.claude/devkit.json` → hooky tu nebežia, odporuč `/dev:project-init`.
 
 ## 2. Detail pravidla
@@ -47,7 +53,7 @@ jq -c 'select(.rule == "<pravidlo>") | [.ts, .decision, .file]' "${DEVKIT_DATA:-
 ## 4. Návrhy
 
 - Každý návrh: pravidlo → dôkaz (počet, príklad súboru) → konkrétna zmena `.claude/devkit.json` ako JSON úryvok → čo prestane chytať.
-- Bez výslovného súhlasu nič nemeň. Po súhlase uprav len schválené položky a ukáž diff.
+- Bez výslovného súhlasu nič nemeň; Edit a Write sú v tomto ťahu vypnuté. Po súhlase (ďalšia správa) uprav len schválené položky a ukáž diff.
 - Chyba vo vzore, ktorý dodáva samotný kit (nie projekt) → navrhni úpravu kitu, nie projektu.
 
 ## 5. Výstup

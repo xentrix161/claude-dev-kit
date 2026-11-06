@@ -5,6 +5,9 @@ argument-hint: "[#úloha | ABC-123] [poznámka k zmene]"
 disable-model-invocation: true
 allowed-tools:
   - 'Bash(bash "${CLAUDE_PLUGIN_ROOT}/scripts/check.sh" *)'
+  - 'Bash(git branch --show-current)'
+  - 'Bash(git status --short)'
+  - 'Bash(git diff --cached --stat)'
 ---
 
 # /dev:commit — commit s jedným potvrdením
@@ -13,10 +16,15 @@ Rýchly commit, jedno kolo otázok, jednoriadková message. Komunikuj po slovens
 
 ## Krok 1: Zber zmien
 
-Spusti paralelne:
-- `git status` (nikdy `-uall`)
+Stav pri spustení príkazu:
+- vetva (číslo úlohy): !`git branch --show-current || true`
+- `git status --short`:
+!`git status --short || true`
+- staged (`git diff --cached --stat`):
+!`git diff --cached --stat || true`
+
+Ďalej spusti paralelne:
 - `git diff --staged` a `git diff`
-- `git branch --show-current` (číslo úlohy)
 - `git log --format=%s -10` (tvar a jazyk správ, ktoré pravidlo nepovie — nie ich dĺžka)
 - pravidlo o commitoch projektu: riadok `Commit:` v Pravidlách `CLAUDE.md` (zapisuje ho `/dev:project-init`), prípadne v `CLAUDE.local.md` alebo `AGENTS.md`; nemáš ho v kontexte → nájdi ho v týchto súboroch (Grep `Commit`)
 

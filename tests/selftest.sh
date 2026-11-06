@@ -3696,7 +3696,8 @@ t_hooks_tools_no_if() {
   done
   ! grep -rq 'MultiEdit' "$KIT/plugins/dev" 2>/dev/null || fail "MultiEdit v $(grep -rl 'MultiEdit' "$KIT/plugins/dev" | head -1)"
 }
-# E9: hooks.json = blok SPEC §4, Stop so statusMessage; metadáta plugin.json (repo z README, licencia z LICENSE).
+# E9: hooks.json = blok SPEC §4, Stop so statusMessage; metadáta plugin.json (repo z README, licencia z LICENSE);
+# disallowed-tools a injekcia v skilloch, tools a skills agentov (SPEC §5, §8).
 t_manifest_meta() {
   local hj="$KIT/plugins/dev/hooks/hooks.json" pj="$KIT/plugins/dev/.claude-plugin/plugin.json" repo
   new_case nocfg
@@ -3709,7 +3710,49 @@ t_manifest_meta() {
   jq -e --arg u "https://github.com/$repo" '.homepage == $u and .repository == $u and .license == "MIT"
     and (.keywords | type == "array" and length > 0 and all(type == "string"))' "$pj" >/dev/null 2>&1 &&
     [ -n "$repo" ] && [ "$(sed -n 1p "$KIT/LICENSE")" = "MIT License" ] ||
-    fail "plugin.json: homepage a repository = https://github.com/${repo:-?}, license MIT podľa LICENSE, keywords"
+    { fail "plugin.json: homepage a repository = https://github.com/${repo:-?}, license MIT podľa LICENSE, keywords"; return 1; }
+  local sk="$KIT/plugins/dev/skills" f n c r a ok inj rules
+  for n in explain stats; do
+    sed -n '2,/^---$/p' "$sk/$n/SKILL.md" | grep -qx 'disallowed-tools: Edit, Write, NotebookEdit' ||
+      { fail "$n/SKILL.md: disallowed-tools má byť Edit, Write, NotebookEdit"; return 1; }
+  done
+  # Injekcia !`…` (skills.md): nenulový exit alebo nepovolený príkaz zruší celé spustenie skillu.
+  for f in "$sk"/*/SKILL.md; do
+    n=${f%/SKILL.md}; n=${n##*/}
+    ! LC_ALL=C grep -q '^```!' "$f" || { fail "$n/SKILL.md: blok \`\`\`! — len riadková injekcia"; return 1; }
+    inj=$(LC_ALL=C grep -oE '(^|[[:space:]])!`[^`]+`' "$f" | sed 's/^[[:space:]]*!`//; s/`$//')
+    rules=$(sed -n '2,/^---$/p' "$f" | sed -n "s/^  - 'Bash(\(.*\))'\$/\1/p")
+    while IFS= read -r c; do
+      [ -n "$c" ] || continue
+      case "$c" in *check.sh*|*'$ARGUMENTS'*|*'$1'*) fail "$n/SKILL.md: injekcia s check.sh alebo argumentom: $c"; return 1 ;; esac
+      case "$c" in *' || true') c=${c% || true} ;; *) fail "$n/SKILL.md: injekcia bez || true: $c"; return 1 ;; esac
+      ok=""
+      while IFS= read -r r; do
+        [ "$r" = "$c" ] && ok=1
+        case "$r" in *' *') case "$c" in "${r% \*} "*) ok=1 ;; esac ;; esac
+      done <<EOF2
+$rules
+EOF2
+      [ -n "$ok" ] || { fail "$n/SKILL.md: injekcia mimo allowed-tools: $c"; return 1; }
+    done <<EOF2
+$inj
+EOF2
+    case "$n" in
+      stats) [ "$inj" = 'bash "${CLAUDE_PLUGIN_ROOT}/scripts/stats.sh" --project "${CLAUDE_PROJECT_DIR}" || true' ] ;;
+      commit) [ "$inj" = "$(printf '%s\n' 'git branch --show-current || true' 'git status --short || true' 'git diff --cached --stat || true')" ] ;;
+      *) [ -z "$inj" ] ;;
+    esac || { fail "$n/SKILL.md: injekcia $(flat "$inj")"; return 1; }
+  done
+  for a in "$KIT"/plugins/dev/agents/*.md; do
+    sed -n '2,/^---$/p' "$a" | grep -qx 'tools: Read, Bash' || { fail "${a##*/}: tools má byť Read, Bash"; return 1; }
+    for n in $(sed -n '2,/^---$/p' "$a" | awk '/^skills:/ { on = 1; next } on && /^  - / { print $2; next } { on = 0 }'); do
+      [ -f "$sk/$n/SKILL.md" ] && ! sed -n '2,/^---$/p' "$sk/$n/SKILL.md" | grep -q '^disable-model-invocation:[[:space:]]*true' ||
+        { fail "${a##*/}: skills $n chýba v plugine alebo je len príkaz"; return 1; }
+    done
+  done
+  sed -n '2,/^---$/p' "$KIT/plugins/dev/agents/ecc-performance-optimizer.md" | grep -qx '  - ecc-mysql-patterns' &&
+    sed -n '2,/^---$/p' "$KIT/plugins/dev/agents/ecc-a11y-architect.md" | grep -qx '  - ecc-accessibility' ||
+    fail "agenti: skills ecc-mysql-patterns (performance-optimizer) a ecc-accessibility (a11y-architect)"
 }
 # B13: additionalContext karty a Stopu aj stdout PreCompact najviac 9 000 jednotiek UTF-16, potom „…“;
 # dk_cap ráta znak mimo BMP za 2 (jednotková časť priamo v jq), pre-compact bez U+FFFD (jq -R z rúry).
@@ -4047,7 +4090,7 @@ t "eval suite: prompt.md a gradery, fixture shop zo scaffold.sh (PARTIAL, commit
 t "pre-compact: hooks.json PreCompact; bez devkit.json, bez jq, s neplatným configom a bez stavu session exit 0 bez výstupu" t_pre_compact_silent
 t "pre-compact: plain text (nie JSON) — súbory session (8 + ďalšie), Stop len tejto session, pass.json, zámok a handoff < 24 h" t_pre_compact_facts
 t "hooks.json: Edit|Write|NotebookEdit bez MultiEdit, žiadny handler s if; agenti bez MultiEdit" t_hooks_tools_no_if
-t "hooks.json = blok SPEC §4, Stop so statusMessage; plugin.json homepage, repository, license MIT, keywords (E9)" t_manifest_meta
+t "manifesty a frontmatter: hooks.json = blok SPEC §4, Stop so statusMessage; plugin.json homepage, repository, license MIT, keywords; disallowed-tools explain a stats; injekcia len stats a commit s || true v allowed-tools; agenti tools Read, Bash a skills (E9)" t_manifest_meta
 t "karta, Stop a pre-compact: text pre Clauda najviac 9 000 znakov UTF-16 s „…“ (dlhý handoff a say)" t_hook_text_cap
 t "partial.json, pass.json, test-lock.json a stats.sh: diakritika cez hranicu bloku čítania jq bez U+FFFD" t_jq_multibyte
 t "šablóny: ask na git reset --hard, clean, stash drop/clear, branch -D a docker volume/system prune, composer (php), alembic upgrade a manage.py migrate (python); git restore nie (D9)" t_templates_ask_destructive

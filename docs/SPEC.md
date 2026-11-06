@@ -854,7 +854,15 @@ hook. Exit 0.
 ## 5. Skills (`ROOT/skills/<name>/SKILL.md`)
 
 Frontmatter: `name`, `description` (≤ 250 chars, key use first), optional `when_to_use`,
-`argument-hint`, `disable-model-invocation`, `paths`, `allowed-tools`. Verify key names in `skills.md`.
+`argument-hint`, `disable-model-invocation`, `paths`, `allowed-tools`, `disallowed-tools`. Verify key names in `skills.md`.
+`disallowed-tools: Edit, Write, NotebookEdit` only on skills that read and report (`explain`, `stats`): the tools are
+gone while the skill runs and come back with the user's next message (skills.md). `debug` has none — its minimal
+repro is a failing test file. Shell injection (skills.md, inline form at line start or after whitespace) only for
+cheap read-only state: each command ends with `|| true` (a non-zero exit aborts the whole invocation), is allowed by
+`allowed-tools` (outside auto mode a command the permission check does not allow aborts it too), never takes
+`$ARGUMENTS` and never runs `check.sh` (2-minute Bash timeout). `${CLAUDE_PLUGIN_ROOT}` and `${CLAUDE_PROJECT_DIR}`
+are substituted before the command runs. Used by `stats` (`stats.sh --project`, 30 days) and `commit`
+(`git branch --show-current`, `git status --short`, `git diff --cached --stat`, each an exact `allowed-tools` rule).
 Bodies in Slovak, < 300 lines, output stručne, ale úplne (§0). Scripts are referenced as
 `bash "${CLAUDE_PLUGIN_ROOT}/scripts/<x>.sh"` (substituted inline by Claude Code). Never rely on
 CLAUDE_PLUGIN_DATA inside skills. Stack branches: detect from `.claude/devkit.json` `stack`, else
@@ -872,8 +880,8 @@ Command skills — all `disable-model-invocation: true` (0 always-on tokens):
 | `plan` | plan §18 V1 | write `docs/plans/<task>-<slug>.md` (no `#`) (Úloha+zdroj, Súbory, Poradie, Riziká, Dôkaz, Mimo rozsahu) from the agreed plan; task number from branch; small tasks (≤ 3 files, no risky paths) ⇒ tell the user it is not needed; local mode (`docs/plans/` ignored) ⇒ the plan stays on disk, never committed; team mode ⇒ committed with the first change, deviations in the same commit |
 | `learn` | ECC `commands/learn.md` + `learn-eval.md`, plan §13 | scan session for user corrections, resolved errors, discovered conventions ⇒ propose each as: native memory entry (feedback/project), project `.claude/rules/*.md` line, or new `guards`/`pairs` entry in devkit.json; user approves one by one; write only approved |
 | `handoff` | plan §14 Kontext row | write state (hotové, rozpracované, ďalší krok, rozhodnutia, zmenené súbory, príkazy na overenie) to `handoffDoc` from devkit.json (append dated section) or `docs/handoff.md`; record it with `session-card.sh --record-handoff <path> <title> --project "${CLAUDE_PROJECT_DIR}"` (§4.7); then suggest `/clear` |
-| `explain` | the user's original command `explain` | same structure (Čo to robí / Ako to funguje / Závislosti / Riziká pri zmene), Slovak, depth by request |
-| `stats` | §4.9 | run `stats.sh $ARGUMENTS`, interpret: which rules are noisy, propose `disabledRules`/pattern tweaks, never change config without approval |
+| `explain` | the user's original command `explain` | same structure (Čo to robí / Ako to funguje / Závislosti / Riziká pri zmene), Slovak, depth by request; `disallowed-tools` |
+| `stats` | §4.9 | `stats.sh` output for the project (30 days) injected on load; `--days N`/`--all` ⇒ run `stats.sh` again with only those flags; interpret: which rules are noisy, propose `disabledRules`/pattern tweaks, never change config without approval (`disallowed-tools`; edits after approval in the next turn) |
 | `project-init` | ECC `skills/codebase-onboarding`, `commands/project-init.md`, plan §4.4, §14 PHP prax (infer-conventions), §16 P5, §17, §18 V2/V4/V6/V9 | see §6 |
 
 Reference skills — model-invocable, short descriptions (always-on budget for the whole plugin ≤ 3k
@@ -1127,9 +1135,14 @@ user's global `CLAUDE.md` rules. Each rule file ≤ 60 lines, with a `## Pasce` 
 ## 8. Agents (`ROOT/agents/*.md`)
 
 From ECC `agents/<name>.md`, renamed `ecc-<name>`, Slovak, trimmed. Frontmatter: `name`, `description`
-(≤ 200 chars), `tools: Read, Grep, Glob, Bash`, `disallowedTools: Edit, Write, NotebookEdit`, `model`
+(≤ 200 chars), `tools: Read, Bash` (tools-reference: on macOS, Linux and WSL Claude Code leaves out `Grep` and
+`Glob` and a subagent gets them back only when its `tools` names them without `Bash`; search runs as `grep`/`find`
+in Bash), `disallowedTools: Edit, Write, NotebookEdit`, `model`
 (`sonnet` for pr-test-analyzer and a11y-architect; `inherit` for silent-failure-hunter and
-performance-optimizer), `maxTurns: 30`. No `memory` (it would enable Write/Edit and create
+performance-optimizer), `maxTurns: 30`, `skills` (sub-agents.md: the full skill is preloaded into the agent at start,
+nothing in the main session) — `ecc-mysql-patterns` for performance-optimizer, `ecc-accessibility` for
+a11y-architect; a bare name resolves to the skill of the agent's own plugin, and only a model-invocable skill can be
+preloaded. No `memory` (it would enable Write/Edit and create
 `.claude/agent-memory-local/` in projects); agents stay read-only, and silent-failure-hunter and
 pr-test-analyzer may end with an optional line `Na zapamätanie: <poznatok → .claude/rules/<súbor>.md>`,
 a suggestion that `/dev:learn` writes to project rules after approval (subagents load project rules).

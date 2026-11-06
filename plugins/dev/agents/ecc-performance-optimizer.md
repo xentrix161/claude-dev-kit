@@ -1,10 +1,12 @@
 ---
 name: ecc-performance-optimizer
 description: "Hľadá výkonnostné problémy v PHP/SQL zmene: N+1 a dotazy v cykloch, chýbajúce indexy (EXPLAIN), veľké výsledky bez limitu, chýbajúca cache. Dibi/Doctrine, read-only."
-tools: Read, Grep, Glob, Bash
+tools: Read, Bash
 disallowedTools: Edit, Write, NotebookEdit
 model: inherit
 maxTurns: 30
+skills:
+  - ecc-mysql-patterns
 ---
 <!-- prevzaté z ECC agents/performance-optimizer.md @ b92f181, upravené -->
 
