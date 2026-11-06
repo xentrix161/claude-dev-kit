@@ -3541,7 +3541,7 @@ t_evals_suite() {
       done
     done
   done
-  [ "$n" -ge 7 ] || { fail "evals: $n prípadov, čakal som 7"; return 1; }
+  [ "$n" -ge 8 ] || { fail "evals: $n prípadov, čakal som 8"; return 1; }
   [ -z "$(find "$EV/fixtures" -name prompt.md -o -name case.yaml)" ] ||
     { fail "evals/fixtures: prompt.md alebo case.yaml by sa načítal ako prípad"; return 1; }
   LC_ALL=C grep -q '^eval:' "$KIT/Makefile" && ! LC_ALL=C grep -Eq '^check:.* eval( |$)' "$KIT/Makefile" ||
@@ -3558,6 +3558,18 @@ t_evals_suite() {
   want_rc 4 check-partial && want_out 'check quick: PARTIAL · 1 ok' && want_out '! integration: kontajner devkit-eval-shop nebeží' &&
     want_out "$(ev_pattern "$EV/check-partial/graders/verdict-partial.md")" || return 1
   ls "$W"/.git/dev-kit-data/projects/*/partial.json >/dev/null 2>&1 || { fail "check-partial: partial.json mimo .git/dev-kit-data"; return 1; }
+
+  # commit-partial-gate: po PARTIAL commit gate zamietne commit a ponúkne únik bez zmeny configu; COMMIT_EDITMSG ostáva.
+  ev_scaffold commit-partial-gate || return 1
+  check --auto --project "$W" --files lib/cart.sh tests/test_cart.sh
+  want_rc 4 commit-partial-gate && want_out '! integration: kontajner devkit-eval-shop nebeží' || return 1
+  g add lib/cart.sh tests/test_cart.sh
+  pre_bash 'git commit -m "[#11] feat: cart_item_count v košíku"'
+  want_decision deny "commit-partial-gate: gate po PARTIAL" &&
+    want_out 'disabledRules step:integration v .claude/devkit.json (config nemeň sám' "commit-partial-gate: únik" || return 1
+  [ "$(cat "$W/.git/COMMIT_EDITMSG")" = '[#11] feat: košík, ceny a objednávky' ] &&
+    [ "$(ev_pattern "$EV/commit-partial-gate/graders/no-commit.md")" = '^\[#11\] feat: košík, ceny a objednávky\s*$' ] ||
+    { fail "commit-partial-gate: grader no-commit nesedí s COMMIT_EDITMSG prvého commitu"; return 1; }
 
   ev_scaffold commit-no-attribution || return 1
   [ "$(git -C "$W" branch --show-current)" = feature/12-pocet-poloziek ] &&
@@ -4138,7 +4150,7 @@ t "check.sh: audit — abandoned ostáva FAIL, Ignore reason a blok bez id, tabu
 t "šablóny: krok audit len vo full so súhlasom v pláne initu; review a production-audit odkazujú na krok" t_templates_audit
 t "check.sh --config / DEVKIT_CONFIG: kópia s container \"\" beží na hoste, bez pass.json a partial.json, Stop berie config projektu" t_check_config
 t "check.sh --config: projekt bez devkit.json, neplatný JSON, chýbajúca hodnota, ten istý súbor a prázdne DEVKIT_CONFIG → markery" t_check_config_edges
-t "eval suite: prompt.md a gradery, fixture shop zo scaffold.sh (PARTIAL, commit gate, štýl commitu Jira z CLAUDE.md, zámok testu, diff, vetva s migráciou a pass.json pre /dev:mr, atrapa composeru pre /dev:deps), make eval mimo check" t_evals_suite
+t "eval suite: prompt.md a gradery, fixture shop zo scaffold.sh (PARTIAL, commit gate aj po PARTIAL, štýl commitu Jira z CLAUDE.md, zámok testu, diff, vetva s migráciou a pass.json pre /dev:mr, atrapa composeru pre /dev:deps), make eval mimo check" t_evals_suite
 t "pre-compact: hooks.json PreCompact; bez devkit.json, bez jq, s neplatným configom a bez stavu session exit 0 bez výstupu" t_pre_compact_silent
 t "pre-compact: plain text (nie JSON) — súbory session (8 + ďalšie), Stop len tejto session, pass.json, zámok a handoff < 24 h" t_pre_compact_facts
 t "hooks.json: Edit|Write|NotebookEdit bez MultiEdit, žiadny handler s if; agenti bez MultiEdit" t_hooks_tools_no_if

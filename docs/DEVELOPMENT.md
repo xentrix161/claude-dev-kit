@@ -40,6 +40,7 @@ Prípady (gradery podrobne v SPEC §9):
 | `check-partial` | `/dev:check` pri nebežiacom kontajneri hlási PARTIAL, nie PASS, a kontajner nespúšťa |
 | `commit-no-attribution` | `/dev:commit`: číslo úlohy z vetvy, jeden riadok, bez AI atribúcie a pushu |
 | `commit-style-jira` | `/dev:commit` podľa pravidla o commitoch v `CLAUDE.md` (kľúč Jiry z vetvy) |
+| `commit-partial-gate` | prosba o commit pri PARTIAL: commit gate commit nepustí, Claude nemení `devkit.json`, neobchádza hooky a ponúkne možnosti |
 | `review-format` | `/dev:review`: riadkový formát nálezov, vloženie príkazu a vynechaný riadok |
 | `fix-locked-test` | `/dev:fix`: padajúci test, zámok, oprava kódu bez zmeny testu |
 | `mr-describe` | `/dev:mr`: päť sekcií, migrácia a premenná prostredia z diffu, verdikt z `pass.json`, review agentmi; bez `gh`, `glab` a pushu |
@@ -47,7 +48,7 @@ Prípady (gradery podrobne v SPEC §9):
 
 - Tabuľka: `WITH` je skóre s kitom (cieľ 1.00), `W/OUT` ten istý prompt bez kitu, `Δ` rozdiel. Príkazy `/dev:*` bez kitu neexistujú, takže bez neho prejdú len gradery typu „niečo sa nestalo“ (žiadny push, žiadne PASS). O výsledku preto rozhoduje `WITH`; `Δ` blízko nuly znamená, že prípad netestuje kit a treba ho sprísniť.
 - Prípad pod prahom (`--threshold`, predvolene 1.0) skončí `make` chybou. Padnuté gradery s vysvetlením ukáže `plugins/dev/evals/results/<čas>/report.html`, rovnaké dáta pre skripty sú v `aggregate-result.json`.
-- Agenti aj sudca bežia na Sonnete (`EVAL_MODEL`, `EVAL_JUDGE`): predvolený model účtu býva drahší a sudca `haiku` dáva falošné FAIL pri správnej odpovedi. Lacný prvý odhad: `EVAL_ARGS="--runs 1"` (14 behov, zhruba 1,3 USD; najdrahší je `mr-describe` s dvomi agentmi). Ďalšie voľby cez `EVAL_ARGS`, napr. ladenie jedného prípadu `EVAL_ARGS="--case check-partial --runs 1 --ablation none"` alebo súbežnosť `-j 4`. Report ostáva lokálne, keď eval spúšťa Claude Code; z terminálu sa zverejní ako súkromný artifact na claude.ai (`--no-publish` ho nechá lokálne).
+- Agenti aj sudca bežia na Sonnete (`EVAL_MODEL`, `EVAL_JUDGE`): predvolený model účtu býva drahší a sudca `haiku` dáva falošné FAIL pri správnej odpovedi. Lacný prvý odhad: `EVAL_ARGS="--runs 1"` (16 behov, zhruba 1,5 USD; najdrahší je `mr-describe` s dvomi agentmi). Ďalšie voľby cez `EVAL_ARGS`, napr. ladenie jedného prípadu `EVAL_ARGS="--case check-partial --runs 1 --ablation none"` alebo súbežnosť `-j 4`. Report ostáva lokálne, keď eval spúšťa Claude Code; z terminálu sa zverejní ako súkromný artifact na claude.ai (`--no-publish` ho nechá lokálne).
 - `EVAL_ARGS="--max-cost-usd 0"` len načíta a skontroluje súbory suite, nespustí ani jeden beh (0 USD).
 - Nový prípad: adresár `<prípad>/` s `prompt.md`, `case.yaml`, `scaffold.sh` a `graders/*.md` podľa SPEC §9; tvar súborov a varianty fixtúry stráži selftest `t_evals_suite`.
 
