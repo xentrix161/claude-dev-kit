@@ -2023,6 +2023,29 @@ t_stop_check_not_run() {
     fail "decisions.jsonl má stopCheck pass, hoci kontrola nebežala"
 }
 # dk_blobs: nečitateľný súbor = "-" + errors.log (dávka nezhodí ostatné), symlink s príponou kódu vypadne
+t_added_spec_submodule() {
+  new_case
+  local spec
+  mkdir -p "$CASE/lib"
+  printf '<?php\ndump($old);\n$a = 1;\n' > "$CASE/lib/x.php"
+  pre "repo submodulu" sh -c "git -C '$CASE/lib' init -q && git -C '$CASE/lib' add -A && git -C '$CASE/lib' commit -qm lib" || return 1
+  pre "git submodule add" git -C "$REPO" -c protocol.file.allow=always submodule add -q "$CASE/lib" mod || return 1
+  g commit -qm mod
+  add mod/x.php '$b = 2;'
+  on_edit mod/x.php
+  want_allow "pôvodný dump( v submodule" || return 1
+  add mod/x.php 'dump($new);'
+  on_edit mod/x.php
+  want_rc 2 "nový dump( v submodule" && want_err 'mod/x.php:5' "nový dump( v submodule" \
+    && want_not 'mod/x.php:2' "nový dump( v submodule" || return 1
+  put mod/y.php '<?php'
+  add mod/y.php 'dump($y);'
+  on_edit mod/y.php
+  want_rc 2 "nový súbor v submodule" && want_err 'mod/y.php:2' "nový súbor v submodule" || return 1
+  spec=$(bash -c '. "$1" >/dev/null 2>&1 || exit 0; DK_PROJECT=$2; printf "%s," "$(dk__added_spec mod/x.php | tr "\n" " ")" "$(dk__added_spec mod/y.php)" "$(dk__added_spec app/Foo.php)"' \
+    _ "$S/lib.sh" "$REPO")
+  [ "$spec" = "4 5 ,*,," ] || fail "dk__added_spec mod/x.php, mod/y.php, app/Foo.php: '$spec', čakal som '4 5 ,*,,'"
+}
 t_blobs_unreadable_symlink() {
   new_case
   put app/Bad.php '<?php $bad = 1;'
@@ -3346,6 +3369,7 @@ t "devkit.json zmenený (R3): karta raz, on-edit a pre-bash systemMessage raz za
 t "šablóny: ukotvené deny, bez \\s/\\w v [...], vzorky tajomstiev, rules (paths, Pasce, ≤ 60), značky db:" t_templates_lint
 t "stop-check: check.sh exit 3 / 2 → pripomienka „nedala spustiť“, skip namiesto pass, bez bloku" t_stop_check_not_run
 t "lib.sh dk_blobs: nečitateľný súbor = - a errors.log, symlink .php vypadne" t_blobs_unreadable_symlink
+t "lib.sh dk__added_spec: súbor v submodule → pridané riadky z diffu submodulu, nový súbor celý (D6)" t_added_spec_submodule
 t "pre-bash: symlink .php v stage aj cez git add → commit gate ho nežiada" t_bash_commit_symlink_code
 t "lib.sh dk_err: errors.log nad 1 MB → posledných 500 riadkov" t_err_log_rotation
 t "kontajner: on-edit číta container.state 30 s, check.sh vždy docker inspect" t_container_state_cache

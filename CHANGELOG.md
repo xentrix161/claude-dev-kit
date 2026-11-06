@@ -9,6 +9,7 @@
 - Commit gate: hláška pri zamietnutí už nestratí posledný riadok `Spusti kontrolu: …` — blok repa má najviac 12 riadkov (pri viacerých repách menej, spolu ≤ 20), dlhé zoznamy (súbory, nálezy, riadky PARTIAL) sa skrátia na `… ďalšie súbory: N` a riadok s príkazom ide vždy na koniec. Pri najviac 8 kódových súboroch commitu navrhnutý príkaz obsahuje `--files <súbory>`, takže cudzí rozpracovaný súbor kontrolu nezhodí.
 - Minimálna verzia Claude Code je 2.1.314 (`DK_MIN_CC`): staršie verzie nespúšťali hooky s matcherom `Bash` pri nástroji Monitor, takže commit spustený cez Monitor obišiel commit gate aj kontrolu tajomstiev. Úvodná karta pri staršej verzii upozorní (`claude update`).
 - `secrets.forbidFiles` stráži aj Edit/Write: úpravu súboru zo zoznamu (napr. `.env`, `config.local.neon`) pre-edit zamietne hláškou `[dev-kit] <súbor> je v secrets.forbidFiles — tajomstvá sa needitujú cez Claude`; zhoda bez ohľadu na veľkosť písmen, vypína ju `disabledRules secrets` spolu s kontrolou tajomstiev v commite. Čítanie súboru sa nestráži.
+- Súbor v submodule (aj vo vnorenom repe): on-edit, Stop a `changedLinesOnly` berú pridané riadky z diffu v koreni submodulu, nie celý súbor — guardy, tajomstvá a lint už nehlásia staré riadky submodulu. Nový súbor v submodule sa kontroluje celý ako doteraz.
 
 ## 0.4.1 — 2026-11-05
 

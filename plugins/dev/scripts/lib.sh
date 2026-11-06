@@ -515,13 +515,20 @@ EOF
 }
 
 # Pridané riadky voči HEAD: '*' = celý súbor (nesledovaný / nový / bez HEAD), inak čísla po riadkoch.
+# Cestu, ktorú repo nepozná (súbor v submodule či vnorenom repe), zopakuje v koreni toho repa.
 dk__added_spec() {
-    local rel="$1" d
-    d=$(dk_git diff -U0 --no-color --no-ext-diff --no-textconv HEAD -- "$rel" 2>/dev/null) || { echo '*'; return 0; }
-    if [ -z "$d" ]; then
-        dk_git ls-files --error-unmatch -- "$rel" >/dev/null 2>&1 || echo '*'
-        return 0
-    fi
+    local g="$DK_PROJECT" rel="$1" d top
+    while :; do
+        if d=$(git -C "$g" -c core.quotepath=off diff -U0 --no-color --no-ext-diff --no-textconv HEAD -- "$rel" 2>/dev/null); then
+            [ -n "$d" ] && break
+            git -C "$g" ls-files --error-unmatch -- "$rel" >/dev/null 2>&1 && return 0
+        fi
+        top=$(git -C "$g/$(dirname "$rel")" rev-parse --show-toplevel 2>/dev/null)
+        case "$top" in
+            "$g"/?*) rel=${g}/$rel; rel=${rel#"$top"/}; g=$top ;;
+            *) echo '*'; return 0 ;;
+        esac
+    done
     printf '%s\n' "$d" | awk '/^@@ / { s = $3; sub(/^\+/, "", s); n = split(s, a, ","); st = a[1] + 0; c = (n > 1) ? a[2] + 0 : 1; for (i = 0; i < c; i++) print st + i }'
 }
 

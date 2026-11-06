@@ -289,7 +289,9 @@ when `container` is set and the value is empty or `container`, else `host`; any 
 `container.state` (§2) younger than 30 s for the same container, otherwise asks `docker inspect` and writes
 it; `check.sh` sets `DK_NO_CONTAINER_CACHE`, so it always asks and only writes the fresh state),
 `dk_glob_match <path> <glob>`, `dk_added_lines <rel>` (newline list of added line numbers vs HEAD from
-`git diff -U0 HEAD --`; untracked file ⇒ all lines; file new in index ⇒ all lines), `dk_blobs <rel>…`
+`git diff -U0 HEAD --`; untracked file ⇒ all lines; file new in index ⇒ all lines; a path the repo does not know — a
+file in a submodule or a nested repo — ⇒ the same diff in the root of that repo, `git -C <dir of rel> rev-parse
+--show-toplevel`, with the path relative to it; only a root strictly below the project counts), `dk_blobs <rel>…`
 (`rel<TAB>blob` sorted by path; missing or unreadable file = `-`; when the batch `git hash-object
 --stdin-paths` fails, files are hashed one by one and each unreadable one is logged via `dk_err`; a symlink
 with a code extension (`dk_is_code`: `lint` keys ∪ every step's `ext`) is left out — git commits its link
