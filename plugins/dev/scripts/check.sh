@@ -78,7 +78,8 @@ done <<EOF
 $DK_CFG_OUT
 EOF
 
-# Súbory: --files › session (stop) › zmenené voči HEAD + staged + nesledované.
+# Súbory: --files › session (stop: zoznam on-edit ∪ kód zmenený od začiatku session mimo neho) › zmenené voči
+# HEAD + staged + nesledované.
 ALL=""
 if [ "$files_set" = 1 ]; then
     while IFS= read -r f; do
@@ -90,7 +91,7 @@ $files_arg
 EOF
 elif [ "$mode" = stop ]; then
     SF=$(dk_session_file)
-    [ -f "$SF" ] && ALL=$(cat "$SF")
+    ALL=$({ [ -f "$SF" ] && cat "$SF"; dk_session_newer; } | awk 'NF && !s[$0]++')
 else
     ALL=$(dk_changed_files)
 fi
@@ -119,11 +120,8 @@ fi
 # Odtlačok obsahu pred krokmi: marker potvrdí presne to, čo sa kontrolovalo.
 dk_tmpdir
 if [ "$mode" = stop ]; then
-    if [ "$files_set" = 1 ]; then
-        HF=$(printf '%s' "$EXIST" | while IFS= read -r f; do [ -n "$f" ] && dk_is_code "$f" stop && printf '%s\n' "$f"; done)
-    else
-        HF=$(dk_session_code_files)
-    fi
+    # Bez --files rovnaká množina ako dk_session_code_files v stop-check (hash v stop.json).
+    HF=$(printf '%s' "$EXIST" | while IFS= read -r f; do [ -n "$f" ] && dk_is_code "$f" stop && printf '%s\n' "$f"; done)
     SNAP_HASH=$(set -f; IFS=$DK_NL; dk_hash_files $HF)
 else
     (set -f; IFS=$DK_NL; dk_blobs $ALL) > "$DK_TMP/blobs.snap"

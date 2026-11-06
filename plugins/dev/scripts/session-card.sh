@@ -122,6 +122,14 @@ dk_card() {
         dk_emit "$msg" "$msg"
         return 0
     fi
+    # Začiatok session: Stop podľa neho vidí aj kód zmenený cez Bash (dk_session_newer).
+    case "${DK_SOURCE:-startup}" in
+        startup|resume|clear)
+            local t0f
+            t0f=$(dk_t0_file)
+            [ -f "$t0f" ] || { mkdir -p "$DK_PDATA/sessions" 2>/dev/null; : 2>/dev/null > "$t0f"; }
+            ;;
+    esac
     local tag a stop=true gate=true ttl=6 nct=1 l1 cont now warn="" w
     while IFS=$DK_US read -r tag a; do
         case "$tag" in
@@ -246,7 +254,7 @@ EOF
 
     # Údržba dát kitu: staré zoznamy session, veľký log rozhodnutí.
     if [ "${DK_SOURCE:-startup}" = startup ]; then
-        find "$DK_PDATA/sessions" \( -name '*.files' -o -name '*.head' -o -name '*.stop.json' -o -name '*.cfgnote' -o -name '*.tplnote' \) -mtime +14 -exec rm -f {} + 2>/dev/null
+        find "$DK_PDATA/sessions" \( -name '*.files' -o -name '*.head' -o -name '*.stop.json' -o -name '*.cfgnote' -o -name '*.tplnote' -o -name '*.t0' \) -mtime +14 -exec rm -f {} + 2>/dev/null
         find "$DK_PDATA" -maxdepth 1 -name 'pairs-*.done' -mtime +14 -exec rm -f {} + 2>/dev/null
         if [ -f "$DK_DATA/decisions.jsonl" ] && [ "$(wc -c < "$DK_DATA/decisions.jsonl" | tr -d ' ')" -gt 10485760 ]; then
             mv "$DK_DATA/decisions.jsonl" "$DK_DATA/decisions.jsonl.1" 2>/dev/null

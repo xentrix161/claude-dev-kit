@@ -103,6 +103,7 @@ $DK_DATA/projects/<phash>/config.hash             # blob hash of the devkit.json
 $DK_DATA/projects/<phash>/config.cmds.json        # its commands as a sorted JSON array of labelled strings (DK_JQ_CMDS, §4.1)
 $DK_DATA/projects/<phash>/sessions/<session_id>.files   # files edited in that session (repo-relative, one per line)
 $DK_DATA/projects/<phash>/sessions/<session_id>.head    # HEAD at the session's first .files write (empty without HEAD)
+$DK_DATA/projects/<phash>/sessions/<session_id>.t0      # empty, mtime = session start (card on startup|resume|clear, §4.7)
 $DK_DATA/projects/<phash>/sessions/<session_id>.stop.json   # last stop-check state of that session
 $DK_DATA/projects/<phash>/sessions/<session_id>.cfgnote     # on-edit or pre-bash reported a devkit.json change in that session
 $DK_DATA/projects/<phash>/sessions/<session_id>.tplnote     # the card compared the template headers in that session (§4.7 item 10)
@@ -113,7 +114,7 @@ $DK_DATA/projects/<phash>/last-handoff.json       # {"time":…, "title":"…", 
 $DK_DATA/cc-version.<YYYYMMDD>                    # `claude --version` cached for the day (§4.7)
 ```
 `<phash>` = first 12 chars of `printf %s "<project dir>" | git hash-object --stdin`. On `startup` the card
-deletes `sessions/*.files|.head|.stop.json|.cfgnote|.tplnote` and `pairs-*.done` older than 14 days (§4.7).
+deletes `sessions/*.files|.head|.t0|.stop.json|.cfgnote|.tplnote` and `pairs-*.done` older than 14 days (§4.7).
 
 ## 3. Project config `.claude/devkit.json` (schema v1)
 
@@ -297,7 +298,9 @@ file in a submodule or a nested repo — ⇒ the same diff in the root of that r
 --stdin-paths` fails, files are hashed one by one and each unreadable one is logged via `dk_err`; a symlink
 with a code extension (`dk_is_code`: `lint` keys ∪ every step's `ext`) is left out — git commits its link
 target, not the content hashed here), `dk_is_code <rel> [stop]` (`stop` ⇒ only the Stop code extensions,
-§4.6 step 3), `dk_hash_files <rel>…` (combined content hash over `dk_blobs`), `dk_log <hook> <rule> <decision>
+§4.6 step 3), `dk_hash_files <rel>…` (combined content hash over `dk_blobs`), `dk_session_newer` (Stop code files, §4.6 step 3,
+among `dk_changed_files` that exist and are newer than `sessions/<id>.t0` — `find -newer` via `xargs -0`, never the
+whole tree; nothing without `.t0`), `dk_log <hook> <rule> <decision>
 [file] [ms]` (append one JSON line: ts, project, session, hook, rule, decision ∈
 block|deny|ask|warn|pass|skip, file, ms), `dk_err <msg>` (append to errors.log; over 1 MB the log keeps its
 last 500 lines), `dk_now` (epoch seconds), `dk_ms` (best-effort ms: `perl -MTime::HiRes` if available else
@@ -586,7 +589,8 @@ flags in any order; `--files` consumes paths until the next `--` flag.
   `– full: rovnaké kroky ako quick` (not counted as skip).
 - CHANGED files (quick/full/auto) = `git diff --name-only HEAD` ∪ untracked (`git ls-files --others
   --exclude-standard`) ∪ staged, deduped, existing files only (deleted tracked → recorded "-" in marker).
-  Stop mode files = session files list (existing only).
+  Stop mode files = session files list ∪ `dk_session_newer` (§4.1; code changed outside on-edit since the session
+  started), existing only.
 - `--files` narrows the file set in every mode (quick/full/auto/stop); `pass.json` then records exactly
   those blobs, so `/dev:commit` can check only its group.
 - Steps = config steps whose `modes` contain the mode (stop/quick/full; auto resolves first), and whose
@@ -646,7 +650,11 @@ flags in any order; `--files` consumes paths until the next `--` flag.
      `[testRemoved] <file>: zmazaná test metóda <name> — zámer s používateľom nie je overený`; a removed
      committed test file ⇒ `[testRemoved] <file>: zmazaný testovací súbor — zámer s používateľom nie je overený`.
 3. Session code files = session files with extension in any `lint` key or in the `ext` of a step whose
-   `modes` contain `stop` (absent `modes` = quick/full). A file checked only by quick/full steps (the
+   `modes` contain `stop` (absent `modes` = quick/full), plus such files changed outside on-edit since the session
+   started (`dk_session_newer`, §4.1: changed vs HEAD and newer than `sessions/<id>.t0`), so a change made via Bash
+   (`sed`, `git checkout`, a generator) starts the check, the guard scan and the hash below. Without `.t0` (a
+   session older than the card that writes it) only the session files count. Known limitation: a file changed in
+   that time by the user's editor or by another session in the same project counts too. A file checked only by quick/full steps (the
    templates' `eslint`/`stylelint` extensions `.js`, `.ts`, `.css`, `.scss`) does not start the check, and
    the guard scan of step 4 skips it (on-edit still scans it); the commit gate (§4.4) and `dk_blobs` still
    count every step's `ext`. Known limitation: a project's own quick/full-only step for an extension
@@ -694,6 +702,8 @@ flags in any order; `--files` consumes paths until the next `--` flag.
   kitu nebežia (brew install jq)`, exit 0.
 - No config: if P has composer.json|pyproject.toml|package.json and `card-hint.<today>` absent ⇒ hint
   `[dev-kit] projekt nemá .claude/devkit.json — /dev:project-init ho nastaví` and create the marker.
+- With config and `source` `startup`, `resume` or `clear` (empty = `startup`), the card first creates
+  `sessions/<id>.t0` when it does not exist (§2; `compact` keeps it, so its mtime stays the session start).
 - With config, the card:
   1. `[dev-kit] <stack> · kontajner <c> (beží|NEBEŽÍ — kontroly sa preskočia) · Stop kontrola on|off · commit gate on|off`;
      `container` set but no `docker` on PATH ⇒ `chýba docker → kontroly v kontajneri sa preskočia` in the

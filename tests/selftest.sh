@@ -1022,6 +1022,28 @@ t_container_down() {
   want_rc 0 "session-card" && want_out 'app-php NEBEŽÍ' "session-card" || return 1
   no_docker_exec
 }
+t_stop_bash_changes() {
+  new_case
+  add app/Old.php '$pred = 1; // LINTERR'
+  touch -t 200001010000 "$REPO/app/Old.php"
+  card
+  want_rc 0 "karta" && want_file "$PDATA/sessions/$SID.t0" "karta (startup)" || return 1
+  touch -t 201001010000 "$PDATA/sessions/$SID.t0"
+  sed 's/^\$foo = 1;$/$foo = 1; \/\/ LINTERR/' "$REPO/app/Foo.php" > "$CASE/foo.tmp" && mv "$CASE/foo.tmp" "$REPO/app/Foo.php"
+  pre "sed zmenil app/Foo.php" grep -q LINTERR "$REPO/app/Foo.php" || return 1
+  stop_check
+  want_rc 0 "Stop po zmene cez Bash" && want_json '.decision == "block" and (.reason | contains("app/Foo.php:3"))
+    and (.reason | contains("Old.php") | not)' "Stop po zmene cez Bash" || return 1
+  check --stop --session "$SID" --project "$REPO"
+  want_rc 1 "check.sh --stop" && want_out 'app/Foo.php:3' "check.sh --stop" && want_not 'Old.php' "check.sh --stop" || return 1
+  git -C "$REPO" checkout -q -- app/Foo.php
+  stop_check true
+  want_rc 0 "po vrátení" && want_no_block "po vrátení" || return 1
+  SID="$SID-b"
+  sed 's/^\$foo = 1;$/$foo = 1; \/\/ LINTERR/' "$REPO/app/Foo.php" > "$CASE/foo.tmp" && mv "$CASE/foo.tmp" "$REPO/app/Foo.php"
+  stop_check
+  want_allow "session bez .t0 (bez karty) vidí len súbory on-edit"
+}
 t_stop_no_session() {
   new_case
   add app/Foo.php '$t = 20;'
@@ -3364,6 +3386,7 @@ t "stop-check: pripomienka pair raz za session" t_stop_pair_once
 t "stop-check: pair so zmeneným testom (unless) → ticho" t_stop_pair_unless
 t "stop-check: pair po commite v tom istom ťahu (.head) → ticho, bez testu pripomienka" t_stop_pair_after_commit
 t "stop-check: bez súborov session → exit 0, ticho" t_stop_no_session
+t "stop-check: kód zmenený cez Bash po začiatku session (.t0) → Stop ho skontroluje, starší ani bez .t0 nie (D3)" t_stop_bash_changes
 t "kontajner nebeží: on-edit bez lintu, Stop bez bloku, karta NEBEŽÍ" t_container_down
 t "session-card: bez devkit.json → jeden riadok, v ten istý deň ticho" t_card_hint_once
 t "session-card: 1. a 2. riadok, pripomienka údržby (chýba / > 30 dní)" t_card_stack_maintenance

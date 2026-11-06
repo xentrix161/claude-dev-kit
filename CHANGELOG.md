@@ -11,6 +11,7 @@
 - `secrets.forbidFiles` stráži aj Edit/Write: úpravu súboru zo zoznamu (napr. `.env`, `config.local.neon`) pre-edit zamietne hláškou `[dev-kit] <súbor> je v secrets.forbidFiles — tajomstvá sa needitujú cez Claude`; zhoda bez ohľadu na veľkosť písmen, vypína ju `disabledRules secrets` spolu s kontrolou tajomstiev v commite. Čítanie súboru sa nestráži.
 - Súbor v submodule (aj vo vnorenom repe): on-edit, Stop a `changedLinesOnly` berú pridané riadky z diffu v koreni submodulu, nie celý súbor — guardy, tajomstvá a lint už nehlásia staré riadky submodulu. Nový súbor v submodule sa kontroluje celý ako doteraz.
 - Úvodná karta raz za session upozorní na šablóny zo staršieho kitu: najstaršia verzia z hlavičiek `@ <verzia>` v `.claude/rules/*.md`, `REVIEW.md` a `.worktreeinclude` je nižšia ako verzia pluginu → riadok `šablóny z kitu <stará> (aktuálna <nová>): /dev:project-init --sync` v karte aj v upozornení pre používateľa. Projekt bez hlavičiek nič nevidí.
+- Stop kontrola vidí aj kód zmenený cez Bash (`sed`, `git checkout`, generátor): úvodná karta pri štarte session zapíše značku `sessions/<id>.t0` a Stop skontroluje okrem súborov z editov aj zmenené kódové súbory novšie ako ona (lint, kroky, guardy aj odtlačok stavu). Session spustená pred aktualizáciou značku nemá a kontroluje len súbory z editov ako doteraz.
 
 ## 0.4.1 — 2026-11-05
 

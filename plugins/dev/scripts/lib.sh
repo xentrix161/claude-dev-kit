@@ -595,6 +595,7 @@ dk_changed_files() {
 
 dk_session_file() { printf '%s/sessions/%s.files' "$DK_PDATA" "$DK_SESSION"; }
 dk_stop_file() { printf '%s/sessions/%s.stop.json' "$DK_PDATA" "$DK_SESSION"; }
+dk_t0_file() { printf '%s/sessions/%s.t0' "$DK_PDATA" "$DK_SESSION"; }
 
 # Prvý zápis session uloží aj HEAD (.head): Stop podľa neho vidí súbory commitnuté počas session.
 dk_session_add() {
@@ -623,14 +624,30 @@ dk_session_committed() {
     return 0
 }
 
-# Existujúce súbory session s príponou kódu pre Stop (dk_is_code … stop).
+# Kódové súbory pre Stop zmenené mimo on-edit (Bash, editor): dk_changed_files novšie ako .t0 (začiatok session).
+dk_session_newer() {
+    local t0 f
+    t0=$(dk_t0_file)
+    [ -f "$t0" ] || return 0
+    dk_changed_files | while IFS= read -r f; do
+        [ -n "$f" ] && [ -f "$DK_PROJECT/$f" ] && dk_is_code "$f" stop && printf './%s\n' "$f"
+    done | tr '\n' '\000' | (cd "$DK_PROJECT" 2>/dev/null &&
+        xargs -0 sh -c '[ $# -gt 0 ] || exit 0; find "$@" -prune -newer "$0" -print' "$t0" 2>/dev/null) | sed 's|^\./||'
+    return 0
+}
+
+# Existujúce súbory session s príponou kódu pre Stop (dk_is_code … stop) ∪ dk_session_newer.
 dk_session_code_files() {
     local sf f
     sf=$(dk_session_file)
-    [ -f "$sf" ] || return 0
-    while IFS= read -r f; do
-        [ -n "$f" ] && [ -f "$DK_PROJECT/$f" ] && dk_is_code "$f" stop && printf '%s\n' "$f"
-    done < "$sf"
+    {
+        if [ -f "$sf" ]; then
+            while IFS= read -r f; do
+                [ -n "$f" ] && [ -f "$DK_PROJECT/$f" ] && dk_is_code "$f" stop && printf '%s\n' "$f"
+            done < "$sf"
+        fi
+        dk_session_newer
+    } | awk '!s[$0]++'
     return 0
 }
 
