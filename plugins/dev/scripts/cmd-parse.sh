@@ -8,13 +8,13 @@
 #   K NAME value        iné priradenie / slovo cyklu for → NAME nie je známe, value je kandidát
 #   R dôvod             záchrana (chyba rozkladu, commit v tele funkcie, commit mimo štruktúry)
 #   D class cmd úryvok home cdpath op…   cd/pushd/popd/chdir pred nasledujúcim C; class C = isté, N = nie je isté
-#   C commit|add slovo…                 príkaz commitu / add, slová ako sú napísané (úvodzovky ostávajú)
+#   C commit|add slovo…                 príkaz commitu (aj `rebase|merge|… --continue`) / add, slová ako sú napísané
 # read -d '' namiesto $(cat <<…): bash 3.2 v $(…) nezvláda nepárové zátvorky v heredocu.
 IFS= read -r -d '' DK_AWK_CMD <<'AWK' || true
 BEGIN { US = "\037" }
 { txt = txt $0 "\n" }
 END {
-    RE_COMMIT = ENVIRON["DK_RE_COMMIT"]; RE_ADD = ENVIRON["DK_RE_ADD"]
+    RE_COMMIT = ENVIRON["DK_RE_COMMIT"]; RE_CONT = ENVIRON["DK_RE_COMMIT_CONT"]; RE_ADD = ENVIRON["DK_RE_ADD"]
     gsub(/\\\n/, "", txt)
     err = ""; ntok = 0; nev = 0; nrec = 0; depth = 0; inFunc = 0; subDepth = 0; leadOK = 1; lastLead = ""
     ncommit = 0; nvar = 0
@@ -32,6 +32,8 @@ END {
     }
     s = txt; raw = 0
     while (match(s, RE_COMMIT)) { raw++; s = substr(s, RSTART + RLENGTH) }
+    s = txt
+    if (RE_CONT != "") while (match(s, RE_CONT)) { raw++; s = substr(s, RSTART + RLENGTH) }
     if (raw > ncommit) print "R" US "commit mimo štruktúry"
     for (k = 1; k <= nrec; k++) printf "%s%s", rec_d[k], rec_c[k]
 }
@@ -469,13 +471,13 @@ function parse_simple(d,   nw, i, j, startpos, endpos, lead, name, val, cmd, sni
     }
     m = ""; words = ""
     for (j = 1; j <= nw; j++) { m = m (j > 1 ? " " : "") wm[j]; words = words US wr[j] }
-    if (match(m, RE_COMMIT)) emit_rec("commit", words, startpos, d)
+    if (match(m, RE_COMMIT) || (RE_CONT != "" && match(m, RE_CONT))) emit_rec("commit", words, startpos, d)
     else if (match(m, RE_ADD)) emit_rec("add", words, startpos, d)
 }
 AWK
 
 dk_cmd_parse() { # <príkaz> — záznamy na stdout
-    printf '%s\n' "$1" | DK_RE_COMMIT="$DK_RE_COMMIT" DK_RE_ADD="$DK_RE_ADD" awk "$DK_AWK_CMD"
+    printf '%s\n' "$1" | DK_RE_COMMIT="$DK_RE_COMMIT" DK_RE_COMMIT_CONT="${DK_RE_COMMIT_CONT:-}" DK_RE_ADD="$DK_RE_ADD" awk "$DK_AWK_CMD"
 }
 
 if [ "${BASH_SOURCE[0]}" = "$0" ] && [ "${1:-}" = --dump ]; then

@@ -3,6 +3,10 @@
 - Formát: `## <verzia> — <dátum>`, najnovšie hore; verzia = `version` v `plugins/dev/.claude-plugin/plugin.json`.
 - Posun pinu ECC (P3) zapíš ako odrážku: kusy + nový commit.
 
+## 0.4.2 — nevydané
+
+- Commit gate a kontrola tajomstiev: `git rebase|merge|cherry-pick|revert|am … --continue` je commit staged súborov (aj tých z `git add` v tom istom príkaze), napr. `GIT_EDITOR=true git rebase --continue` už gate neobíde. Repo sa určí ako pri `git commit` (`cd`, `-C`), hláška menuje príkaz (`commit gate pred git rebase --continue: …`, `pri PASS zopakuj git rebase --continue`). Commit, ktorý git spustí sám z editora či skriptu (`GIT_EDITOR`, `exec` v `rebase -i`), hook nevidí.
+
 ## 0.4.1 — 2026-11-05
 
 - `knownFailures`: riadok pytest `ERROR <cesta>.py[::<test>]` z krátkeho súhrnu (chyba fixture či setupu, chyba zberu modulu) je zlyhanie ako `FAILED <id>` — neznámy `ERROR` popri známych `FAILED` už nedá PASS. Vzor sa píše ako pri `FAILED` (`^tests/test_x\.py::test_w$`, pri chybe zberu cesta `^tests/test_conf\.py$`); `ERROR` bez cesty `.py` nie je identifikátor.

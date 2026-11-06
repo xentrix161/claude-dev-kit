@@ -298,7 +298,7 @@ block|deny|ask|warn|pass|skip, file, ms), `dk_err <msg>` (append to errors.log; 
 last 500 lines), `dk_now` (epoch seconds), `dk_ms` (best-effort ms: `perl -MTime::HiRes` if available else
 seconds*1000), `dk_mask <match>` (always `****`, no character of the value;
 returns 1 for a placeholder value; shared by on-edit and pre-bash), `dk_secret_scan <rel> <added-spec> <patterns>` (one `line<US>masked value`
-per added line that matches; used by on-edit), `dk_data_dir` (creates `$DK_DATA` with mode 700, §2). Shared values: `DK_JQ_CAP` (jq `def dk_cap`, §4), `DK_RE_GITPFX`, `DK_RE_COMMIT`, `DK_RE_ADD` (§4.4), `DK_RE_INFRA`
+per added line that matches; used by on-edit), `dk_data_dir` (creates `$DK_DATA` with mode 700, §2). Shared values: `DK_JQ_CAP` (jq `def dk_cap`, §4), `DK_RE_GITPFX`, `DK_RE_COMMIT`, `DK_RE_COMMIT_CONT`, `DK_RE_ADD` (§4.4), `DK_RE_INFRA`
 (infrastructure errors incl. network errors of package registries, §4.5), `DK_MIN_CC` (minimum Claude Code version, §4.7).
 
 ### 4.2 `on-edit.sh` — PostToolUse (edit/write)
@@ -352,9 +352,11 @@ per added line that matches; used by on-edit), `dk_data_dir` (creates `$DK_DATA`
 - Log decisions. Otherwise exit 0 silently.
 
 ### 4.4 `pre-bash.sh` — PreToolUse (Bash)
-Fast path: if `tool_input.command` does not contain a `git … commit` invocation ⇒ exit 0. Here-doc bodies
+Fast path: if `tool_input.command` does not contain a `git … commit` invocation nor a `git rebase|merge|cherry-pick|
+revert|am … --continue` ⇒ exit 0. Here-doc bodies
 (e.g. a commit message via `<<'EOF'`) are blanked before analysis, line numbers kept. Detection uses
-the EREs `DK_RE_GITPFX` (command start + `git` with its global options), `DK_RE_COMMIT` and `DK_RE_ADD`
+the EREs `DK_RE_GITPFX` (command start + `git` with its global options), `DK_RE_COMMIT`, `DK_RE_COMMIT_CONT`
+(`rebase|merge|cherry-pick|revert|am` with `--continue` before the next `;`, `&` or `|`) and `DK_RE_ADD`
 (`add`/`stage`) from lib.sh; other scripts and this SPEC reference them, never copy them. They contain `/`, so
 every `sed` using them takes the `\001` delimiter. Recognised before `commit`: leading env assignments
 (`VAR=x git commit`, quoted values too), wrappers (`command`, `builtin`, `exec`, `env`, `time`, `nice`,
@@ -362,6 +364,11 @@ every `sed` using them takes the `\001` delimiter. Recognised before `commit`: l
 global options `-C <dir>` (also quoted with spaces), `-c k=v`, `-p`/`-P`, `--no-pager`, `--git-dir` and
 `--work-tree` (with `=` or a space). Must match `cd x && git commit -m …`; must not match
 `git commit-tree`, `git log --grep commit` or `echo "git commit"`. Limitations: see Known limitations below.
+A `--continue` matching `DK_RE_COMMIT_CONT` commits the staged files, so it is a commit for everything below: same
+báza and kandidáti (§4.4.1), both checks; its to-be-committed files are the staged ones (plus a `git add` earlier
+in the same command), never `-a` or pathspecs, and its words are not read as commit flags. When the command has
+one, the deny names the first such command: `commit zablokovaný pred git <op> --continue — …`,
+`commit gate pred git <op> --continue: …` and the final line ends `pri PASS zopakuj git <op> --continue.`
 Repo: `dk_cmd_parse` (`cmd-parse.sh`, §4.4.1) returns for every `git commit` and `git add`/`git stage` of the
 command its báza (the directory it runs in: session cwd, then every `cd` that certainly runs before it, then the
 command's own `-C` / `--work-tree` / `GIT_WORK_TREE` / `--git-dir` / `GIT_DIR`) and its kandidáti (directories it may
@@ -374,7 +381,8 @@ Known limitations (§4.4.1 lists what the parser models): the structure inside s
 `cd`, `pushd` or `-C` anywhere in the text); aliases and functions from the user's shell startup files, which Claude
 Code applies to every Bash command (docs: tools reference, Bash tool behavior), including a function or alias named
 `cd` or `git`; `CDPATH` from the environment, zsh `AUTO_CD` / `CDABLE_VARS`, bash `cdable_vars`; `GIT_INDEX_FILE`;
-`$(…)` inside an unquoted here-doc body; functions defined by an earlier Bash call.
+`$(…)` inside an unquoted here-doc body; functions defined by an earlier Bash call; a `git commit` that git or
+an editor runs on its own (`GIT_EDITOR` / `GIT_SEQUENCE_EDITOR` script, `exec` line of `rebase -i`, `rebase -x`).
 Determine TO-BE-COMMITTED files: staged (`git diff --cached --name-only --diff-filter=ACMRD`) ∪ (when
 `-a`/`--all`/combined short flags containing `a`: tracked modified files) ∪ (explicit pathspecs after
 `--` or existing paths among trailing args: best effort) ∪ (`git add`/`git stage` earlier in the same
@@ -450,7 +458,7 @@ optional `!` / `time` in front; command = simple command, `( … )`, `{ …; }`,
 `select`, `case` or a function definition (`name() …`, `function name …`, zsh `() { … }`). Reserved words count only
 in command position (`echo then cd /x` is one simple command `echo`).
 
-**Commands.** A simple command is a commit / add when its masked text matches `DK_RE_COMMIT` / `DK_RE_ADD`
+**Commands.** A simple command is a commit / add when its masked text matches `DK_RE_COMMIT` or `DK_RE_COMMIT_CONT` / `DK_RE_ADD`
 (wrappers, prefix assignments and git options as in §4.4). It changes the directory when its command word — after
 prefix assignments, redirections and `builtin` / `command` — is `cd` (also `\cd`, `"cd"`), `pushd`, `popd` or
 `chdir`:
@@ -499,7 +507,7 @@ result is a directory). Then C's own `-C` / `--work-tree` / `--git-dir` / `GIT_W
 
 **Fallback (fail closed).** A parse error (unterminated quote, unbalanced `(`, `{`, `$(` or backtick, `fi` / `done` /
 `esac` / `}` without its opener, `case` without `esac`, a zsh short form such as `if … { }`), a commit inside a
-function body, or `DK_RE_COMMIT` finding more commits in the raw text than the parser found in the structure (a
+function body, or `DK_RE_COMMIT` and `DK_RE_COMMIT_CONT` finding more commits in the raw text than the parser found in the structure (a
 commit inside a string — `sh -c`, `bash -c`, `eval`, `xargs` — or behind `\;`) adds one record: báza `fb`, item `R`
 with the reason (`neuzavretá úvodzovka`, `neuzavretá zátvorka`, `neočakávané slovo <w>`, `commit v tele funkcie`,
 `commit mimo štruktúry`), kandidáti = every word after a word `cd`, `pushd` or `-C` anywhere in the text with quotes

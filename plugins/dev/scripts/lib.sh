@@ -35,6 +35,8 @@ DK_JQ_CAP='def dk_cap: if length <= 4500 then . else
 # Obsahujú '/', sed s nimi používa oddeľovač \001.
 DK_RE_GITPFX='(^|[;&|({!]|&&|\|\||(^|[[:space:]])(then|do|else|time|nice|nohup|command|builtin|exec|env))[[:space:]]*([A-Za-z_][A-Za-z0-9_]*=("[^"]*"|'"'"'[^'"'"']*'"'"'|[^[:space:]"'"'"';&|])*[[:space:]]+)*\\?([^[:space:];&|()"'"'"']*/)?git([[:space:]]+(-C[[:space:]]+("[^"]*"|'"'"'[^'"'"']*'"'"'|[^[:space:];&|]+)|-c[[:space:]]+[^[:space:];&|]+|-[pP]|--no-pager|--paginate|--no-replace-objects|--literal-pathspecs|--bare|--(git-dir|work-tree|namespace)(=|[[:space:]]+)("[^"]*"|'"'"'[^'"'"']*'"'"'|[^[:space:];&|]+)))*'
 DK_RE_COMMIT="$DK_RE_GITPFX[[:space:]]+commit([[:space:]]|\$)"
+# --continue týchto príkazov commitne staged súbory (gate a tajomstvá ako pri commit).
+DK_RE_COMMIT_CONT="$DK_RE_GITPFX[[:space:]]+(rebase|merge|cherry-pick|revert|am)([[:space:]]+[^;&|]*)?--continue"
 DK_RE_ADD="$DK_RE_GITPFX[[:space:]]+(add|stage)([[:space:]]|\$)"
 
 # Najstaršia podporovaná verzia Claude Code (úvodná karta upozorní na staršiu).

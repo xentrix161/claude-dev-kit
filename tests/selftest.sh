@@ -544,6 +544,41 @@ t_bash_detect_commit_tree() {
   pre_bash 'git commit-tree HEAD^{tree} -m x'
   want_allow
 }
+# rebase|merge|cherry-pick|revert|am --continue commitne staged súbory (aj git add pred ním) — kontroly ako pri commite.
+t_bash_continue_gate() {
+  new_case
+  put config/settings.ini 'password = "SuperSecret123"'
+  g add config/settings.ini
+  pre_bash 'GIT_EDITOR=true git rebase --continue'
+  want_decision deny "rebase --continue s tajomstvom" && want_out 'config/settings.ini:1' "rebase --continue s tajomstvom" &&
+    want_out 'commit zablokovaný pred git rebase --continue' "rebase --continue s tajomstvom" &&
+    want_not 'SuperSecret123' "rebase --continue s tajomstvom" || return 1
+  g reset -q
+  rm -f "$REPO/config/settings.ini"
+  pre_bash 'GIT_EDITOR=true git rebase --continue'
+  want_allow "rebase --continue bez staged" || return 1
+  add app/Foo.php '$f = 61;'
+  g add app/Foo.php
+  pre_bash 'git -C "'"$REPO"'" cherry-pick --continue'
+  want_decision deny "cherry-pick --continue" && want_json '.hookSpecificOutput.permissionDecisionReason
+    | contains("[dev-kit] commit gate pred git cherry-pick --continue: 1 súbor bez PASS") and contains("- app/Foo.php")
+      and (split("\n") | last | startswith("Spusti kontrolu: bash") and endswith("pri PASS zopakuj git cherry-pick --continue."))' \
+    "cherry-pick --continue" || return 1
+  pre_bash 'git -c core.editor=true merge --continue'
+  want_decision deny "merge --continue" || return 1
+  check --quick --project "$REPO"
+  want_rc 0 "check.sh --quick" || return 1
+  local op
+  for op in rebase merge cherry-pick revert am; do
+    pre_bash "GIT_EDITOR=true git $op --continue"
+    want_allow "$op --continue po PASS" || return 1
+  done
+  add app/Old.php '$o = 62;'
+  pre_bash 'git add app/Old.php && git am --continue'
+  want_decision deny "git add pred am --continue" && want_out 'app/Old.php' "git add pred am --continue" || return 1
+  pre_bash 'git rebase --abort'
+  want_allow "rebase --abort"
+}
 
 # ---------------------------------------------------------------- check.sh
 
@@ -3151,6 +3186,7 @@ t "pre-bash: tajomstvo na pridanom riadku → deny s file:line, bez hodnoty" t_b
 t "pre-bash: tajomstvo v secrets.allow (tests/fixtures/) → allow" t_bash_commit_secret_allow
 t "pre-bash: 'cd sub && git commit' aj 'git -C sub commit' sú commit" t_bash_detect_cd_commit
 t "pre-bash: 'git commit-tree' nie je commit" t_bash_detect_commit_tree
+t "pre-bash: rebase|merge|cherry-pick|revert|am --continue = commit staged súborov (tajomstvo, gate, git add pred ním) (D1)" t_bash_continue_gate
 t "pre-bash: globálne prepínače gitu, env priradenia a obaly pred commit → deny (D17)" t_bash_detect_global_opts
 t "pre-bash: 'git stage X && git commit' sa započíta ako add" t_bash_stage_alias
 t "pre-bash: cd \"\$CLAUDE_PROJECT_DIR\" sa rozvinie" t_bash_cd_var_project

@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# PreToolUse (Bash): pri `git commit` tajomstvá v pridaných riadkoch + commit gate (PASS z check.sh pre presne tento obsah).
+# PreToolUse (Bash): pri `git commit` (aj `rebase|merge|cherry-pick|revert|am --continue`) tajomstvá v pridaných riadkoch
+# + commit gate (PASS z check.sh pre presne tento obsah).
 # Repo commitu (báza, kandidáti) dáva parser cmd-parse.sh (SPEC §4.4.1); kontroly bežia v každom dotknutom repe
 # s configom. Obmedzenia (`sh -c`, aliasy): SPEC §4.4 Known limitations.
 . "$(dirname "$0")/lib.sh" || exit 0
@@ -240,7 +241,7 @@ EOF
 
 # Záznam commitu / add (riadok C parsera) s jeho D riadkami → báza a kandidáti, úryvky, riadok príkazu pre kontroly.
 dk__crec() { # <kind\x1fslovo…> <D riadky>
-    local rest="$1" dl="$2" kind words line c cmdn snip home cdp ops tok nx="" wtree="" gdir="" n v
+    local rest="$1" dl="$2" kind words line c cmdn snip home cdp ops tok nx="" wtree="" gdir="" n v op=""
     kind=${rest%%"$DK_US"*}; words=${rest#*"$DK_US"}
     base=$fb; DK_RITEMS=""
     while IFS= read -r line; do
@@ -273,6 +274,7 @@ EOF
             GIT_WORK_TREE=*) wtree=${tok#GIT_WORK_TREE=} ;;
             GIT_DIR=*) gdir=${tok#GIT_DIR=} ;;
             commit|add|stage) break ;;
+            rebase|merge|cherry-pick|revert|am) op=$tok; break ;;
         esac
     done <<EOF
 $(printf '%s\n' "$words" | tr "$DK_US" '\n')
@@ -292,7 +294,10 @@ EOF
     [ -d "$base" ] || base=$fb
     line=$(printf '%s' "$words" | tr "$DK_US" ' ')
     case "$kind" in
-        commit) DK_COMMIT_LINES="$DK_COMMIT_LINES$line$DK_NL"; DK_ADD_LINES="$DK_ADD_LINES$DK_ADD_PEND"; DK_ADD_PEND="" ;;
+        commit)
+            DK_COMMIT_LINES="$DK_COMMIT_LINES$line$DK_NL"; DK_ADD_LINES="$DK_ADD_LINES$DK_ADD_PEND"; DK_ADD_PEND=""
+            [ -z "$op" ] || [ -n "$DK_CONT" ] || DK_CONT="git $op --continue"
+            ;;
         add) DK_ADD_PEND="$DK_ADD_PEND$line$DK_NL" ;;
     esac
     DK_RDIRS="$DK_RDIRS$base$DK_NL"
@@ -403,13 +408,13 @@ dk_main() {
     DK_INPUT=""
     [ -t 0 ] || DK_INPUT=$(cat 2>/dev/null)
     DK_INPUT_DONE=1
-    case "$DK_INPUT" in *commit*) ;; *) return 0 ;; esac
+    case "$DK_INPUT" in *commit*|*--continue*) ;; *) return 0 ;; esac
     command -v jq >/dev/null 2>&1 || return 0
     local cmd t0
     cmd=$(printf '%s' "$DK_INPUT" | jq -r '.tool_input.command // empty' 2>/dev/null)
     [ -n "$cmd" ] || return 0
     case "$cmd" in *'<<'*) cmd=$(printf '%s\n' "$cmd" | dk__no_heredoc) ;; esac
-    printf '%s\n' "$cmd" | grep -qE -e "$DK_RE_COMMIT" || return 0
+    printf '%s\n' "$cmd" | grep -qE -e "$DK_RE_COMMIT" -e "$DK_RE_COMMIT_CONT" || return 0
     t0=$(dk_ms)
     dk_init
     dk_tmpdir
@@ -419,7 +424,7 @@ dk_main() {
     local fb base line tag rest dl="" parsed
     fb=${DK_CWD:-${CLAUDE_PROJECT_DIR:-$PWD}}
     DK_VARS="" DK_VARS_E="" DK_KANDS="" DK_HOME="" DK_HOME_UNKNOWN="" DK_RITEMS="" DK_SNIPS="" DK_RDIRS=""
-    DK_COMMIT_LINES="" DK_ADD_LINES="" DK_ADD_PEND="" DK_RESCUE=0
+    DK_COMMIT_LINES="" DK_ADD_LINES="" DK_ADD_PEND="" DK_RESCUE=0 DK_CONT=""
     parsed=$(dk_cmd_parse "$cmd")
     while IFS= read -r line; do
         [ -n "$line" ] || continue
@@ -437,7 +442,7 @@ EOF
     if [ "$DK_RESCUE" = 1 ]; then
         DK_RDIRS="$DK_RDIRS$fb$DK_NL$(dk__rkands "$cmd")$DK_NL"
     fi
-    [ -n "$DK_COMMIT_LINES" ] || DK_COMMIT_LINES=$(printf '%s\n' "$cmd" | grep -E -e "$DK_RE_COMMIT")
+    [ -n "$DK_COMMIT_LINES" ] || DK_COMMIT_LINES=$(printf '%s\n' "$cmd" | grep -E -e "$DK_RE_COMMIT" -e "$DK_RE_COMMIT_CONT")
 
     # Repá s configom, každé raz; kontroly v každom, deny po blokoch.
     local repos="" dir nden=0 hdr
@@ -658,7 +663,8 @@ EOF
     fi
     map=$(printf '%s\n' "$map" | grep -v '^$' | sort -u)
 
-    local deny="" sfind="" nsec=0
+    local deny="" sfind="" nsec=0 when=""
+    [ -z "$DK_CONT" ] || when=" pred $DK_CONT"
     # 1. Tajomstvá.
     if [ "$sec_on" = 1 ]; then
         if [ "$forceall" = 1 ]; then
@@ -742,7 +748,7 @@ $pats
 EOF
         fi
         if [ "$nsec" -gt 0 ]; then
-            deny="$deny[dev-kit] commit zablokovaný — tajomstvo alebo zakázaný súbor ($nsec):$DK_NL$(printf '%s' "$sfind" | head -n 8)$DK_NL"
+            deny="$deny[dev-kit] commit zablokovaný$when — tajomstvo alebo zakázaný súbor ($nsec):$DK_NL$(printf '%s' "$sfind" | head -n 8)$DK_NL"
             [ "$nsec" -gt 8 ] && deny="${deny}… ďalšie nálezy: $((nsec - 8))$DK_NL"
             if [ "$DK_SEC_HINT" = 0 ]; then
                 deny="${deny}Hodnotu nevypisuj ani sám neodstraňuj — nahlás používateľovi súbor:riadok a počkaj na jeho rozhodnutie (súbor z commitu: git restore --staged <súbor>; falošný poplach: secrets.allow v .claude/devkit.json).$DK_NL"
@@ -756,7 +762,7 @@ EOF
 
     # 2. Commit gate. Kľúč obsahu (hash kódových blobov) zoskupí pokusy o ten istý commit pre /dev:stats.
     if [ "$gate_on" = 1 ]; then
-        local code="" pmode="" pblobs="" bad="" nbad=0 fullg="" e gmsg="" ckey="" rerun=0
+        local code="" pmode="" pblobs="" bad="" nbad=0 fullg="" e gmsg="" ckey="" rerun=0 again
         if [ "$partial" = 1 ]; then
             gmsg="[dev-kit] čiastočný stage (git add -p/-i/-e) v tom istom príkaze ako commit sa nedá overiť — stage-uj zvlášť, potom commit zopakuj.$DK_NL"
         fi
@@ -805,12 +811,12 @@ EOF
 $code
 EOF
             if [ "$nbad" -gt 0 ]; then
-                gmsg="$gmsg[dev-kit] commit gate: $(dk_plural "$nbad" súbor súbory súborov) bez PASS z /dev:check pre presne tento obsah:$DK_NL$(printf '%s' "$bad" | head -n 8)$DK_NL"
+                gmsg="$gmsg[dev-kit] commit gate$when: $(dk_plural "$nbad" súbor súbory súborov) bez PASS z /dev:check pre presne tento obsah:$DK_NL$(printf '%s' "$bad" | head -n 8)$DK_NL"
                 [ "$nbad" -gt 8 ] && gmsg="${gmsg}… ďalšie súbory: $((nbad - 8))$DK_NL"
                 rerun=1
             fi
             if [ -n "$fullg" ] && [ "$pmode" != full ]; then
-                gmsg="$gmsg[dev-kit] commit gate: zmena v $fullg vyžaduje /dev:check --full$DK_NL"
+                gmsg="$gmsg[dev-kit] commit gate$when: zmena v $fullg vyžaduje /dev:check --full$DK_NL"
                 rerun=1
             fi
         fi
@@ -819,7 +825,8 @@ EOF
                 note=$(dk_partial_note)
                 [ -z "$note" ] || gmsg="$gmsg$note$DK_NL"
                 cmode=--auto; [ -n "$fullg" ] && cmode=--full
-                gmsg="${gmsg}Spusti kontrolu: bash \"$DK_SCRIPTS/check.sh\" $cmode --project \"$DK_PROJECT\" (to isté robí /dev:check), pri PASS commit zopakuj."
+                again="commit zopakuj"; [ -z "$DK_CONT" ] || again="zopakuj $DK_CONT"
+                gmsg="${gmsg}Spusti kontrolu: bash \"$DK_SCRIPTS/check.sh\" $cmode --project \"$DK_PROJECT\" (to isté robí /dev:check), pri PASS $again."
             fi
             deny="$deny$gmsg"
             dk_log pre-bash commitGate deny "$ckey" $(( $(dk_ms) - t0 ))
