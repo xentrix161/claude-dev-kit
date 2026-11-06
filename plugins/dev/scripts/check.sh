@@ -60,7 +60,7 @@ if [ -n "$cfg_file" ]; then
     DK_CFG=$cfg_file CFG_SHOW=$cfg_file
 fi
 if [ -z "$DK_CFG" ]; then echo "[dev-kit] chýba .claude/devkit.json — spusti /dev:project-init"; exit 3; fi
-if ! dk_cfg_read '((.check.steps // [])[] | "S\u001f\(.id|s)\u001f\(.requires|s)\u001f\(.run|s)\u001f\(.runFiles|s)\u001f\((.ext // []) | join(","))\u001f\((.modes // ["quick","full"]) | join(","))\u001f\(.changedLinesOnly // false | s)\u001f\(.runtime|s)"),
+if ! dk_cfg_read '((.check.steps // [])[] | "S\u001f\(.id|s)\u001f\(.requires|s)\u001f\(.run|s)\u001f\(.runFiles|s)\u001f\((.ext // []) | join(","))\u001f\((.modes // ["quick","full"]) | join(","))\u001f\(.changedLinesOnly // false | s)\u001f\(.runtime|s)\u001f\(.timeoutSec // 300 | s)"),
     ((.check.fullWhen // [])[] | "W\u001f\(.|s)"),
     ((.check.knownFailures // [])[] | "F\u001f\(.step|s)\u001f\(.pattern|s)"),
     "T\u001f\(.testLock.ttlHours // 6 | s)"'; then
@@ -168,7 +168,7 @@ EOF
 
 # skip = krok sa zmien netýka · block = krok sa nedal spustiť (verdikt najviac PARTIAL)
 dk_skip() { STEPLINES="${STEPLINES}– $1: $2$DK_NL"; NSKIP=$((NSKIP + 1)); }
-dk_block() { STEPLINES="${STEPLINES}! $1: $2$DK_NL"; BLOCKIDS="$BLOCKIDS$1$DK_NL"; NSKIP=$((NSKIP + 1)); NBLOCK=$((NBLOCK + 1)); }
+dk_block() { STEPLINES="${STEPLINES}${3:-! $1: $2}$DK_NL"; BLOCKIDS="$BLOCKIDS$1$DK_NL"; NSKIP=$((NSKIP + 1)); NBLOCK=$((NBLOCK + 1)); }
 
 # Záznamy zraniteľností: composer audit (plain aj table: bloky od Package: za hlavičkou „Found N … security
 # vulnerability advisor…“, bez blokov s Ignore reason:) a pip-audit (riadky pod hlavičkou Name Version ID).
@@ -246,13 +246,14 @@ EOF
     return 0
 }
 
-while IFS=$DK_US read -r tag id req run runf exts modes cl rt <&3; do
+while IFS=$DK_US read -r tag id req run runf exts modes cl rt tsec <&3; do
     [ "$tag" = S ] || continue
     [ -n "$id" ] || continue
     case ",$modes," in *",$mode,"*) ;; *) continue ;; esac
     dk_rule_on "step:$id" || continue
     if [ -n "$req" ] && [ ! -e "$DK_PROJECT/$req" ]; then dk_skip "$id" "chýba $req"; continue; fi
     if ! dk_runtime "$rt"; then dk_block "$id" "neznámy runtime \"$rt\" (host|container)"; continue; fi
+    case "$tsec" in ''|*[!0-9]*) dk_block "$id" "neplatný timeoutSec \"$tsec\" (celé číslo ≥ 0)"; continue ;; esac
     srt=$DK_RT
     # Krok na hoste nečaká na kontajner ani mapovanie worktree.
     if [ "$srt" = container ]; then
@@ -301,17 +302,21 @@ EOF
     esac
 
     s0=$(dk_ms)
-    dk_exec "$cmd" "$srt" > "$DK_TMP/step.raw"
+    dk_exec "$cmd" "$srt" "$tsec" > "$DK_TMP/step.raw"
     rc=$?
     LC_ALL=C sed "s/$(printf '\033')\[[0-9;]*[A-Za-z]//g" "$DK_TMP/step.raw" > "$DK_TMP/step.out"
     ms=$(( $(dk_ms) - s0 ))
+    tmo=""
+    [ "$DK_EXEC_TIMEOUT" = 1 ] && tmo=" · prekročil timeoutSec $tsec s"
     {
         echo
-        echo "=== $id · exit $rc · $(dk_fmt_s "$ms") s"
+        echo "=== $id · exit $rc · $(dk_fmt_s "$ms") s$tmo"
         echo "\$ $cmd"
         cat "$DK_TMP/step.out"
     } 2>/dev/null >> "$LOG"
 
+    # Časový limit: krok nedobehol, výsledok nie je o kóde → PARTIAL (Stop neblokuje, commit gate vysvetlí).
+    if [ -n "$tmo" ]; then dk_block "$id" "" "! krok $id prekročil $tsec s"; continue; fi
     if [ "$rc" = 0 ]; then
         STEPLINES="${STEPLINES}✓ $id $(dk_fmt_s "$ms") s$DK_NL"; NOK=$((NOK + 1)); continue
     fi
@@ -388,7 +393,7 @@ fi
 # fullWhen prepol na full, ale config nemá krok len pre jeden z režimov quick/full.
 if [ "$AUTO_FULL" = 1 ]; then
     same=1
-    while IFS=$DK_US read -r tag id req run runf exts modes cl rt; do
+    while IFS=$DK_US read -r tag id req run runf exts modes cl rt tsec; do
         [ "$tag" = S ] && [ -n "$id" ] || continue
         dk_rule_on "step:$id" || continue
         case ",$modes," in *,full,*) a=1 ;; *) a=0 ;; esac

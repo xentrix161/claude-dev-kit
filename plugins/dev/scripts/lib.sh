@@ -438,23 +438,98 @@ dk_runtime() {
 }
 
 # Spustí príkaz v kontajneri (docker exec -i -w) alebo na hoste v DK_PROJECT; stderr ide do stdout.
-# Druhý parameter host = na hoste aj pri nastavenom kontajneri.
+# Druhý parameter host = na hoste aj pri nastavenom kontajneri. Tretí = limit v sekundách (prázdny či 0 = bez
+# limitu): po ňom TERM celému stromu procesov, o 2 s KILL, návrat 124 a DK_EXEC_TIMEOUT=1 (SPEC §4.5).
 dk_exec() {
-    local cmd="$1" wd
+    local cmd="$1" lim="${3:-0}" ct="" hl pid w rc t0 mark
+    DK_EXEC_TIMEOUT=0
+    case "$lim" in ''|*[!0-9]*) lim=0 ;; esac
     dk_base
+    [ "$lim" -gt 0 ] || { dk__exec "$cmd" "${2:-}" ""; return; }
+    hl=$lim
+    # V kontajneri limit drží timeout v ňom; hostiteľ zabije len klienta docker exec, preto až s rezervou.
+    if [ "${2:-}" != host ] && [ -n "${DK_CONTAINER:-}" ]; then ct=$lim; hl=$((lim + 5)); fi
+    dk_tmpdir
+    mark="$DK_TMP/exec-timeout.$$"
+    rm -f "$mark"
+    [ -z "$ct" ] || t0=$(dk_ms)
+    dk__exec "$cmd" "${2:-}" "$ct" &
+    pid=$!
+    dk__watchdog "$pid" "$hl" "$mark" </dev/null >/dev/null 2>&1 &
+    w=$!
+    { wait "$pid"; } 2>/dev/null
+    rc=$?
+    if [ -f "$mark" ]; then
+        { wait "$w"; } 2>/dev/null
+        DK_EXEC_TIMEOUT=1
+    else
+        { kill "$w"; wait "$w"; } 2>/dev/null
+        [ -z "$ct" ] || [ "$rc" != 124 ] || [ $(( $(dk_ms) - t0 )) -lt $((lim * 1000)) ] || DK_EXEC_TIMEOUT=1
+    fi
+    rm -f "$mark"
+    [ "$DK_EXEC_TIMEOUT" = 0 ] || return 124
+    return "$rc"
+}
+
+# <príkaz> <host|""> <limit v kontajneri|""> — bez limitu presne ako docker exec … sh -c "<príkaz>".
+dk__exec() {
+    local cmd="$1" ct="${3:-}" wd
     if [ "${2:-}" != host ] && [ -n "${DK_CONTAINER:-}" ]; then
         wd=${DK_WD:-}
         if [ -z "$wd" ]; then
             wd=$(dk_workdir 2>/dev/null) || return 125
         fi
+        set -- sh -c "$cmd"
+        # timeout z coreutils či busyboxu, ak ho kontajner má a pozná tvar „timeout N príkaz“; inak bez neho.
+        [ -z "$ct" ] || set -- sh -c 'timeout 1 true 2>/dev/null && exec timeout "$0" sh -c "$1"; exec sh -c "$1"' "$ct" "$cmd"
         if [ "$wd" = "/" ] && [ -z "${DK_APPROOT:-}" ]; then
-            docker exec -i "$DK_CONTAINER" sh -c "$cmd" </dev/null 2>&1
+            docker exec -i "$DK_CONTAINER" "$@" </dev/null 2>&1
         else
-            docker exec -i -w "$wd" "$DK_CONTAINER" sh -c "$cmd" </dev/null 2>&1
+            docker exec -i -w "$wd" "$DK_CONTAINER" "$@" </dev/null 2>&1
         fi
     else
         (cd "$DK_PROJECT" && sh -c "$cmd") </dev/null 2>&1
     fi
+}
+
+# <pid> <sekundy> <značka>: po limite značka, TERM stromu procesov, po 2 s KILL tých, čo prežili.
+dk__watchdog() {
+    local i=0 t p alive=""
+    while [ "$i" -lt "$2" ]; do
+        sleep 1
+        kill -0 "$1" 2>/dev/null || return 0
+        i=$((i + 1))
+    done
+    : > "$3"
+    t=$(dk__ptree "$1")
+    # shellcheck disable=SC2086
+    kill -TERM $t 2>/dev/null
+    i=0
+    while [ "$i" -lt 10 ]; do
+        sleep 0.2
+        alive=""
+        for p in $t; do kill -0 "$p" 2>/dev/null && alive="$alive $p"; done
+        [ -n "$alive" ] || return 0
+        i=$((i + 1))
+    done
+    # shellcheck disable=SC2086
+    kill -KILL $alive 2>/dev/null
+}
+
+# <pid> a jeho potomkovia (ps -A); bez ps len <pid>.
+dk__ptree() {
+    local t
+    t=$(ps -A -o pid= -o ppid= 2>/dev/null | awk -v r="$1" '
+        { c[$2] = c[$2] " " $1 }
+        END {
+            q = r
+            while (q != "") {
+                n = split(q, a, " "); q = ""
+                for (i = 1; i <= n; i++) if (!s[a[i]]++) { o = o " " a[i]; q = q c[a[i]] }
+            }
+            print o
+        }')
+    printf '%s\n' "${t:-$1}"
 }
 
 # Glob → ERE (SPEC §3): **/ = 0+ adresárov, ** = čokoľvek, * = bez '/', ? = 1 znak, koncové '/' = prefix.

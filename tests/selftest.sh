@@ -2221,6 +2221,81 @@ t_check_files_prefers_runfiles() {
     && want_out '– nx: žiadne zmenené súbory' "--files bez .php" || return 1
   [ ! -d "$REPO/.marks" ] || fail "--files bez .php: krok bežal ($(ls "$REPO/.marks" | tr '\n' ' '))"
 }
+# Časový limit kroku (timeoutSec, SPEC §3, §4.5): ms = milisekundy hodín (perl, inak date).
+ms() { perl -MTime::HiRes=time -e 'printf "%d\n", time() * 1000' 2>/dev/null || echo $(( $(date +%s) * 1000 )); }
+t_check_step_timeout() {
+  new_case
+  cfg --arg s 'mkdir -p .marks; sleep 5 & echo $! > .marks/sleep.pid; wait; : > .marks/slept' \
+    '.check.steps = [{"id": "spi", "run": $s, "timeoutSec": 1, "modes": ["quick"]},
+      {"id": "nula", "run": "sleep 1 && sh bin/fake-ok nula", "timeoutSec": 0, "modes": ["quick"]},
+      {"id": "bez", "run": "sh bin/fake-ok bez", "modes": ["quick"]}]'
+  add app/Foo.php '$t = 1;'
+  local t0 dt p
+  t0=$(ms)
+  check --quick --project "$REPO"
+  dt=$(( $(ms) - t0 ))
+  want_rc 4 && want_out 'check quick: PARTIAL · 2 ok · 0 fail · 1 skip' && want_out '! krok spi prekročil 1 s' \
+    && want_out '✓ nula' && want_out '✓ bez' || return 1
+  [ "$dt" -lt 4000 ] || { fail "krok so sleep 5 a limitom 1 s: check trval $dt ms (čakal som do 3 s)"; return 1; }
+  [ ! -e "$REPO/.marks/slept" ] || { fail "príkaz po limite dobehol"; return 1; }
+  p=$(cat "$REPO/.marks/sleep.pid" 2>/dev/null)
+  [ -n "$p" ] && ! kill -0 "$p" 2>/dev/null || { fail "sleep (potomok príkazu, pid '$p') po limite stále beží"; return 1; }
+  [ ! -f "$PDATA/pass.json" ] || { fail "pass.json napriek PARTIAL"; return 1; }
+  want_jfile "$PDATA/partial.json" '.steps == ["spi"] and .lines == ["! krok spi prekročil 1 s"] and .ok == 2' || return 1
+  grep -q '^=== spi · exit 124 · .* · prekročil timeoutSec 1 s$' "$(printf '%s\n' "$OUT" | sed -n 's/^log: //p')" ||
+    { fail "log bez riadku === spi · exit 124 · … · prekročil timeoutSec 1 s"; return 1; }
+  cfg '.check.steps = [{"id": "spi", "run": "true", "timeoutSec": "x", "modes": ["quick"]},
+    {"id": "ok", "run": "sh bin/fake-ok ok", "timeoutSec": 2.5, "modes": ["quick"]}]'
+  check --quick --project "$REPO"
+  want_rc 4 "neplatný timeoutSec" && want_out '! spi: neplatný timeoutSec "x" (celé číslo ≥ 0)' "neplatný timeoutSec" \
+    && want_out '! ok: neplatný timeoutSec "2.5" (celé číslo ≥ 0)' "neplatný timeoutSec"
+}
+t_stop_step_timeout_once() {
+  new_case
+  cfg --arg s 'mkdir -p .marks && echo run >> .marks/spi.calls && sleep 5' \
+    '.check.steps += [{"id": "spi", "run": $s, "timeoutSec": 1, "modes": ["stop"]}]'
+  add app/Foo.php '$t = 2;'
+  session_files app/Foo.php
+  stop_check
+  want_rc 0 "1. Stop" && want_no_block "1. Stop" \
+    && want_json '.hookSpecificOutput.additionalContext | contains("[partial] tieto kroky sa nedali spustiť, nie sú overené:")
+      and contains("! krok spi prekročil 1 s")' "1. Stop" || return 1
+  want_jfile "$PDATA/sessions/$SID.stop.json" '.result == "PARTIAL"' || return 1
+  stop_check true
+  want_rc 0 "2. Stop" && want_silent "2. Stop" || return 1
+  [ "$(grep -c . "$REPO/.marks/spi.calls" 2>/dev/null)" = 1 ] ||
+    fail "nezmenený obsah po prekročení limitu, krok napriek tomu bežal znova ($(grep -c . "$REPO/.marks/spi.calls" 2>/dev/null)×)"
+}
+# Kontajner: limit drží timeout v kontajneri (obal sh -c), exit 124 po limite = prekročenie, rýchly 124 = zlyhanie.
+t_check_step_timeout_container() {
+  new_case
+  DOCKER_OK=1
+  local fb="$CASE/fakebin"
+  mkdir -p "$fb" && cat > "$fb/docker" <<'EOF'
+#!/bin/sh
+echo "$*" >> "${DK_FAKE_DOCKER_LOG:-/dev/null}"
+case "$1" in
+  inspect) echo true; exit 0 ;;
+  exec) case "$*" in *pomaly*) sleep 2; exit 124 ;; *rychly124*) exit 124 ;; esac; exit 0 ;;
+esac
+exit 1
+EOF
+  chmod +x "$fb/docker" || { fail "fixture: atrapa docker"; return 1; }
+  export PATH="$fb:$PATH"
+  cfg '.container = "c" | .appRoot = "/application" | .check.steps = [
+    {"id": "pomaly", "run": "pomaly", "timeoutSec": 1, "modes": ["quick"]},
+    {"id": "rychly", "run": "rychly124", "timeoutSec": 1, "modes": ["quick"]},
+    {"id": "nula", "run": "nula", "timeoutSec": 0, "modes": ["quick"]},
+    {"id": "bez", "run": "bez", "modes": ["quick"]}]'
+  add app/Foo.php '$t = 3;'
+  check --quick --project "$REPO"
+  want_rc 1 && want_out '! krok pomaly prekročil 1 s' && want_out '✗ rychly' && want_out '✓ nula' && want_out '✓ bez' || return 1
+  local w='sh -c timeout 1 true 2>/dev/null && exec timeout "$0" sh -c "$1"; exec sh -c "$1"'
+  docker_calls | grep -qxF -- "exec -i -w /application c $w 1 pomaly" &&
+    docker_calls | grep -qxF -- "exec -i -w /application c $w 300 bez" &&
+    docker_calls | grep -qxF -- "exec -i -w /application c sh -c nula" ||
+    fail "docker exec s obalom timeout: $(flat "$(docker_calls | grep '^exec ')")"
+}
 t_check_auto_full_same_steps() {
   new_case
   cfg '.check.steps |= map(select(.id != "fullonly"))'
@@ -3365,7 +3440,7 @@ t() { # t <názov> <funkcia>
 
 [ -d "$S" ] || echo "# varovanie: chýba $S — všetky prípady zlyhajú"
 
-# Najdlhšie prípady (tabuľky cmd-parse, pre-bash.sh či check.sh v cykle) idú prvé, aby sa na ne nečakalo na konci.
+# Najdlhšie prípady (tabuľky cmd-parse, pre-bash.sh či check.sh v cykle, čakanie na limit kroku) idú prvé, aby sa na ne nečakalo na konci.
 t "pre-bash parser (1/6): tabuľka cmd-parse.tsv — báza, kandidáti a riadky U/N/R" t_cmd_parse_1
 t "pre-bash parser (2/6): tabuľka cmd-parse.tsv — báza, kandidáti a riadky U/N/R" t_cmd_parse_2
 t "pre-bash parser (3/6): tabuľka cmd-parse.tsv — báza, kandidáti a riadky U/N/R" t_cmd_parse_3
@@ -3381,6 +3456,9 @@ t "pre-bash: globálne prepínače gitu, env priradenia a obaly pred commit → 
 t "pre-bash: rebase|merge|cherry-pick|revert|am --continue = commit staged súborov (tajomstvo, gate, git add pred ním) (D1)" t_bash_continue_gate
 t "test-lock.sh: blob testu pri lock; zmena cez Bash → check --stop/--auto/--quick FAIL s riadkom zámku, Stop blok, commit deny; opätovný lock blob nemení; po unlock PASS (D3)" t_test_lock_bash_change
 t "pre-bash: deny pri PARTIAL a 10 súboroch ≤ 13 riadkov, „Spusti kontrolu“ posledný (aj pri 2 repách, spolu ≤ 20); ≤ 8 súborov → --files, cudzí súbor kontrolu nezhodí (D5)" t_bash_gate_deny_tail
+t "check.sh: timeoutSec — sleep 5 s limitom 1 s → PARTIAL do 3 s, strom procesov zabitý, partial.json; 0 a bez poľa bez zmeny; neplatná hodnota → ! (D2)" t_check_step_timeout
+t "stop-check: krok prekročil timeoutSec → [partial] bez bloku, nezmenený obsah druhý Stop bez behu kroku (D2)" t_stop_step_timeout_once
+t "check.sh v kontajneri: timeoutSec cez timeout v kontajneri (obal sh -c), 124 po limite = prekročil, rýchly 124 = ✗, 0 bez obalu (D2)" t_check_step_timeout_container
 
 t "on-edit: chyba lintera na pridanom riadku → exit 2, [dev-kit] a rel:riadok" t_edit_lint_added
 t "on-edit: php -l „on line N“ na pridanom riadku → exit 2" t_edit_parse_error

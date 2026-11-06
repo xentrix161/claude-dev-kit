@@ -143,7 +143,7 @@ and keys starting with `_` (template notes such as `_init`) are ignored. Example
       {"id": "phpcs", "requires": "vendor/bin/phpcs", "runFiles": "php vendor/bin/phpcs -q -n --report=emacs --standard=PSR12 {files}",
        "ext": [".php"], "modes": ["quick", "full"], "changedLinesOnly": true},
       {"id": "latte", "requires": "vendor/bin/latte-lint", "runFiles": "r=0; for f in {files}; do php vendor/bin/latte-lint \"$f\" || r=1; done; exit $r", "ext": [".latte"], "modes": ["quick", "full"]},
-      {"id": "integration", "requires": "vendor/bin/phpunit", "run": "php vendor/bin/phpunit --testsuite integration", "modes": ["full"]}
+      {"id": "integration", "requires": "vendor/bin/phpunit", "run": "php vendor/bin/phpunit --testsuite integration", "modes": ["full"], "timeoutSec": 900}
     ],
     "fullWhen": ["app/models/**", "libs/**", "db/**", "app/presenters/**"],
     "knownFailures": [{"step": "integration", "pattern": "Tests\\\\Integration\\\\Example::testFlaky"}]
@@ -194,6 +194,12 @@ Semantics:
   relative to P (shell-quoted). If P is not under MAIN ⇒ step SKIP with message
   `worktree mimo mountu kontajnera`.
 - `requires`: path relative to P checked on the HOST (in both runtimes); missing ⇒ step SKIP `chýba <path>`.
+- `timeoutSec` (per step, optional): limit of one run of the step in seconds, default 300, `0` = no limit; any
+  value other than an integer ≥ 0 ⇒ the step is blocked `! <id>: neplatný timeoutSec "<x>" (celé číslo ≥ 0)`.
+  Over the limit ⇒ blocked with the line `! krok <id> prekročil <N> s` (§4.5). Lint commands have no limit
+  (the PostToolUse hook timeout bounds them). The Stop hook timeout (600 s, §4) is not split among the steps:
+  stop-mode steps whose limits add up to more (the templates' `phpstan`, `unit` and `tester` at the default 300 s)
+  can still hit it; Claude Code then ends the hook without a decision.
 - Container not running (`docker inspect -f '{{.State.Running}}'` ≠ true) ⇒ container steps SKIP
   `kontajner <c> nebeží`; `runtime: host` steps and lint commands run regardless.
 - `changedLinesOnly` (per step): `true` = keep only output lines on added lines (same filter as on-edit,
@@ -284,8 +290,16 @@ stop-check and skills run changed commands without consuming the change), `dk_cf
 `[dev-kit] devkit.json sa zmenil — príkazy: <a> · <b>` from `DK_CFG_CMDS`, at most 5 then `· … ďalšie: K`;
 none ⇒ `príkazy: žiadny nový ani zmenený`),
 `dk_main_root`, `dk_rel <abs-path>` (relative to DK_PROJECT; empty if outside), `dk_workdir`
-(container workdir, empty+message if outside mount), `dk_exec <cmd> [runtime]` (runs in container or host,
-returns exit code, merges stderr into stdout; runtime `host` ⇒ host even when `container` is set),
+(container workdir, empty+message if outside mount), `dk_exec <cmd> [runtime] [limit]` (runs in container or host,
+returns exit code, merges stderr into stdout; runtime `host` ⇒ host even when `container` is set; `limit` in
+seconds, empty or `0` = none: the command runs in the background with a watchdog subshell (stdio `/dev/null`, no
+`timeout` on the host) that after `limit` s sends TERM to the process tree (`ps -A -o pid= -o ppid=`; without `ps`
+only the job itself) and after 2 more s KILL to the survivors; then returns 124 with `DK_EXEC_TIMEOUT=1`. In the
+container the command runs as `sh -c 'timeout 1 true 2>/dev/null && exec timeout "$0" sh -c "$1"; exec sh -c
+"$1"' <limit> <cmd>` and the host watchdog waits `limit` + 5 s; exit 124 after at least `limit` s counts as over the
+limit. Known limitation: a container without a working `timeout` (coreutils, busybox ≥ 1.30) gets the command without
+it, the watchdog then kills only the `docker exec` client and the process in the container can run on. Without
+`limit` the call is exactly `docker exec … sh -c "<cmd>"` / `sh -c "<cmd>"` (on-edit lint)),
 `dk_runtime <value>` (effective runtime of a step or lint command into `DK_RT`: `host`, or `container`
 when `container` is set and the value is empty or `container`, else `host`; any other value returns 1), `dk_container_ok` (0 when container unset or running; reuses
 `container.state` (§2) younger than 30 s for the same container, otherwise asks `docker inspect` and writes
@@ -612,7 +626,11 @@ flags in any order; `--files` consumes paths until the next `--` flag.
   `requires`, no changed files for its `ext`, tool output `No files were checked` without any finding
   line (`nástroj nič neskontroloval (No files were checked)`). **Blocked** — the step should run but could
   not (line `! <id>: <reason>`, verdict at most PARTIAL): container not running or worktree outside its
-  mount, unknown `runtime`, no `run`/`runFiles`, exit 125–127, output without any finding line that matches `DK_RE_INFRA`
+  mount, unknown `runtime`, invalid `timeoutSec`, no `run`/`runFiles`, the run over `timeoutSec` (§3; line
+  `! krok <id> prekročil <N> s`, the log header `=== <id> · exit 124 · <s> s · prekročil timeoutSec <N> s`; a step
+  that did not finish says nothing about the code, and Stop and the commit gate treat it like any other blocked
+  step: `partial.json`, `stop.json` with `PARTIAL`, so an unchanged Stop does not run it again), exit 125–127,
+  output without any finding line that matches `DK_RE_INFRA`
   (`chyba prostredia, nie kódu (<match>)`; Docker, missing files and the network errors of `composer`/`pip-audit`:
   `curl error <n> while downloading`, `could not be downloaded`, `Max retries exceeded`, `network may be blocking
   this service`). A finding line (`DK_RE_FINDING`) is a numbered line (`:<n>`, `on line <n>`), a Nette Tester

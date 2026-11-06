@@ -43,6 +43,7 @@ Pri kóde 4:
 - `worktree mimo mountu kontajnera` → worktree nie je pod koreňom repa, ktorý kontajner mountuje.
 - `príkaz sa nedá spustiť (exit 126/127)` → príkaz z `devkit.json` neexistuje alebo nie je spustiteľný; navrhni opravu `run`/`runFiles`.
 - `chyba prostredia, nie kódu (…)` → zlyhal docker alebo nástroj, nie kód; cituj hlásenie.
+- `krok <id> prekročil <N> s` → krok nedobehol v limite `timeoutSec` (predvolene 300 s) a bol ukončený; povedz to a navrhni používateľovi zistiť príčinu (zaseknutý test, čakanie na službu) alebo vyšší `timeoutSec` kroku. Limit sám nemeň.
 - `žiadne kroky pre režim <režim>` → žiadny krok nemá tento režim v `modes`.
 
 ## 3. FAIL — rozbor
