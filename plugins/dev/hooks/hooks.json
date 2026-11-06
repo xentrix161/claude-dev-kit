@@ -12,7 +12,7 @@
       {"matcher": "Edit|Write|NotebookEdit", "hooks": [{"type": "command", "command": "bash \"${CLAUDE_PLUGIN_ROOT}/scripts/on-edit.sh\"", "timeout": 60}]}
     ],
     "Stop": [
-      {"hooks": [{"type": "command", "command": "bash \"${CLAUDE_PLUGIN_ROOT}/scripts/stop-check.sh\"", "timeout": 600}]}
+      {"hooks": [{"type": "command", "command": "bash \"${CLAUDE_PLUGIN_ROOT}/scripts/stop-check.sh\"", "timeout": 600, "statusMessage": "[dev-kit] Stop kontrola…"}]}
     ],
     "PreCompact": [
       {"hooks": [{"type": "command", "command": "bash \"${CLAUDE_PLUGIN_ROOT}/scripts/pre-compact.sh\"", "timeout": 10}]}

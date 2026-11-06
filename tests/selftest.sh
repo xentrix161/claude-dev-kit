@@ -3696,6 +3696,21 @@ t_hooks_tools_no_if() {
   done
   ! grep -rq 'MultiEdit' "$KIT/plugins/dev" 2>/dev/null || fail "MultiEdit v $(grep -rl 'MultiEdit' "$KIT/plugins/dev" | head -1)"
 }
+# E9: hooks.json = blok SPEC §4, Stop so statusMessage; metadáta plugin.json (repo z README, licencia z LICENSE).
+t_manifest_meta() {
+  local hj="$KIT/plugins/dev/hooks/hooks.json" pj="$KIT/plugins/dev/.claude-plugin/plugin.json" repo
+  new_case nocfg
+  awk '/^## 4\. Hooks/ { s = 1 } s && /^```json$/ { b = 1; next } b && /^```$/ { exit } b { print }' "$KIT/docs/SPEC.md" > "$CASE/spec.json"
+  [ "$(jq -cS . "$CASE/spec.json" 2>&1)" = "$(jq -cS '{hooks}' "$hj" 2>&1)" ] ||
+    { fail "hooks.json sa líši od bloku v SPEC §4"; return 1; }
+  jq -e '.hooks.Stop[0].hooks[0].statusMessage | startswith("[dev-kit] ")' "$hj" >/dev/null 2>&1 ||
+    { fail "hooks.json: Stop bez statusMessage „[dev-kit] …“"; return 1; }
+  repo=$(LC_ALL=C sed -n 's/^claude plugin marketplace add \([[:alnum:]_.-]*\/[[:alnum:]_.-]*\)$/\1/p' "$KIT/README.md" | head -n 1)
+  jq -e --arg u "https://github.com/$repo" '.homepage == $u and .repository == $u and .license == "MIT"
+    and (.keywords | type == "array" and length > 0 and all(type == "string"))' "$pj" >/dev/null 2>&1 &&
+    [ -n "$repo" ] && [ "$(sed -n 1p "$KIT/LICENSE")" = "MIT License" ] ||
+    fail "plugin.json: homepage a repository = https://github.com/${repo:-?}, license MIT podľa LICENSE, keywords"
+}
 # B13: additionalContext karty a Stopu aj stdout PreCompact najviac 9 000 jednotiek UTF-16, potom „…“;
 # dk_cap ráta znak mimo BMP za 2 (jednotková časť priamo v jq), pre-compact bez U+FFFD (jq -R z rúry).
 cap_ok() { # <text> <popis>
@@ -4032,6 +4047,7 @@ t "eval suite: prompt.md a gradery, fixture shop zo scaffold.sh (PARTIAL, commit
 t "pre-compact: hooks.json PreCompact; bez devkit.json, bez jq, s neplatným configom a bez stavu session exit 0 bez výstupu" t_pre_compact_silent
 t "pre-compact: plain text (nie JSON) — súbory session (8 + ďalšie), Stop len tejto session, pass.json, zámok a handoff < 24 h" t_pre_compact_facts
 t "hooks.json: Edit|Write|NotebookEdit bez MultiEdit, žiadny handler s if; agenti bez MultiEdit" t_hooks_tools_no_if
+t "hooks.json = blok SPEC §4, Stop so statusMessage; plugin.json homepage, repository, license MIT, keywords (E9)" t_manifest_meta
 t "karta, Stop a pre-compact: text pre Clauda najviac 9 000 znakov UTF-16 s „…“ (dlhý handoff a say)" t_hook_text_cap
 t "partial.json, pass.json, test-lock.json a stats.sh: diakritika cez hranicu bloku čítania jq bez U+FFFD" t_jq_multibyte
 t "šablóny: ask na git reset --hard, clean, stash drop/clear, branch -D a docker volume/system prune, composer (php), alembic upgrade a manage.py migrate (python); git restore nie (D9)" t_templates_ask_destructive

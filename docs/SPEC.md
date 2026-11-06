@@ -67,7 +67,7 @@ version is only in `plugins/dev/.claude-plugin/plugin.json`, changes per version
 KIT/
   .claude-plugin/marketplace.json     # {"name":"dev-kit","owner":{"name":"dev-kit"},"plugins":[{"name":"dev","source":"./plugins/dev","description":"…"}]}
   plugins/dev/
-    .claude-plugin/plugin.json        # {"name":"dev","version":"x.y.z","description":"…","author":{"name":"dev-kit"}}
+    .claude-plugin/plugin.json        # {"name":"dev","version":"x.y.z","description":"…","author":{"name":"dev-kit"},"homepage":"<repo>","repository":"<repo>","license":"MIT","keywords":[…]}
     hooks/hooks.json
     scripts/   lib.sh check.sh on-edit.sh pre-edit.sh pre-bash.sh cmd-parse.sh stop-check.sh session-card.sh pre-compact.sh test-lock.sh stats.sh
     skills/    <command skills> <reference skills>   (see §5)
@@ -83,8 +83,9 @@ KIT/
   Makefile  README.md  CHANGELOG.md  LICENSE  docs/SPEC.md  docs/devkit-json.md (§3, for humans)  docs/DEVELOPMENT.md
   .github/workflows/check.yml           # kit CI: validate + selftest on Linux and macOS (§9)
 ```
-Version lives only in `plugin.json` (never in the marketplace entry). The kit's own code is MIT (`LICENSE`);
-the ECC MIT text stays in `plugins/dev/LICENSES/`.
+Version lives only in `plugin.json` (never in the marketplace entry). The kit's own code is MIT (`LICENSE`, hence
+`"license": "MIT"`); the ECC MIT text stays in `plugins/dev/LICENSES/`. `homepage` and `repository` = the GitHub URL
+of the repo named in README (`claude plugin marketplace add <owner>/<repo>`); `keywords` are discovery tags.
 
 ## 2. Data directory
 
@@ -270,11 +271,13 @@ Semantics:
       {"matcher": "Bash", "hooks": [{"type": "command", "command": "bash \"${CLAUDE_PLUGIN_ROOT}/scripts/pre-bash.sh\"", "timeout": 60}]}
     ],
     "PostToolUse": [{"matcher": "Edit|Write|NotebookEdit", "hooks": [{"type": "command", "command": "bash \"${CLAUDE_PLUGIN_ROOT}/scripts/on-edit.sh\"", "timeout": 60}]}],
-    "Stop": [{"hooks": [{"type": "command", "command": "bash \"${CLAUDE_PLUGIN_ROOT}/scripts/stop-check.sh\"", "timeout": 600}]}],
+    "Stop": [{"hooks": [{"type": "command", "command": "bash \"${CLAUDE_PLUGIN_ROOT}/scripts/stop-check.sh\"", "timeout": 600, "statusMessage": "[dev-kit] Stop kontrola…"}]}],
     "PreCompact": [{"hooks": [{"type": "command", "command": "bash \"${CLAUDE_PLUGIN_ROOT}/scripts/pre-compact.sh\"", "timeout": 10}]}]
   }
 }
 ```
+The Stop handler carries `statusMessage` (hooks.md, Common fields: spinner text while the hook runs) — the kit's
+slowest hook says what Claude Code waits for. `{hooks}` of `hooks.json` equals this block (selftest `t_manifest_meta`).
 Known limitation: Claude Code cancels a hook that runs past its `timeout`, and the tool call then goes on as if the
 hook had allowed it. The Bash handler (commit gate and secrets check, §4.4) therefore gets 60 s and handles file sets in
 linear time (§4.4; selftest: 3 000 files well under 10 s). `onFailure: "block"` is deliberately not set: a slow
