@@ -1,96 +1,122 @@
 <!--
-dev-kit šablóna php-symfony. /dev:project-init doplní {{…}} (tabuľka Zástupné symboly v jeho SKILL.md), zmaže riadky, ktoré pre projekt neplatia,
-a tento komentár odstráni. Cieľ ≤ 120 riadkov; témy patria do .claude/rules/*.md (načítajú sa podľa paths:).
-Placeholdery:
-  {{projectName}}     názov projektu
-  {{projectDescription}} 1–2 vety: čo appka robí a pre koho
-  {{phpVersion}} {{symfonyVersion}} {{database}}   napr. 8.4 · 8.0 · MySQL 8.0
-  {{container}} {{appRoot}}   PHP kontajner a cesta projektu v ňom (rovnaké ako v .claude/devkit.json)
-  {{run}} = prefix príkazov vrátane medzery na konci: `docker exec {{container}} ` (bez -it; pri inom workdir `docker exec -w {{appRoot}} {{container}} `)
-                      alebo prázdne, keď sa príkazy púšťajú na hostiteľovi
-  {{phpstanConfig}}   napr. phpstan.dist.neon
+Šablóna dev-kit (php-symfony). /dev:project-init vyplní {{…}} podľa tabuľky Zástupné symboly vo svojom SKILL.md;
+nezistený symbol zmaž bez otázky (riadok alebo jeho časť) — prázdny placeholder nenechávaj. Strom v Architektúre uprav podľa repa.
+Limit 120 riadkov; tematické detaily patria do .claude/rules/*.md (paths:).
+Nepíš sem počty testov, časy behu ani dáta — zastarajú.
+{{run}} = prefix príkazov vrátane medzery na konci: `docker exec {{container}} ` (bez -it; pri inom workdir
+`docker exec -w {{appRoot}} {{container}} `), alebo prázdne, keď sa príkazy púšťajú na hostiteľovi
+(container ""; vtedy zmaž aj riadok Docker v Stacku a riadok o TTY v Príkazoch).
+{{vendorFrontendPaths}} = čiarka, medzera a cesty commitnutých frontend knižníc v spätných apostrofoch
+(napr. „, `public/js/vendor/`“), alebo prázdne — pravidlo 7 ostane bez visiacej čiarky.
+Riadky s HTML komentárom závisia od composer.json (project-init krok 1): api-platform len s balíkom api-platform/*,
+fe:assetmapper pri symfony/asset-mapper, fe:encore pri symfony/webpack-encore-bundle. Ponechaj riadky zisteného
+variantu a značku z nich odstráň aj s medzerou pred ňou (v tabuľke stojí pred posledným |); ostatné riadky so značkou zmaž.
+Testy: príkazy rýchlej a pomalej sady ako kroky phpunit a integration v devkit.json (init ich vyberie podľa phpunit.xml).
+Nástroj, ktorého krok alebo lint init vypustil, zmaž aj bez symbolu: PHPStan (v Kvalite, riadok v Príkazoch, veta o baseline),
+PHPUnit, PHP CS Fixer, lint:yaml a lint:twig (v Kvalite, ich riadky v Príkazoch), bez kroku doctrine-schema riadok schémy,
+bez kroku integration vetu za „—“ pri /dev:check --auto, bez kroku migration riadok testov migrácií v Príkazoch
+aj vetu o sade migration v Overovaní práce.
 -->
-# CLAUDE.md
-
-Kontext pre Claude Code v tomto repozitári. Tematické pravidlá sú v `.claude/rules/` a načítajú sa podľa cesty
-súboru: `php-core`, `symfony`, `doctrine`, `twig-frontend`, `api-platform`, `tests`.
+# CLAUDE.md — {{projectName}}
 
 ## Projekt
 
-{{projectName}} — {{projectDescription}}
+- {{projectDescription}}
+- Doménové pojmy: {{domainTerms}}
+- Stav úloh a rozhodnutia: `{{handoffDoc}}`
 
 ## Stack
 
-- PHP {{phpVersion}}, Symfony {{symfonyVersion}}, Twig, Doctrine ORM + Migrations
-- API Platform — verejné API (ak projekt API Platform nemá, riadok zmaž)
-- {{database}} · PHPUnit · PHPStan + phpstan-symfony (`{{phpstanConfig}}`)
-- Docker: kontajner `{{container}}`, projekt je v ňom pod `{{appRoot}}`
+- PHP {{phpVersion}} · Symfony {{symfonyVersion}} · Twig
+- Doctrine ORM + Migrations · {{database}}
+- API Platform — verejné API <!-- api-platform -->
+- Docker: aplikácia `{{container}}` (repo mountnuté na `{{appRoot}}`), databáza `{{dbContainer}}`
+- Kvalita: PHPStan level {{phpstanLevel}} + phpstan-symfony (`{{phpstanConfig}}`), PHPUnit, PHP CS Fixer, lint:yaml, lint:twig
+- Frontend: {{frontendStack}}
 
 ## Príkazy
 
-Agent nemá TTY → nikdy `docker exec -it` (padne na „the input device is not a TTY").
+Agent nemá TTY → `docker exec` **bez `-it`** (make ciele s `-it` padnú: „the input device is not a TTY").
 
-```bash
-{{run}}php bin/console cache:clear
-{{run}}php bin/console debug:router            # routy; debug:container <id>, debug:autowiring <typ>
-{{run}}php bin/console importmap:install       # stiahne assets/vendor/ po čerstvom klone
-```
+| Úloha | Príkaz | Zdravý výstup |
+|---|---|---|
+| kontrola zmien | `/dev:check` · `--auto` · `--full` | `[dev-kit] check quick: PASS · N ok · 0 fail · 0 skip · S s` |
+| rýchle testy | `{{run}}php vendor/bin/phpunit --exclude-group integration` | `OK (N tests, M assertions)` |
+| integračné testy | `{{run}}php vendor/bin/phpunit --group integration` | `OK (N tests, M assertions)` |
+| testy migrácií | `{{run}}php vendor/bin/phpunit --testsuite migration` | `OK (N tests, M assertions)` |
+| PHPStan | `{{run}}php vendor/bin/phpstan analyse -c {{phpstanConfig}} --memory-limit=1G` | `[OK] No errors` |
+| code style | `{{run}}php vendor/bin/php-cs-fixer fix --dry-run --diff <súbory>` | exit 0, žiadny diff |
+| DI kontajner | `{{run}}php bin/console lint:container` | `[OK] The container was linted successfully: …` |
+| YAML | `{{run}}php bin/console lint:yaml config --parse-tags` | `[OK] All … YAML files contain valid syntax.` |
+| Twig | `{{run}}php bin/console lint:twig templates` | `[OK] All … Twig files contain valid syntax.` |
+| mapovanie a schéma | `{{run}}php bin/console doctrine:schema:validate` | `[OK] The mapping files are correct.` + `[OK] The database schema is in sync with the mapping files.` |
+| čakajúce migrácie | `{{run}}php bin/console doctrine:migrations:up-to-date` | `[OK] Up-to-date! No migrations to execute.` |
+| assety | `{{run}}php bin/console importmap:install` | exit 0 — stiahne `assets/vendor/` po čerstvom klone <!-- fe:assetmapper --> |
+| assety | `npm run build` | exit 0, bez `ERROR in` <!-- fe:encore --> |
+| routy a služby | `{{run}}php bin/console debug:router` · `debug:container <id>` · `debug:autowiring <typ>` | výpis bez `[ERROR]` |
+| prostredie | `{{startCommand}}` | {{startHealthyOutput}} |
+| cache | `{{run}}php bin/console cache:clear` | `[OK] Cache for the "dev" environment (debug=true) was successfully cleared.` |
 
-### Overenie — zdravý výstup
+- Iný výstup (`FAILURES!`, `[ERROR] Found N errors`, `[ERROR]` z `lint:*`) = nie je hotovo.
+- `SKIP` ani `PARTIAL` v `/dev:check` (kontajner nebeží, chýba nástroj) nie je PASS — povedz to výslovne.
 
-Hotovo = príkaz prebehol a výstup to dokazuje. PASS nikdy nehlás bez výstupu.
+## Overovanie práce
 
-| Príkaz | Zdravý výstup |
-|---|---|
-| `/dev:check` · `/dev:check --full` | `[dev-kit] check quick: PASS · …` |
-| `{{run}}php vendor/bin/phpunit` | `OK (… tests, … assertions)` |
-| `{{run}}php vendor/bin/phpstan analyse -c {{phpstanConfig}}` | `[OK] No errors` |
-| `{{run}}php bin/console lint:container` | `[OK] The container was linted successfully: …` |
-| `{{run}}php bin/console lint:yaml config --parse-tags` | `[OK] All … YAML files contain valid syntax.` |
-| `{{run}}php bin/console lint:twig templates` | `[OK] All … Twig files contain valid syntax.` |
-| `{{run}}php bin/console doctrine:schema:validate` | `[OK] The mapping files are correct.` + `… in sync with the mapping files.` |
-| `{{run}}php bin/console doctrine:migrations:up-to-date` | `[OK] Up-to-date! No migrations to execute.` |
-
-Testy migrácií patria do vlastnej sady `migration` v `phpunit.xml` (nie do rýchlych testov); bežia len vo `/dev:check --full`
-(bez sady `migration` v projekte túto vetu zmaž).
-
-Počty testov ani časy sem nepíš — zastarávajú; `/dev:review` hlási zastaraný CLAUDE.md a rules.
+- Pred „hotovo" spusti `/dev:check --auto` — pri zmene entít, migrácií či Doctrine configu pustí aj integračné testy.
+- Testy migrácií patria do vlastnej sady `migration` v `phpunit.xml` (nie do rýchlych testov); bežia len vo `/dev:check --full`.
+- Do odpovede vlož súhrnný riadok výstupu. Bez výstupu netvrď, že testy prešli.
+- Padá test → oprav kód, nie test. Test meníš len keď je preukázateľne zlý — povedz prečo.
+- Žiadne `markTestSkipped()` ani mazanie asercií kvôli zelenej.
+- PHPStan: nový nález oprav v kóde; baseline sa regeneruje len na pokyn používateľa.
+- UI zmena → over aj v prehliadači ({{appUrl}}), nielen testami.
+- Testovací login: `{{testCredentialsFile}}` (mimo gitu) — obsah nečítaj, nevypisuj ani necommituj; v príkazoch len mená jeho premenných.
+- Po 2 neúspešných pokusoch o tú istú opravu zastav, zhrň zistenia a navrhni iný prístup.
 
 ## Architektúra
 
-- `src/Controller/` — tenké controllery (`#[Route]`), logika v `src/Service/`
-- `src/Entity/` + `src/Repository/` — Doctrine mapovanie atribútmi, dotazy len v repozitároch
-- `src/ApiResource/`, `src/State/` — API Platform zdroje, providery a processory
-- `src/Command/` — CLI a cron príkazy (`#[AsCommand]`)
-- `src/EventSubscriber/`, `src/Security/` — listenery, votery, autentifikácia
-- `config/` — `services.yaml` (autowire + autoconfigure), `packages/*.yaml`, `routes/`
-- `templates/` (Twig) · `assets/` (AssetMapper, `importmap.php`) · `translations/`
-- `migrations/` (Doctrine migrácie) · `tests/` (PHPUnit, zrkadlí `src/`)
-<!-- doplň: kľúčové doménové vzory, vstupné body a kde čo hľadať (max ~10 riadkov) -->
+```
+src/Controller/        tenké controllery (#[Route]), logika v src/Service/
+src/Entity/  src/Repository/    Doctrine mapovanie atribútmi, dotazy len v repozitároch
+src/ApiResource/  src/State/    API Platform zdroje, providery a processory <!-- api-platform -->
+src/Command/           CLI a cron príkazy (#[AsCommand])
+src/EventSubscriber/  src/Security/    listenery, votery, autentifikácia
+config/                services.yaml (autowire + autoconfigure), packages/*.yaml, routes/
+templates/  translations/    Twig šablóny, preklady
+assets/  importmap.php    frontend cez AssetMapper; assets/vendor/ je stiahnutý vendor <!-- fe:assetmapper -->
+assets/  webpack.config.js    frontend cez Webpack Encore, build do public/build/ <!-- fe:encore -->
+migrations/  tests/    Doctrine migrácie, PHPUnit (zrkadlí src/)
+```
+
+- Služby a routy atribútmi + autowiring; YAML len na parametre a výnimky.
+- Prístup cez votery a `#[IsGranted]` / `isGranted()` v kóde; skryté tlačidlo v šablóne nie je ochrana.
+- {{architectureNotes}}
 
 ## Pravidlá
 
-1. Pred commitom `/dev:check` (commit gate ho vynúti); zmena entít alebo migrácií → `/dev:check --full`.
-2. Zmena v `src/Entity/**` → spýtaj sa na migráciu (`doctrine:migrations:diff`); bez súhlasu ju nevytváraj.
-3. Commitnutú migráciu neupravuj — vytvor novú; `doctrine:migrations:migrate` (aj `--dry-run`) len na pokyn.
-4. Služby a routy atribútmi + autowiring; YAML len na parametre a výnimky.
-5. SQL/DQL len s parametrami (`setParameter()`, DBAL `?`/`:name`), nikdy skladané reťazcom.
-6. Twig escapuje sám; `|raw` len na sanitizovaný obsah a s dôvodom.
-7. Oprava bugu = najprv test, ktorý chybu zachytí (červený), potom oprava kódu (`/dev:fix`).
-8. PHPStan: nový nález oprav v kóde; baseline sa regeneruje len na pokyn používateľa.
-9. Tajomstvá patria do `.env.local` alebo do vaultu (`secrets:set`); `.env` v gite drží len defaulty.
-10. V commitnutom kóde žiadne `dump()`/`dd()`, `die()`/`exit()`, operátor `@`.
-11. Novú závislosť (`composer require`) pridaj len so súhlasom; `composer.json`, `composer.lock` a pri Flex `symfony.lock` commitni spolu.
-<!-- doplň: projektové pravidlá, ktorých porušenie už raz niečo rozbilo -->
+1. Drž štýl a vzory okolitého kódu; PSR-12 (štýl stráži PHP CS Fixer).
+2. Žiadny debug kód (`dump()`, `dd()`, `var_dump`, `print_r`), `die()`/`exit()` ani `@`.
+3. SQL/DQL len s parametrami (`setParameter()`, DBAL `?`/`:name`), nikdy skladaním reťazca; dotazy len v repozitároch.
+4. Twig escapuje sám; `|raw` len na sanitizovaný obsah a s dôvodom.
+5. Zmena entity = nová Doctrine migrácia (`doctrine:migrations:diff` len so súhlasom, `up()`/`down()` skontroluj); commitnutú migráciu neupravuj; `doctrine:migrations:migrate` (aj `--dry-run`) len na pokyn.
+6. Zmena v `src/Entity/**` bez migrácie → opýtaj sa, či ju chcem.
+7. Vendor a generovaný kód (`vendor/`, `var/`, `public/bundles/`{{vendorFrontendPaths}}) sa needituje — override patrí do vlastného súboru.
+8. Novú závislosť (`composer require`) pridaj len so súhlasom; `composer.json`, `composer.lock` a pri Flex `symfony.lock` commitni spolu.
+9. Nová funkcionalita → test; oprava bugu → najprv test, ktorý chybu zachytí (červený), potom oprava kódu (`/dev:fix`).
+10. Komentáre krátke alebo žiadne: len čo z kódu nevidno; bez histórie, meraní a produkčných dát.
+11. Tajomstvá patria do `.env.local` alebo do vaultu (`secrets:set`); `.env` v gite drží len defaulty; `.env.local` nikdy necommituj ani nevypisuj.
+12. Commit: {{commitStyle}}; `git push` len na výslovný pokyn.
+13. Zmena zastará tento súbor alebo `.claude/rules/` → uprav ich v tom istom commite.
+14. Detaily v `.claude/rules/` (php-core, symfony, doctrine, twig-frontend, api-platform, tests) — načítajú sa podľa cesty.
 
 ## Pasce
 
 - Po zmene `.env*`, `config/` alebo po prepnutí vetvy drží dev stará cache (kontajner, Twig) → `cache:clear`.
-- Existujúci `public/assets/` (po `asset-map:compile`) tieni zmeny v `assets/` aj v dev → zmaž ho a sprav hard reload.
+- Existujúci `public/assets/` (po `asset-map:compile`) tieni zmeny v `assets/` aj v dev → zmaž ho a sprav hard reload. <!-- fe:assetmapper -->
+- `public/build/` je z posledného buildu Encore → po zmene v `assets/` či prepnutí vetvy `npm run build`, inak beží starý JS a CSS. <!-- fe:encore -->
 - Worker mód (FrankenPHP, RoadRunner): stav služby prežije request → per-request cache cez `ResetInterface`.
 - Premenné z `environment:` v docker compose prebijú `.env*` súbory (aj `.env.test`) → over, akú DB používajú testy.
 - Worktree (`claude --worktree`) izoluje len kód; DB, cache servera a web sú spoločné → migrácie a fixtures len z jednej session.
-<!-- doplň: projektové pasce (čo sa pokazilo ticho, bez chyby v logu) -->
+- {{projectPitfalls}}
 
 ## Compact instructions
 

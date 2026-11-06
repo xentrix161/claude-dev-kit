@@ -59,6 +59,7 @@ Súhlas pýtaj len na konci týchto štyroch fáz, vždy jednou správou; medzi 
 | Nette Tester (php-nette) | spustiteľný `vendor/bin/tester` a `find tests -name '*.phpt'` neprázdny | krok `tester` namiesto `unit`/`integration`, keď PHPUnit chýba; s PHPUnit oba a `tester` len nad adresárom s `.phpt` (Tester spúšťa aj `*Test.php`); pomalé testy v samostatnom adresári → `integration` len vo full (`_init`); bez Testera krok `tester` a lint `.phpt` vypusť |
 | phpcs | ruleset `phpcs.xml`, `.phpcs.xml`, `*.dist` → príkaz bez `--standard` aj bez `--ignore` (vylúčenia rieši ruleset); bez rulesetu → `--standard=PSR12 --ignore=…` zo šablóny; migrácie bez namespace mimo `db/migrations` a `migrations` → doplň ich adresár do `--ignore` | lint príkaz |
 | frontend (php-nette, php-symfony) | `package.json`: `eslint`, `stylelint` v `dependencies`/`devDependencies`; config `eslint.config.*`, `.eslintrc*` alebo kľúč `eslintConfig`, resp. `stylelint.config.*`, `.stylelintrc*` alebo kľúč `stylelint`; `node_modules/.bin/<nástroj>` na hostiteľovi | kroky `eslint` / `stylelint` (`runtime: host`) a ich prípony v `commitGate.ext`; bez nástroja alebo configu krok aj prípony vynechaj bez otázky; chýba len `node_modules` → krok ponechaj, pobeží po inštalácii závislostí (spustí ju používateľ) |
+| frontend a API (php-symfony) | `composer.json` `require`: `symfony/asset-mapper` → AssetMapper, `symfony/webpack-encore-bundle` → Encore (oba → oba varianty); balík `api-platform/*` (napr. `api-platform/core`) → API Platform | riadky `<!-- fe:assetmapper -->` / `<!-- fe:encore -->` v `CLAUDE.md.tmpl` a `rules/twig-frontend.md`; `rules/api-platform.md` a riadky `<!-- api-platform -->` len s API Platform |
 | audit závislostí | php: `composer.json` a `composer` v kontajneri (`docker exec <c> sh -c 'command -v composer'`, len čítanie) alebo na hostiteľovi (`command -v composer`); python: spustiteľný `pip-audit` v adresári nástrojov projektu (`.venv/bin/`; v kontajneri ho overí až `--full`), `--version` 2.7+ kvôli `--aliases` | krok `audit` (len `full`): composer v kontajneri → bez `runtime`, len na hostiteľovi → `runtime: host`; nástroj nikde → krok vypusť a vymenuj; zaradí sa len so súhlasom z plánu (krok 2, Audit závislostí) |
 | Makefile | ciele test/stan/cs | prevziať príkaz **bez** `make` a bez `-it` (bez TTY padá) |
 | kontext | `AGENTS.md` (`wc -l -c`), `CLAUDE.md` (`wc -l -c`, riadok `@AGENTS.md` = import, textová zmienka nie je import), `CLAUDE.local.md`, obsah `.claude/`, `REVIEW.md`, `.worktreeinclude`, `docs/plans/`, migrácie (`db/migrations`, `migrations`, `alembic`) | čo už existuje |
@@ -139,6 +140,7 @@ Zhrnutie detekcie: každé zistenie jedným riadkom s dôkazom; hodnoty `{{…}}
   - `.worktreeinclude` → `# dev-kit: <stack>/.worktreeinclude @ <VER>` (HTML komentár by bol vzor);
   - JSON súbory a `CLAUDE.md` hlavičku nemajú (krok 7 porovnáva JSON podľa `id`, CLAUDE.md je projektový).
 - php-nette: z `db-dibi.md` a `db-doctrine.md` len ten pre DB vrstvu z kroku 1 (oba len na výslovnú voľbu); `nette/database` bez Dibi a Doctrine → žiadny.
+- php-symfony: `api-platform.md` len keď krok 1 našiel balík `api-platform/*` v `composer.json`; v `twig-frontend.md` ponechaj riadky so značkou `<!-- fe:… -->` zisteného frontendu (značku odstráň aj s medzerou pred ňou), riadky iného variantu zmaž.
 - Rules: `templates/<stack>/rules/<f>.md` → `.claude/rules/<f>.md`. **Kopírovať, nikdy symlink** (symlinkované path-scoped rules sa nenačítajú). `{{…}}` podľa časti Zástupné symboly.
 - Šablónové kópie nechaj čisté; projektový obsah patrí do `projekt-*.md` a `conventions.md` → `--sync` bez konfliktov.
 - `.worktreeinclude`: zo šablóny len riadky, ktoré v projekte existujú a sú gitignored (`git check-ignore -q <cesta>`); existujúci súbor → doplň chýbajúce riadky.
@@ -163,7 +165,7 @@ Zhrnutie detekcie: každé zistenie jedným riadkom s dôkazom; hodnoty `{{…}}
   - `AGENTS.md` nerozsekávaj do `.claude/rules/` (ostatné nástroje by o pravidlá prišli); lokálny režim → `AGENTS.md` ani sledovaný `CLAUDE.md` neupravuj, `@AGENTS.md` a časti pre Claude daj do `CLAUDE.local.md`.
 - **Bez `AGENTS.md`:** ako doteraz, nižšie.
 
-- Kostra `${CLAUDE_PLUGIN_ROOT}/templates/<stack>/CLAUDE.md.tmpl`: Projekt · Stack · Príkazy · Architektúra · Pravidlá · Pasce · 3 riadky pre kompakciu. Úvodný komentár šablóny `<!-- … -->` sú pokyny pre teba — do `CLAUDE.md` ho neprenášaj. `{{…}}` podľa časti Zástupné symboly. Riadky so značkou `<!-- db:dibi -->` / `<!-- db:doctrine -->`: ponechaj len vrstvu z kroku 1, značku odstráň aj s medzerou pred ňou (v tabuľke stojí pred posledným `|`). Nástroje bez kroku zmaž podľa časti Zástupné symboly. Zoznam rules v Pravidlách uprav na skutočne skopírované.
+- Kostra `${CLAUDE_PLUGIN_ROOT}/templates/<stack>/CLAUDE.md.tmpl`: Projekt · Stack · Príkazy · Architektúra · Pravidlá · Pasce · 3 riadky pre kompakciu. Úvodný komentár šablóny `<!-- … -->` sú pokyny pre teba — do `CLAUDE.md` ho neprenášaj. `{{…}}` podľa časti Zástupné symboly. Riadky so značkou `<!-- db:dibi -->` / `<!-- db:doctrine -->`: ponechaj len vrstvu z kroku 1, značku odstráň aj s medzerou pred ňou (v tabuľke stojí pred posledným `|`). php-symfony rovnako `<!-- api-platform -->` a `<!-- fe:assetmapper -->` / `<!-- fe:encore -->` podľa kroku 1. Nástroje bez kroku zmaž podľa časti Zástupné symboly. Zoznam rules v Pravidlách uprav na skutočne skopírované.
 - **Overovací blok (V9):** ku každému príkazu tvar zdravého výstupu (`OK (… tests, … assertions)`, `[OK] No errors`) z reálneho behu v kroku 3 — bez presných počtov testov a časov, tie zastarávajú.
 - **3 riadky pre kompakciu** zo šablóny ponechaj (zmenené súbory + stav `/dev:check` · otvorené rozhodnutia + ďalší krok · príkazy na overenie).
 - `CLAUDE.md` neexistuje → tím: vyplň kostru z detekcie do `CLAUDE.md`; lokálne: nový `CLAUDE.md` nevytváraj (lokálny režim nedáva do gitu nič a `CLAUDE.md` patrí tímu) — vyplnenú kostru zapíš do `CLAUDE.local.md`.
@@ -179,13 +181,13 @@ Zhrnutie detekcie: každé zistenie jedným riadkom s dôkazom; hodnoty `{{…}}
 ## 7. `--sync` (aktualizácia skopírovaných šablón)
 
 1. Súbory s hlavičkou: `grep -rlE --exclude-dir=worktrees '^(<!--|#) dev-kit: ' .claude REVIEW.md .worktreeinclude 2>/dev/null || true` (chýbajúci súbor = exit 2, zoznam platí); z hlavičky `<cesta>` a starú verziu `OLD` (bez prípadného `v`).
-2. Pre každý: `TEMPLATE` = `${CLAUDE_PLUGIN_ROOT}/templates/<cesta>`, `LOCAL` = súbor bez riadku hlavičky; `{{…}}` v šablónach vyplň rovnako ako v `LOCAL` (premenované symboly majú v časti Zástupné symboly aj starý názov).
+2. Pre každý: `TEMPLATE` = `${CLAUDE_PLUGIN_ROOT}/templates/<cesta>`, `LOCAL` = súbor bez riadku hlavičky; `{{…}}` v šablónach vyplň rovnako ako v `LOCAL` (premenované symboly majú v časti Zástupné symboly aj starý názov) a riadky so značkou `<!-- fe:… -->` vyber ako v kroku 4.
    - šablóna zmizla → navrhni zmazanie (súhlas);
    - `LOCAL` == `TEMPLATE` → `= aktuálne` (len zdvihni verziu v hlavičke);
    - `BASE` = šablóna vo verzii `OLD`: `git -C "${CLAUDE_PLUGIN_ROOT}" show "dev--v<OLD>:./templates/<cesta>"` (funguje, keď je kit git repo s release tagmi);
    - s `BASE` → `git merge-file -p LOCAL BASE TEMPLATE` (lokálne úpravy ostanú); bez `BASE` → `diff -u LOCAL TEMPLATE` po blokoch: prevziať / ponechať.
 3. Per súbor ukáž diff výsledku, zapíš až po súhlase, v hlavičke nastav `@ <VER>`. Konfliktné značky (`<<<<<<<`) nikdy nezapíš — vyrieš ich s používateľom.
-4. Nové súbory šablóny, ktoré projekt nemá (rules, B-kusy) → ponúkni ako v kroku 4; php-nette: DB vrstva = skopírovaný `db-*.md`, inak detekcia z kroku 1 — Dibi projektu neponúkaj `db-doctrine.md` ani položky `doctrine-*`, Doctrine projektu `db-dibi.md`. Rovnako chýbajúce riadky z časti Lokálne alebo tím v pláne (režim: `.claude/devkit.json` v gite = tím, inak lokálne): `.claude/worktrees/`, nesledovaný `handoffDoc` a `docs/plans/` v `info/exclude` (lokálne) alebo `.claude/worktrees/` v `.gitignore` (tím, so súhlasom); lokálne `.claude/rules/`, `CLAUDE.local.md`, `REVIEW.md` (len existujúce a ignorované) a `docs/plans/` v `.worktreeinclude`.
+4. Nové súbory šablóny, ktoré projekt nemá (rules, B-kusy) → ponúkni ako v kroku 4; php-nette: DB vrstva = skopírovaný `db-*.md`, inak detekcia z kroku 1 — Dibi projektu neponúkaj `db-doctrine.md` ani položky `doctrine-*`, Doctrine projektu `db-dibi.md`. php-symfony: `api-platform.md` len s balíkom `api-platform/*` v `composer.json`. Rovnako chýbajúce riadky z časti Lokálne alebo tím v pláne (režim: `.claude/devkit.json` v gite = tím, inak lokálne): `.claude/worktrees/`, nesledovaný `handoffDoc` a `docs/plans/` v `info/exclude` (lokálne) alebo `.claude/worktrees/` v `.gitignore` (tím, so súhlasom); lokálne `.claude/rules/`, `CLAUDE.local.md`, `REVIEW.md` (len existujúce a ignorované) a `docs/plans/` v `.worktreeinclude`.
 5. `devkit.json` a settings (bez hlavičky): porovnaj `guards`, `pairs`, `check.steps` podľa `id` a `permissions.ask`/`deny` so šablónou; navrhni **nové** položky (bez `doctrine-*` mimo Doctrine projektu; krok `eslint`/`stylelint` len podľa detekcie frontendu z kroku 1 a spolu s ním jeho prípony do `commitGate.ext`; krok `tester` len keď krok 1 našiel Nette Tester, spolu s `.phpt` do `lint` a `commitGate.ext`; krok `migration` len keď `phpunit.xml*` má sadu testov migrácií; cesty migrácií Phinx alebo Doctrine z kroku 1, ktoré `migrations.paths` nepokrýva, ako `<cesta>/**`, mimo `db/` a `migrations/` aj do `fullWhen`; krok `audit` podľa detekcie z kroku 1 a s vetou o odosielaní zoznamu balíkov na Packagist/PyPI — zapíš ho len po súhlase). Položka s rovnakým `id`, ktorá sa líši od šablóny: zhoduje sa so šablónou verzie `OLD` (z hlavičiek rules; `git -C "${CLAUDE_PLUGIN_ROOT}" show "dev--v<OLD>:./templates/<stack>/devkit.json"`, `{{…}}` vyplnené ako v projekte) → navrhni novú hodnotu (diff, súhlas); inak ju projekt zmenil → len vypíš rozdiel, nemeň ju.
 6. Súhrn: tabuľka súbor · stav (aktualizované/aktuálne/konflikt/nové) · čo sa zmenilo.
 
@@ -214,24 +216,24 @@ Stack: N = php-nette, S = php-symfony, P = python.
 |---|---|---|---|
 | `{{projectName}}` | N S P | `name` v `composer.json` (časť za `/`) alebo v `pyproject.toml`, inak meno adresára repa | — |
 | `{{projectDescription}}` | N S P | `description` v `composer.json`/`pyproject.toml`, prvý odsek `README.md` alebo `AGENTS.md` | otázka 4 |
-| `{{domainTerms}}` | N P | glosár alebo zoznam pojmov v `CLAUDE.md`, `AGENTS.md`, `README.md` | zmaž |
-| `{{architectureNotes}}` `{{projectPitfalls}}` | N P | vstupné body a vzory, resp. pasce z existujúceho `CLAUDE.md`/`AGENTS.md` | zmaž |
-| `{{commitStyle}}` | N P | `git log --format=%s -50`: prefix úlohy, `typ:`, jazyk | otázka 4 |
-| `{{handoffDoc}}` | N P | krok 1 handoff (`docs/handoff.md`) | — |
-| `{{testCredentialsFile}}` | N | krok 1 testovací login | zmaž |
+| `{{domainTerms}}` | N S P | glosár alebo zoznam pojmov v `CLAUDE.md`, `AGENTS.md`, `README.md` | zmaž |
+| `{{architectureNotes}}` `{{projectPitfalls}}` | N S P | vstupné body a vzory, resp. pasce z existujúceho `CLAUDE.md`/`AGENTS.md` | zmaž |
+| `{{commitStyle}}` | N S P | `git log --format=%s -50`: prefix úlohy, `typ:`, jazyk | otázka 4 |
+| `{{handoffDoc}}` | N S P | krok 1 handoff (`docs/handoff.md`) | — |
+| `{{testCredentialsFile}}` | N S | krok 1 testovací login | zmaž |
 | `{{container}}` `{{appRoot}}` | N S P | krok 1 kontajner: `container_name`, cieľ mountu koreňa repa | compose chýba → otázka 1; `container: ""` → oba `""`, riadok Docker v Stacku zmaž |
-| `{{dbContainer}}` | N | DB služba v compose (krok 1); len text v `CLAUDE.md`, pole `devkit.json` to nie je | zmaž |
+| `{{dbContainer}}` | N S | DB služba v compose (krok 1); len text v `CLAUDE.md`, pole `devkit.json` to nie je | zmaž |
 | `{{run}}` | N S P | `docker exec {{container}} ` (keď `working_dir` služby nie je `{{appRoot}}`: `docker exec -w {{appRoot}} {{container}} `); P aj `.venv/bin/` alebo `uv run ` | `""` (hostiteľ) |
 | `{{bin}}` | P | `_init` v `devkit.json`: `.venv/bin/`, `/opt/venv/bin/` v kontajneri | `""` (nástroje v PATH) |
 | `{{pythonEnv}}` | P | podľa `{{run}}`: venv `.venv` na hostiteľovi, uv, alebo kontajner `{{container}}` | — |
-| `{{appUrl}}` | N P | lokálna URL v `README.md`/`CLAUDE.md`/`AGENTS.md`, inak `ports` webovej služby (`8080:80` → `http://localhost:8080`) | zmaž |
-| `{{startCommand}}` `{{startHealthyOutput}}` | N P | cieľ `Makefile` (`up`, `start`) alebo príkaz z `README.md`; zdravý výstup z toho istého zdroja | zmaž riadok |
+| `{{appUrl}}` | N S P | lokálna URL v `README.md`/`CLAUDE.md`/`AGENTS.md`, inak `ports` webovej služby (`8080:80` → `http://localhost:8080`) | zmaž |
+| `{{startCommand}}` `{{startHealthyOutput}}` | N S P | cieľ `Makefile` (`up`, `start`) alebo príkaz z `README.md`; zdravý výstup z toho istého zdroja | zmaž riadok |
 | `{{phpVersion}}` | N S | `require.php` alebo `config.platform.php` v `composer.json`, image PHP služby | len číslo |
 | `{{netteVersion}}` `{{latteVersion}}` `{{dibiVersion}}` `{{ormVersion}}` `{{symfonyVersion}}` | N (`symfonyVersion` S) | `composer.lock`: `nette/application`, `latte/latte`, `dibi/dibi`, `doctrine/orm`, `symfony/framework-bundle` (major.minor), inak obmedzenie v `require` | len číslo |
 | `{{pythonVersion}}` | P | `requires-python` v `pyproject.toml`, `.python-version`, image v compose | len číslo |
 | `{{database}}` | N S P | image DB služby v compose (`mysql:8.0` → MySQL 8.0), `server_version` v konfigurácii Doctrine | zmaž |
 | `{{framework}}` | P | závislosť `django`, `flask`, `fastapi` … v `pyproject.toml`/`requirements*.txt` | zmaž |
-| `{{phpstanConfig}}` `{{phpstanLevel}}` | N S (`phpstanLevel` N) | krok 1 PHPStan; `level:` v jeho configu | bez PHPStan krok `phpstan` vypusti a v `CLAUDE.md` zmaž jeho riadky a zmienky (Nástroje bez kroku); level zmaž |
+| `{{phpstanConfig}}` `{{phpstanLevel}}` | N S | krok 1 PHPStan; `level:` v jeho configu | bez PHPStan krok `phpstan` vypusti a v `CLAUDE.md` zmaž jeho riadky a zmienky (Nástroje bez kroku); level zmaž |
 | `{{mypyTarget}}` | P | `_init` v `devkit.json` | `.` |
 | `{{packageManager}}` `{{installCommand}}` | P | lock súbor: `uv.lock` → uv, `uv sync`; `poetry.lock` → Poetry, `poetry install`; `requirements*.txt` → pip, `{{run}}pip install -r requirements.txt` | zmaž |
 | `{{migrationTool}}` `{{migrateCommand}}` `{{migrateHealthyOutput}}` | P | `alembic.ini` → Alembic, `alembic upgrade head`; Django `manage.py` → `python manage.py migrate`, `No migrations to apply.` | zmaž |
@@ -242,8 +244,8 @@ Stack: N = php-nette, S = php-symfony, P = python.
 | `{{doctrineNeon}}` | N (Doctrine) | `*doctrine*.neon` v `app/config/` (krok 1 DB vrstva) | zmaž |
 | `{{baseModel}}` | N (Dibi) | najčastejší rodič (`extends`) tried v `app/models/` | zmaž |
 | `{{securedPresenter}}` | N | presenter, ktorého `startup()` overuje prihlásenie a ostatné ho dedia | zmaž riadok |
-| `{{frontendStack}}` | N | `package.json` (bundler, knižnice), commitnuté knižnice z kroku 1 | zmaž riadok |
-| `{{vendorFrontendPaths}}` | N | krok 1 vendor kód (rovnaký zoznam ako `deny`) | `""` |
+| `{{frontendStack}}` | N S | `package.json` (bundler, knižnice), commitnuté knižnice z kroku 1; S aj AssetMapper (`importmap.php`) alebo Webpack Encore z kroku 1 | zmaž riadok |
+| `{{vendorFrontendPaths}}` | N S | krok 1 vendor kód (rovnaký zoznam ako `deny`); S aj `assets/vendor/` (AssetMapper) alebo `public/build/` (Encore) | `""` |
 
 ## Pasce
 

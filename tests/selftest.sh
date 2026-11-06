@@ -2790,7 +2790,7 @@ t_templates_init_doctrine_tools() {
   sed -n '2,/^---$/p' "$T/php-nette/rules/db-doctrine.md" | LC_ALL=C grep -qF '"**/migrations/**"' ||
     { fail "db-doctrine.md paths: bez **/migrations/**"; return 1; }
   LC_ALL=C grep -q '^- \*\*Nástroje bez kroku:\*\*' "$sk" || { fail "project-init: chýba pravidlo Nástroje bez kroku"; return 1; }
-  for s in php-nette python; do
+  for s in php-nette php-symfony python; do
     sed -n '1,/^-->$/p' "$T/$s/CLAUDE.md.tmpl" | LC_ALL=C grep -q '^Nástroj, ktorého krok.*init vypustil, zmaž aj bez symbolu' ||
       { fail "$s/CLAUDE.md.tmpl: úvodný komentár bez pokynu pre nástroj bez kroku"; return 1; }
   done
@@ -3090,6 +3090,50 @@ t_templates_ask_destructive() {
       "$T/$st/settings.json" 2>&1)
     [ -z "$s" ] || { fail "$st/settings.json: $(flat "$s")"; return 1; }
   done
+}
+
+# CLAUDE.md.tmpl php-nette a php-symfony: rovnaké sekcie a {{…}} okrem symbolov frameworku; každý symbol stacku má
+# v tabuľke project-init písmeno stacku; značky php-symfony, api-platform.md len s api-platform/*, Encore v deny (E1)
+t_templates_php_parity() {
+  local T="$KIT/plugins/dev/templates" sk="$KIT/plugins/dev/skills/project-init/SKILL.md" n y s got want rows st l x f bad=""
+  n=$(grep -oE '\{\{[a-zA-Z]+\}\}' "$T/php-nette/CLAUDE.md.tmpl" | LC_ALL=C sort -u)
+  y=$(grep -oE '\{\{[a-zA-Z]+\}\}' "$T/php-symfony/CLAUDE.md.tmpl" | LC_ALL=C sort -u)
+  got=$( { printf '%s\n' "$n" | LC_ALL=C comm -23 - <(printf '%s\n' "$y") | sed 's/^/N:/'
+    printf '%s\n' "$n" | LC_ALL=C comm -13 - <(printf '%s\n' "$y") | sed 's/^/S:/'; } | LC_ALL=C tr '\n' ' ')
+  want="N:{{baseModel}} N:{{dibiVersion}} N:{{doctrineNeon}} N:{{entityDir}} N:{{latteVersion}} N:{{migrationsCmd}} N:{{migrationsDir}} N:{{netteVersion}} N:{{ormVersion}} N:{{repositoryDir}} N:{{schemaValidateCmd}} N:{{securedPresenter}} S:{{symfonyVersion}} "
+  [ "$got" = "$want" ] || bad="${bad}symboly mimo frameworku sa líšia: '$got', čakal som '$want'; "
+  s=$(grep '^## ' "$T/php-nette/CLAUDE.md.tmpl")
+  [ "$s" = "$(grep '^## ' "$T/php-symfony/CLAUDE.md.tmpl")" ] || bad="${bad}sekcie CLAUDE.md.tmpl sa líšia; "
+  rows=$(sed -n '/^## Zástupné symboly/,/^## Pasce/p' "$sk" |
+    awk -F'|' '/^\| `\{\{/ { k = split($2, a, "`"); for (i = 1; i <= k; i++) if (a[i] ~ /^\{\{[a-zA-Z]+\}\}$/) print a[i] "\t" $3 }')
+  for st in php-nette:N php-symfony:S python:P; do
+    l=${st#*:}
+    st=${st%:*}
+    for x in $(grep -rhoE '\{\{[a-zA-Z]+\}\}' "$T/$st" | LC_ALL=C sort -u); do
+      printf '%s\n' "$rows" | awk -F'\t' -v x="$x" -v l="$l" '$1 == x && (" " $2 " ") ~ ("[ (]" l "[ )]") { f = 1 } END { exit !f }' ||
+        bad="$bad$st: $x bez $l v stĺpci Stack; "
+    done
+  done
+  for f in CLAUDE.md.tmpl rules/twig-frontend.md; do
+    s=$(grep -o '<!-- [a-z:-]* -->' "$T/php-symfony/$f" | LC_ALL=C sort -u | LC_ALL=C tr '\n' ' ')
+    case "$f" in
+      CLAUDE.md.tmpl) want='<!-- api-platform --> <!-- fe:assetmapper --> <!-- fe:encore --> ' ;;
+      *) want='<!-- fe:assetmapper --> <!-- fe:encore --> ' ;;
+    esac
+    [ "$s" = "$want" ] || bad="${bad}php-symfony/$f: značky '$s', čakal som '$want'; "
+  done
+  LC_ALL=C grep -q 'importmap:install.*<!-- fe:assetmapper -->$' "$T/php-symfony/rules/twig-frontend.md" &&
+    LC_ALL=C grep -q 'npm run build.*<!-- fe:encore -->$' "$T/php-symfony/rules/twig-frontend.md" ||
+    bad="${bad}twig-frontend.md bez vetvy importmap:install / npm run build; "
+  jq -e '.permissions.deny | index("Edit(/public/build/**)")' "$T/php-symfony/settings.json" >/dev/null 2>&1 ||
+    bad="${bad}php-symfony/settings.json: deny bez Edit(/public/build/**); "
+  jq -e '[._init[] | select(test("rules/api-platform\\.md") and test("api-platform/\\*") and test("fe:encore"))] | length == 1' \
+    "$T/php-symfony/devkit.json" >/dev/null 2>&1 || bad="${bad}_init php-symfony bez podmienky api-platform a fe:; "
+  LC_ALL=C grep -q '^- php-symfony: `api-platform.md` len keď krok 1 našiel balík `api-platform/\*`' "$sk" &&
+    LC_ALL=C grep -q '^| frontend a API (php-symfony) |.*`symfony/asset-mapper`.*`symfony/webpack-encore-bundle`.*`api-platform/\*`' "$sk" &&
+    LC_ALL=C grep -q 'php-symfony: `api-platform.md` len s balíkom `api-platform/\*`' "$sk" ||
+    bad="${bad}project-init: chýba detekcia, kopírovanie alebo --sync api-platform.md; "
+  [ -z "$bad" ] || fail "$bad"
 }
 
 # ---------------------------------------------------------------- audit závislostí (B14)
@@ -3786,6 +3830,7 @@ t "partial.json, pass.json, test-lock.json a stats.sh: diakritika cez hranicu bl
 t "šablóny: ask na git reset --hard, clean, stash drop/clear, branch -D a docker volume/system prune, composer (php), alembic upgrade a manage.py migrate (python); git restore nie (D9)" t_templates_ask_destructive
 t "session-card: decisions.jsonl nad 10 MB → .1 len pri startup, stats.sh číta .1 aj aktuálny log (E13)" t_decisions_rotation
 t "session-card: pri startup zmaže dáta projektu s neexistujúcou cestou z project.json bez súboru < 90 dní; existujúca cesta, novší súbor a bez project.json ostanú (E13)" t_card_prune_projects
+t "šablóny php: CLAUDE.md.tmpl php-nette a php-symfony s rovnakými sekciami a {{…}} okrem frameworku, písmeno stacku v tabuľke project-init, api-platform.md len s api-platform/*, vetvy AssetMapper/Encore (E1)" t_templates_php_parity
 
 wait
 for f in "$RES"/*; do

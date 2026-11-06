@@ -914,6 +914,10 @@ resolve check findings (`knownFailures`, baseline, `changedLinesOnly`, dropping 
    `devDependencies` plus its config ⇒ step `eslint`/`stylelint` and its extensions in `commitGate.ext`;
    otherwise both are dropped without a question (a missing `node_modules` only keeps the step, `requires`
    skips it until the user installs the dependencies; init never runs `npm install`).
+   php-symfony: `require` with `symfony/asset-mapper` / `symfony/webpack-encore-bundle` selects the lines marked
+   `<!-- fe:assetmapper -->` / `<!-- fe:encore -->` in `CLAUDE.md.tmpl` and `rules/twig-frontend.md` (both found ⇒ both
+   kept, none ⇒ both deleted; the kept lines lose the marker); a package `api-platform/*` ⇒ `rules/api-platform.md` and
+   the `<!-- api-platform -->` lines, otherwise neither.
    Dependency audit: step `audit` (full only) for php when `composer` exists in the container (`docker exec <c>
    sh -c 'command -v composer'`, the only `docker exec` of point 1) — no `runtime` — or only on the host
    (`command -v composer`) — `runtime: host`; for python when `pip-audit` is in the project's tool directory
@@ -971,7 +975,8 @@ resolve check findings (`knownFailures`, baseline, `changedLinesOnly`, dropping 
 4. Copy template files with a header: markdown → `<!-- dev-kit: <template>/<file> @ <plugin version> -->`
    (YAML-frontmatter files get it right after the frontmatter); `.worktreeinclude` → `# dev-kit:
    <template>/<file> @ <plugin version>`; JSON (`devkit.json`, `settings.json`) → no header (`--sync`
-   compares by id/keys). Rules are copied, never symlinked.
+   compares by id/keys). Rules are copied, never symlinked. php-symfony copies `api-platform.md` only with API
+   Platform and keeps the `fe:` lines of the detected frontend (point 1).
 5. infer-conventions: list well-evidenced, non-default conventions found in code (with evidence
    file:line), skip what phpcs/PHPStan/rector enforce; user approves each; write approved into
    `.claude/rules/conventions.md`.
@@ -999,6 +1004,8 @@ resolve check findings (`knownFailures`, baseline, `changedLinesOnly`, dropping 
    Phinx or Doctrine migration paths of point 1 that `migrations.paths` does not cover are proposed as `<path>/**` (outside `db/`
    and `migrations/` also for `fullWhen`); a new `audit` step follows the detection of point 1 and is written
    only after consent to sending the package list.
+   A template's `fe:` lines are selected like in point 4 before the comparison; `api-platform.md` is offered only
+   with API Platform (point 1).
    A renamed placeholder keeps its old name in the table (`entityGlob` = `{{entityDir}}**`), so the old
    template version is filled from the project too.
 9. Final report stručne, ale úplne (§0): what was created, what to commit, how to undo.
@@ -1040,6 +1047,12 @@ php-nette/rules/db-doctrine.md   # paths: **/Entity/**, **/Repository/**, **/mig
 php-nette/rules/tests.md         # paths: tests/** — suites, rollback tests, credentials, verification output (PHPUnit and Nette Tester)
 php-symfony/…                    # same shape: CLAUDE.md.tmpl, devkit.json, settings.json, .worktreeinclude, rules/{php-core,symfony,twig-frontend,doctrine,api-platform,tests}.md;
                                  # devkit.json has the same frontend steps, guards, `commitGate.ext` extensions and `audit` step as php-nette
+                                 # CLAUDE.md.tmpl has the sections, their order and the generic placeholders of php-nette ({{commitStyle}}
+                                 # with the `git push` rule, {{handoffDoc}}, Overovanie práce, {{appUrl}}, {{startCommand}} …); only framework
+                                 # symbols differ (`t_templates_php_parity`); lines marked `<!-- api-platform -->`, `<!-- fe:assetmapper -->`,
+                                 # `<!-- fe:encore -->` (the `fe:` ones also in rules/twig-frontend.md) are kept per composer.json (§6);
+                                 # rules/api-platform.md only with `api-platform/*`; settings.json deny also `Edit(/public/build/**)`
+                                 # (Encore build output) in every project — settings.json has no conditions, without Encore the rule is inert
 python/…                         # CLAUDE.md.tmpl, devkit.json (pytest, ruff, mypy; host or container; {{bin}} placeholder, _init note key), settings.json, .worktreeinclude, rules/{python-core,tests}.md;
                                  # settings.json ask: git push/checkout/switch, docker stop/restart, compose down, the destructive git and docker
                                  # commands of php-nette, `*alembic upgrade *`/`downgrade *`, `*manage.py migrate*`/`flush*`;
