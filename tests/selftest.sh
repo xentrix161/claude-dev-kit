@@ -3100,7 +3100,7 @@ t_templates_php_parity() {
   y=$(grep -oE '\{\{[a-zA-Z]+\}\}' "$T/php-symfony/CLAUDE.md.tmpl" | LC_ALL=C sort -u)
   got=$( { printf '%s\n' "$n" | LC_ALL=C comm -23 - <(printf '%s\n' "$y") | sed 's/^/N:/'
     printf '%s\n' "$n" | LC_ALL=C comm -13 - <(printf '%s\n' "$y") | sed 's/^/S:/'; } | LC_ALL=C tr '\n' ' ')
-  want="N:{{baseModel}} N:{{dibiVersion}} N:{{doctrineNeon}} N:{{entityDir}} N:{{latteVersion}} N:{{migrationsCmd}} N:{{migrationsDir}} N:{{netteVersion}} N:{{ormVersion}} N:{{repositoryDir}} N:{{schemaValidateCmd}} N:{{securedPresenter}} S:{{symfonyVersion}} "
+  want="N:{{baseModel}} N:{{dibiVersion}} N:{{doctrineNeon}} N:{{entityDir}} N:{{latteVersion}} N:{{localConfig}} N:{{migrationsCmd}} N:{{migrationsDir}} N:{{netteVersion}} N:{{ormVersion}} N:{{repositoryDir}} N:{{schemaValidateCmd}} N:{{securedPresenter}} S:{{symfonyVersion}} "
   [ "$got" = "$want" ] || bad="${bad}symboly mimo frameworku sa líšia: '$got', čakal som '$want'; "
   s=$(grep '^## ' "$T/php-nette/CLAUDE.md.tmpl")
   [ "$s" = "$(grep '^## ' "$T/php-symfony/CLAUDE.md.tmpl")" ] || bad="${bad}sekcie CLAUDE.md.tmpl sa líšia; "
@@ -3134,6 +3134,70 @@ t_templates_php_parity() {
     LC_ALL=C grep -q 'php-symfony: `api-platform.md` len s balíkom `api-platform/\*`' "$sk" ||
     bad="${bad}project-init: chýba detekcia, kopírovanie alebo --sync api-platform.md; "
   [ -z "$bad" ] || fail "$bad"
+}
+
+# php-nette: lokálny config len cez {{localConfig}} s kandidátmi v tabuľke project-init; lint .neon (neon-lint, stdout
+# do /dev/null) — nález [ERROR] … on line N bez hlavičky a \r, bez nástroja edit prejde (PHP 8.3+ aj staršie) (E2)
+t_templates_nette_neon() {
+  local T="$KIT/plugins/dev/templates/php-nette" sk="$KIT/plugins/dev/skills/project-init/SKILL.md" f s fb
+  s=$(grep -rn 'local\.neon' "$T")
+  [ -z "$s" ] || { fail "php-nette: lokálny config natvrdo: $(flat "$s")"; return 1; }
+  for f in devkit.json .worktreeinclude CLAUDE.md.tmpl rules/nette.md; do
+    LC_ALL=C grep -qF '{{localConfig}}' "$T/$f" || { fail "php-nette/$f bez {{localConfig}}"; return 1; }
+  done
+  jq -e '.secrets.forbidFiles | index("{{localConfig}}")' "$T/devkit.json" >/dev/null 2>&1 || { fail "forbidFiles bez {{localConfig}}"; return 1; }
+  s=$(LC_ALL=C grep '^| `{{localConfig}}` | N |' "$sk")
+  for f in '`app/config/config.local.neon`' '`app/config/local.neon`' '`config/local.neon`' 'otázka 4'; do
+    case "$s" in *"$f"*) ;; *) fail "project-init: riadok {{localConfig}} bez $f"; return 1 ;; esac
+  done
+  LC_ALL=C grep -q '^- Pýtaj sa len na .*`{{localConfig}}`' "$sk" || { fail "project-init: {{localConfig}} chýba medzi otázkami"; return 1; }
+  jq -e '.lint[".neon"] == ["php vendor/bin/neon-lint {file} >/dev/null"] and ([._init[] | select(test("neon-lint") and test("3\\.3\\.1"))] | length == 1)' \
+    "$T/devkit.json" >/dev/null 2>&1 || { fail "php-nette: lint .neon alebo _init neon-lint"; return 1; }
+  LC_ALL=C grep -q 'php-nette `.neon` len so spustiteľným `vendor/bin/neon-lint`' "$sk" || { fail "project-init --sync: lint .neon bez podmienky"; return 1; }
+  new_case
+  fb="$CASE/fakebin"
+  mkdir -p "$fb"
+  # Atrapa php: chýbajúci skript hlási PHP 8.3+ na stderr, staršie (FAKE_PHP_OLD) na stdout; exit 1.
+  cat > "$fb/php" <<'SH'
+#!/bin/sh
+if [ ! -f "$1" ]; then
+  if [ -n "${FAKE_PHP_OLD:-}" ]; then echo "Could not open input file: $1"; else echo "Could not open input file: $1" >&2; fi
+  exit 1
+fi
+exec sh "$@"
+SH
+  chmod +x "$fb/php" || { fail "fixture: atrapa php"; return 1; }
+  export PATH="$fb:$PATH"
+  cfg --slurpfile t "$T/devkit.json" '.lint = {".neon": $t[0].lint[".neon"]}' || return 1
+  put app/config/common.neon "$(printf '%s\n' 'parameters:' '  a: 1')"
+  on_edit app/config/common.neon
+  want_rc 0 "bez neon-lint" && want_silent "bez neon-lint" && want_logged on-edit lint:.neon skip || return 1
+  LC_ALL=C grep -qF 'Could not open input file: vendor/bin/neon-lint' "$DATA/errors.log" 2>/dev/null ||
+    { fail "bez neon-lint: errors.log bez riadku nástroja"; return 1; }
+  rm -f "$DATA/errors.log"
+  export FAKE_PHP_OLD=1
+  on_edit app/config/common.neon
+  want_allow "bez neon-lint (PHP < 8.3)" || return 1
+  unset FAKE_PHP_OLD
+  mkdir -p "$REPO/vendor/bin"
+  # Atrapa neon-lint ako nette/neon 3.4: hlavička a priebeh s \r na stdout, chyba na stderr.
+  cat > "$REPO/vendor/bin/neon-lint" <<'SH'
+printf '\nNEON linter\n-----------\nScanning %s\n%s\r' "$1" "$1"
+n=$(grep -n 'ERR' "$1" | head -n 1 | cut -d: -f1)
+if [ -n "$n" ]; then
+  printf '[ERROR]      %s    Unexpected end on line %s at column 3\n' "$1" "$n" >&2
+  printf '...\rDone (checked 1 files, found errors in 1)\n'
+  exit 1
+fi
+printf '...\rDone (checked 1 files, found errors in 0)\n'
+SH
+  on_edit app/config/common.neon
+  want_allow "platný .neon" || return 1
+  add app/config/common.neon '  b: ERR'
+  on_edit app/config/common.neon
+  want_rc 2 "chyba .neon" && want_err '[ERROR]      app/config/common.neon    Unexpected end on line 3 at column 3' "chyba .neon" \
+    && want_err '[lint:.neon]' "chyba .neon" && want_not 'NEON linter' "chyba .neon" && want_not 'Done (checked' "chyba .neon" \
+    && want_not "$(printf '\r')" "chyba .neon"
 }
 
 # ---------------------------------------------------------------- audit závislostí (B14)
@@ -3831,6 +3895,7 @@ t "šablóny: ask na git reset --hard, clean, stash drop/clear, branch -D a dock
 t "session-card: decisions.jsonl nad 10 MB → .1 len pri startup, stats.sh číta .1 aj aktuálny log (E13)" t_decisions_rotation
 t "session-card: pri startup zmaže dáta projektu s neexistujúcou cestou z project.json bez súboru < 90 dní; existujúca cesta, novší súbor a bez project.json ostanú (E13)" t_card_prune_projects
 t "šablóny php: CLAUDE.md.tmpl php-nette a php-symfony s rovnakými sekciami a {{…}} okrem frameworku, písmeno stacku v tabuľke project-init, api-platform.md len s api-platform/*, vetvy AssetMapper/Encore (E1)" t_templates_php_parity
+t "šablóna php-nette: lokálny config len ako {{localConfig}} (kandidáti v project-init), lint .neon neon-lint — [ERROR] … on line N bez hlavičky, bez nástroja edit prejde (E2)" t_templates_nette_neon
 
 wait
 for f in "$RES"/*; do

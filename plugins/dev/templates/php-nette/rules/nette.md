@@ -19,7 +19,7 @@ paths:
 - Služby registruj v `app/config/*.neon`, do tried ich dávaj konštruktorom; žiadne `$container->getService()` v kóde.
 - `inject*` metódy a `#[Inject]` len v presenteroch a len ak ich projekt už používa.
 - Nový konfiguračný kľúč → doplň aj vzor lokálneho configu (stub), inak kolegovi appka nenabehne.
-- `config.local.neon` (heslá, API kľúče) nikdy necommituj ani nevypisuj.
+- Lokálny config `{{localConfig}}` (heslá, API kľúče) nikdy necommituj ani nevypisuj.
 
 ## Formuláre a CSRF
 

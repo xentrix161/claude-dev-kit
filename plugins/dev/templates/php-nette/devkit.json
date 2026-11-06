@@ -8,6 +8,8 @@
     "unit a integration: init vyberie podľa phpunit.xml(.dist) — mená <testsuite> presne; bez rýchlej sady testy so skupinou integration → --exclude-group integration / --group integration; bez pomalých testov krok integration vypusti. V stop nechaj len rýchle kroky.",
     "migration: len keď phpunit.xml(.dist) má sadu testov migrácií (<testsuite name=\"migration\">, meno presne podľa súboru), inak krok vypusti bez otázky; rýchly krok ju potom nesmie spúšťať (--testsuite <rýchla>, nie len --exclude-group). Kroky testových sád len vo full (integration, migration) majú timeoutSec 1800 — kratší limit by ich ukončil ako PARTIAL.",
     "Nette Tester (vendor/bin/tester, testy *.phpt v tests/): krok tester namiesto unit a integration, keď projekt nemá PHPUnit; s PHPUnit oba kroky a tester len nad adresárom s .phpt testami (Tester spúšťa aj *Test.php). Pomalé testy Testera v samostatnom adresári → tester nad adresárom rýchlych, krok integration = php vendor/bin/tester <adresár pomalých> -s -C len vo full. -C ponechaj (staršie verzie Testera bez neho spúšťajú PHP bez php.ini). Bez Testera krok tester a kľúč .phpt v lint vypusť.",
+    "neon-lint (kľúč .neon v lint): ponechaj len keď je spustiteľný vendor/bin/neon-lint (nette/neon 3.3.1+), inak kľúč vypusť bez otázky. >/dev/null zahodí hlavičku a priebeh nástroja, chyby [ERROR] … on line N idú na stderr.",
+    "{{localConfig}} = lokálny config projektu (project-init, tabuľka Zástupné symboly); projekt bez neho → položku vo forbidFiles vypusť.",
     "Frontend: krok eslint a prípony .js, .ts v commitGate.ext ponechaj len keď package.json má eslint (dependencies/devDependencies) a projekt má jeho config; rovnako stylelint s .css, .scss; inak krok aj prípony vypusť bez otázky. runtime host = Node na hostiteľovi; Node len v kontajneri z poľa container → runtime vypusť. eslint bez changedLinesOnly (výstup stylish nemá cestu na riadku nálezu). Guardy console-log a inner-html ponechaj vždy.",
     "audit (composer audit, len full): posiela zoznam balíkov projektu (mená a verzie) na Packagist — krok zaraď len so súhlasom, ktorý je súčasťou schválenia plánu (fáza 1; plán to pri kroku povie), bez súhlasu ho vypusť. composer v kontajneri (docker exec <c> sh -c 'command -v composer') → krok bez runtime; len na hostiteľovi (command -v composer) → runtime host; nikde → krok vypusť. Výstup nemá čísla riadkov → bez changedLinesOnly; známu zraniteľnosť do knownFailures podľa id (^CVE-…$, ^PKSA-…$, ^GHSA-…$)."
   ],
@@ -18,7 +20,8 @@
   "lint": {
     ".php": ["php -l {file}", "php vendor/bin/phpcs -q -n --report=emacs --standard=PSR12 --ignore=*/db/migrations/*,*/migrations/* {file}"],
     ".latte": ["php vendor/bin/latte-lint {file}"],
-    ".phpt": ["php -l {file}"]
+    ".phpt": ["php -l {file}"],
+    ".neon": ["php vendor/bin/neon-lint {file} >/dev/null"]
   },
   "lintChangedLinesOnly": true,
   "check": {
@@ -95,7 +98,7 @@
                  "(?i)^[[:space:]]*[A-Za-z0-9_]*(password|passwd|heslo|secret|api[_-]?key|token)[A-Za-z0-9_]*[[:space:]]*[:=][[:space:]]*[^[:space:]\"'%$#{([\\0-9][^[:space:]\"'(\\]{5,}[[:space:]]*$",
                  "-----BEGIN [A-Z ]*PRIVATE KEY-----", "AKIA[0-9A-Z]{16}"],
     "allow": ["tests/fixtures/"],
-    "forbidFiles": ["app/config/config.local.neon", ".test-credentials", "**/.env", "**/.env.local"]
+    "forbidFiles": ["{{localConfig}}", ".test-credentials", "**/.env", "**/.env.local"]
   },
   "migrations": {"paths": ["db/migrations/**", "migrations/**"]},
   "testLock": {"ttlHours": 6},

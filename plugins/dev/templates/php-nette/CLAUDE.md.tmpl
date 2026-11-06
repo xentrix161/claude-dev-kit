@@ -18,7 +18,7 @@ zdravý výstup `OK (N tests, S seconds)`), v Overovaní práce markTestSkipped(
 Phinx (db:dibi, project-init krok 1): config mimo koreňa → príkaz migrácií s `-c <config>`; Dibi bez Phinx → zo Stacku
 zmaž „ · migrácie Phinx (…)“, riadok migrácií v Príkazoch a slovo Phinx v pravidle 5.
 Nástroj, ktorého krok alebo lint init vypustil, zmaž aj bez symbolu: PHPStan (v Kvalite, riadok v Príkazoch, veta o baseline),
-PHPUnit, PHPCS a latte-lint (v Kvalite, ich riadky v Príkazoch), bez kroku integration vetu za „—“ pri /dev:check --auto,
+PHPUnit, PHPCS, latte-lint a neon-lint (v Kvalite, ich riadky v Príkazoch), bez kroku integration vetu za „—“ pri /dev:check --auto,
 bez kroku migration riadok testov migrácií v Príkazoch aj vetu o sade migration v Overovaní práce.
 -->
 # CLAUDE.md — {{projectName}}
@@ -35,7 +35,7 @@ bez kroku migration riadok testov migrácií v Príkazoch aj vetu o sade migrati
 - Dibi {{dibiVersion}} · {{database}} · migrácie Phinx (`{{migrationsDir}}`) <!-- db:dibi -->
 - Doctrine ORM {{ormVersion}} (entity `{{entityDir}}`, repozitáre `{{repositoryDir}}`) · {{database}} · Doctrine Migrations (`{{migrationsDir}}`) <!-- db:doctrine -->
 - Docker: aplikácia `{{container}}` (repo mountnuté na `{{appRoot}}`), databáza `{{dbContainer}}`
-- Kvalita: PHPStan level {{phpstanLevel}} (`{{phpstanConfig}}`), PHPUnit, PHPCS PSR-12, latte-lint
+- Kvalita: PHPStan level {{phpstanLevel}} (`{{phpstanConfig}}`), PHPUnit, PHPCS PSR-12, latte-lint, neon-lint
 - Frontend: {{frontendStack}}
 
 ## Príkazy
@@ -51,6 +51,7 @@ Agent nemá TTY → `docker exec` **bez `-it`** (make ciele s `-it` padnú: „t
 | PHPStan | `{{run}}php vendor/bin/phpstan analyse -c {{phpstanConfig}} --memory-limit=1G` | `[OK] No errors` |
 | code style | `{{run}}php vendor/bin/phpcs -q -n --standard=PSR12 <súbory>` | žiadny výstup, exit 0 |
 | Latte | `{{run}}php vendor/bin/latte-lint <cesta>` | `Done (checked N files, found errors in 0)` |
+| NEON | `{{run}}php vendor/bin/neon-lint <cesta>` | exit 0, bez `[ERROR]` |
 | čakajúce migrácie | `{{run}}php vendor/bin/phinx status` | všetky riadky `up`, exit 0 <!-- db:dibi --> |
 | mapovanie a schéma | `{{run}}php bin/console {{schemaValidateCmd}}` | `[OK] The mapping files are correct.` + `[OK] The database schema is in sync with the mapping files.` <!-- db:doctrine --> |
 | čakajúce migrácie | `{{run}}php bin/console {{migrationsCmd}}:up-to-date` | `[OK] Up-to-date! No migrations to execute.` <!-- db:doctrine --> |
@@ -80,7 +81,7 @@ app/presenters/        presentery (HTTP), šablóny v app/presenters/templates/
 app/models/            dátová vrstva (Dibi), dedia {{baseModel}} <!-- db:dibi -->
 {{entityDir}}  {{repositoryDir}}    Doctrine entity (atribúty) a repozitáre, config app/config/{{doctrineNeon}} <!-- db:doctrine -->
 app/forms/  app/components/  app/Services/    formuláre, UI komponenty, biznis logika
-app/config/            config.neon (DI služby) · config.local.neon (lokálne, nie v gite)
+app/config/            config.neon (DI služby); lokálny config `{{localConfig}}` nie je v gite
 libs/  {{migrationsDir}}  tests/  www/
 ```
 
@@ -103,7 +104,7 @@ libs/  {{migrationsDir}}  tests/  www/
 8. Novú závislosť (`composer require`) pridaj len so súhlasom; `composer.json` a `composer.lock` commitni spolu.
 9. Nová funkcionalita → test; oprava bugu → test, ktorý by bug odhalil.
 10. Komentáre krátke alebo žiadne: len čo z kódu nevidno; bez histórie, meraní a produkčných dát.
-11. `app/config/config.local.neon` nikdy necommituj ani nevypisuj.
+11. `{{localConfig}}` (lokálny config) nikdy necommituj ani nevypisuj.
 12. Commit: {{commitStyle}}; `git push` len na výslovný pokyn.
 13. Zmena zastará tento súbor alebo `.claude/rules/` → uprav ich v tom istom commite.
 14. Detaily v `.claude/rules/` (php-core, nette, latte-frontend, db-dibi, tests) — načítajú sa podľa cesty. <!-- db:dibi -->

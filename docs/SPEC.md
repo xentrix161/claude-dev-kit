@@ -926,6 +926,11 @@ resolve check findings (`knownFailures`, baseline, `changedLinesOnly`, dropping 
    (`php vendor/bin/tester tests -s -C`) instead of `unit`/`integration` when the project has no PHPUnit;
    with PHPUnit both, `tester` only over the directory of the `.phpt` tests (Tester runs `*Test.php` too);
    without Tester the step and the `.phpt` lint key are dropped.
+   Local config (php-nette, `{{localConfig}}`): the first existing of `app/config/config.local.neon`,
+   `app/config/local.neon`, `config/local.neon` (else a `*local*.neon` from `addConfig()` in `Bootstrap.php`); it fills
+   `secrets.forbidFiles`, `.worktreeinclude`, `CLAUDE.md.tmpl` and `rules/nette.md`; none ⇒ question 4, a project
+   without a local config loses those lines and the `forbidFiles` entry. The `.neon` lint key stays only with an
+   executable `vendor/bin/neon-lint` (nette/neon 3.3.1+).
    Migration tests (php-nette, php-symfony): step `migration` (`--testsuite migration`, full only) only when `phpunit.xml*`
    defines that suite (exact name, like `unit`/`integration`); otherwise it is dropped without a question, together with its
    lines in `CLAUDE.md`. The fast step must not run that suite (`--testsuite <fast>`, not only `--exclude-group`).
@@ -954,7 +959,7 @@ resolve check findings (`knownFailures`, baseline, `changedLinesOnly`, dropping 
    that needs it is dropped and listed). A tool whose step or lint init dropped loses its lines and mentions in
    `CLAUDE.md.tmpl` the same way, placeholder or not (Príkazy row, Kvalita/Stack, Overovanie práce sentence).
    Questions only for `{{projectDescription}}`, `{{commitStyle}}`
-   (no usable git history), `{{container}}` (no compose) and `{{migrationsDir}}` when a Phinx config exists
+   (no usable git history), `{{container}}` (no compose), `{{localConfig}}` (php-nette, no candidate) and `{{migrationsDir}}` when a Phinx config exists
    but `paths.migrations` cannot be read without running it. `{{dbContainer}}` is text in `CLAUDE.md`, not
    a `devkit.json` field. Selftest `t_templates_symbols` keeps the table complete.
 2. Dry-run plan shown to the user BEFORE writing anything: files to create/modify, devkit.json draft,
@@ -1004,6 +1009,8 @@ resolve check findings (`knownFailures`, baseline, `changedLinesOnly`, dropping 
    Phinx or Doctrine migration paths of point 1 that `migrations.paths` does not cover are proposed as `<path>/**` (outside `db/`
    and `migrations/` also for `fullWhen`); a new `audit` step follows the detection of point 1 and is written
    only after consent to sending the package list.
+   New `lint` keys only with the tool of point 1 (php-nette `.neon` with an executable `vendor/bin/neon-lint`);
+   template `secrets.forbidFiles` entries missing in the project only when the file exists (`{{localConfig}}` as detected).
    A template's `fe:` lines are selected like in point 4 before the comparison; `api-platform.md` is offered only
    with API Platform (point 1).
    A renamed placeholder keeps its old name in the table (`entityGlob` = `{{entityDir}}**`), so the old
@@ -1036,11 +1043,14 @@ php-nette/devkit.json            # like §3 example with {{container}}, {{appRoo
                                  # (also `Environment::skip(`) cover `.phpt`;
                                  # step `audit` (`composer audit --no-interaction --format=plain`, `requires: composer.json`, full only,
                                  # no changedLinesOnly — no line numbers; `runtime: host` when only the host has composer); init adds it
-                                 # only with the plan's consent to sending the package list to Packagist (§6)
+                                 # only with the plan's consent to sending the package list to Packagist (§6);
+                                 # `.neon` lint `php vendor/bin/neon-lint {file} >/dev/null` (nette/neon 3.3.1+, a Stop code extension;
+                                 # stdout holds only the banner and `\r` progress, `[ERROR] <file> <msg> on line N` goes to stderr and is
+                                 # always kept, §4.2; a missing tool is skipped, never blocks); `secrets.forbidFiles` starts with `{{localConfig}}`
 php-nette/settings.json          # permissions.ask (V4: make db-import*, docker stop/restart/rm * (any container), git push*, git checkout*/git switch*, destructive git and docker commands (`git reset --hard*`, `git clean *`, `git stash drop*`/`clear*`, `git branch -D *`, `docker volume rm *`/`prune*`, `docker system prune*`; `git restore` stays free — `/dev:commit` unstages with `--staged`), dependency changes (`*composer require *`, `*composer update*`, `*composer remove *`; leading `*` like the Doctrine rules, composer runs through `docker exec`), Doctrine commands that change the DB, migration history or files (`*migrations:migrate*` incl. `--dry-run`, `*migrations:diff*`, `*schema:update*`, `*schema-tool:*`, `*dbal:run-sql*`, …; inert in Dibi projects), Phinx commands that change the DB (`*phinx migrate*`, `*phinx rollback*`, `*phinx seed:run*`, `*phinx breakpoint*`, right after the Doctrine rules; `phinx status`, `create`, `seed:create` stay free; inert in Doctrine projects); project-init adds existing Makefile targets that stop/rebuild containers or change the DB/index) + permissions.deny (O: Edit(/vendor/**), Edit(/node_modules/**) …, anchored to the project root)
-php-nette/.worktreeinclude       # V6: vendor/, app/config/config.local.neon, .test-credentials
+php-nette/.worktreeinclude       # V6: vendor/, {{localConfig}}, .test-credentials
 php-nette/rules/php-core.md      # paths: **/*.php — PHP 8.x, PSR-12, strict types where project uses them, no die(), no @
-php-nette/rules/nette.md         # paths: app/**, libs/** — presenters, DI, forms CSRF, ACL isAllowed
+php-nette/rules/nette.md         # paths: app/**, libs/** — presenters, DI ({{localConfig}} never committed), forms CSRF, ACL isAllowed
 php-nette/rules/latte-frontend.md# paths: **/*.latte, www/css/**, www/js/** — escaping, {!$} policy, data-bs-*, JS anchors, frontend guards and steps
 php-nette/rules/db-dibi.md       # paths: db/**, **/*Model.php, phinx.{php,json,yaml,yml} — Dibi 4+ fetch null, params, no begin/commit in models, Phinx (directory from `paths.migrations`)
 php-nette/rules/db-doctrine.md   # paths: **/Entity/**, **/Repository/**, **/migrations/**, app/config/*doctrine*.neon — Doctrine ORM + Migrations in Nette; copied instead of db-dibi.md
