@@ -776,6 +776,87 @@ t_bash_gate_deny_tail() {
   pre_bash 'git commit -m "x"'
   want_rc 0 "commit po navrhnutej kontrole" && want_not 'permissionDecision' "commit po navrhnutej kontrole"
 }
+# 3 000 súborov: git add + commit (nové súbory) deny s počtom a tajomstvom, staged s pass.json allow, -a so zmeneným
+# súborom deny len jeho; každý beh pod 10 s (E8)
+t_bash_gate_many_files() {
+  new_case
+  cfg '.commitGate.ext += [".sh"]'
+  local i=0 t
+  mkdir -p "$REPO/gen"
+  while [ $i -lt 3000 ]; do printf 'echo %s\n' "$i" > "$REPO/gen/f$i.sh"; i=$((i + 1)); done
+  printf 'k=AKIA%s\n' ABCDEFGHIJKLMNOP > "$REPO/gen/f7.sh"
+  t=$SECONDS
+  pre_bash 'git add gen && git commit -m "x"'
+  t=$((SECONDS - t))
+  want_decision deny "bez pass.json" && want_json '.hookSpecificOutput.permissionDecisionReason | split("\n") as $l
+    | any($l[]; . == "- gen/f7.sh:1 — ****") and any($l[]; contains("3000 súborov bez PASS"))
+      and any($l[]; startswith("… ďalšie súbory: ")) and ($l | last | startswith("Spusti kontrolu: bash") and (contains("--files") | not))' "bez pass.json" || return 1
+  [ "$t" -lt 10 ] || { fail "deny s 3000 súbormi trval $t s (limit 10 s)"; return 1; }
+  printf 'echo 7\n' > "$REPO/gen/f7.sh"
+  g add gen
+  mkdir -p "$PDATA"
+  git -C "$REPO" ls-files -s -- gen | awk '{ split($0, a, "\t"); split(a[1], m, " "); print a[2] "\t" m[2] }' |
+    jq -Rn '[inputs | split("\t") | {key: .[0], value: .[1]}] | from_entries | {time: 0, mode: "quick", head: "", blobs: .}' > "$PDATA/pass.json"
+  t=$SECONDS
+  pre_bash 'git commit -m "x"'
+  t=$((SECONDS - t))
+  want_allow "s pass.json" || return 1
+  [ "$t" -lt 10 ] || { fail "allow s 3000 súbormi trval $t s (limit 10 s)"; return 1; }
+  printf 'echo zmena\n' > "$REPO/gen/f2999.sh"
+  t=$SECONDS
+  pre_bash 'git commit -am "x"'
+  t=$((SECONDS - t))
+  want_decision deny "-a so zmeneným súborom" && want_json '.hookSpecificOutput.permissionDecisionReason | split("\n") as $l
+    | any($l[]; . == "- gen/f2999.sh") and any($l[]; contains("1 súbor bez PASS"))' "-a so zmeneným súborom" || return 1
+  [ "$t" -lt 10 ] || fail "-a s 3000 súbormi trval $t s (limit 10 s)"
+}
+# dve repá v jednom príkaze: nález tajomstva prvého sa neprenesie do druhého, ktorý nemá pridaný riadok (E8)
+t_bash_secrets_two_repos() {
+  new_case
+  local r2="$CASE/r2"
+  cp -Rp "$REPO" "$r2"
+  put config/settings.ini 'password = "SuperSecret123"'
+  g add config/settings.ini
+  git -C "$r2" rm -q README.md || { fail "fixture: git rm v r2"; return 1; }
+  pre_bash "git commit -m x && git -C '$r2' commit -m y"
+  want_decision deny && want_json '.hookSpecificOutput.permissionDecisionReason | split("\n")
+    | (map(select(contains("config/settings.ini:1"))) | length) == 1 and (map(select(startswith("[dev-kit] repo "))) | length) == 0'
+}
+# {files} po dávkach ≤ 64 KiB: 5 000 súborov → dve dávky, jeden riadok výsledku, každý súbor raz; zlyhanie dávky = FAIL (E8)
+t_check_files_batches() {
+  new_case
+  cfg '.check.steps = [{"id": "cnt", "runFiles": "sh bin/count {files}", "ext": [".sh"], "modes": ["quick"]}]'
+  cat > "$REPO/bin/count" <<'EOS'
+#!/bin/sh
+echo "$#" >> .marks/cnt
+for f in "$@"; do
+  [ -f "$f" ] || { echo "chýba $f"; exit 1; }
+  [ -f .marks/failon ] && [ "$f" = src/a/f4999.sh ] && { echo "$f:1: chyba"; exit 1; }
+done
+exit 0
+EOS
+  local i=0 n sum log
+  g add bin/count && g commit -qm count
+  mkdir -p "$REPO/.marks" "$REPO/src/a"
+  while [ $i -lt 5000 ]; do : > "$REPO/src/a/f$i.sh"; i=$((i + 1)); done
+  : > "$REPO/src/it's a.sh"
+  : > "$REPO/-dash.sh"
+  check --quick
+  want_rc 0 && want_out '[dev-kit] check quick: PASS · 1 ok · 0 fail · 0 skip' || return 1
+  [ "$(printf '%s\n' "$OUT" | grep -c '^✓ cnt ')" = 1 ] || { fail "čakal som jeden riadok ✓ cnt$(ctx)"; return 1; }
+  n=$(grep -c . "$REPO/.marks/cnt")
+  sum=$(awk '{ s += $1 } END { print s + 0 }' "$REPO/.marks/cnt")
+  [ "$n" = 2 ] && [ "$sum" = 5002 ] || { fail "dávky $n (čakal som 2), súbory $sum (čakal som 5002)"; return 1; }
+  log=$(printf '%s\n' "$OUT" | sed -n 's/^log: //p')
+  grep -q '^=== cnt · dávka 1/2 · exit 0 · ' "$log" && grep -q '^=== cnt · dávka 2/2 · exit 0 · ' "$log" ||
+    { fail "log bez hlavičiek dávok: $(flat "$(grep '^===' "$log")")"; return 1; }
+  want_jfile "$PDATA/pass.json" '(.blobs | length) == 5002' || return 1
+  : > "$REPO/.marks/failon"
+  : > "$REPO/.marks/cnt"
+  check --quick
+  want_rc 1 "dávka zlyhá" && want_out '✗ cnt' "dávka zlyhá" && want_out 'src/a/f4999.sh:1: chyba' "dávka zlyhá" || return 1
+  [ "$(grep -c . "$REPO/.marks/cnt")" = 2 ] || fail "po zlyhaní dávky majú bežať všetky dávky: $(flat "$(cat "$REPO/.marks/cnt")")"
+}
 t_stop_partial_once() {
   new_case
   cfg '.check.steps += [{"id": "tests", "run": "vendor/bin/phpunit", "modes": ["stop"]}]'
@@ -3530,6 +3611,8 @@ t "pre-bash parser (6/6): tabuľka cmd-parse.tsv — báza, kandidáti a riadky 
 t "pre-bash parser fail closed (1/3): tabuľka cmd-parse-closed.tsv — každý riadok deny" t_cmd_parse_closed_1
 t "pre-bash parser fail closed (2/3): tabuľka cmd-parse-closed.tsv — každý riadok deny" t_cmd_parse_closed_2
 t "pre-bash parser fail closed (3/3): tabuľka cmd-parse-closed.tsv — každý riadok deny" t_cmd_parse_closed_3
+t "pre-bash: 3 000 staged súborov — deny s počtom a tajomstvom, s pass.json allow, -a so zmeneným súborom; každý beh pod 10 s (E8)" t_bash_gate_many_files
+t "check.sh: {files} po dávkach ≤ 64 KiB — 5 000 súborov v 2 dávkach, jeden riadok PASS, každý súbor raz, zlyhaná dávka → FAIL (E8)" t_check_files_batches
 t "pre-bash: nerozriešený cieľ cd / -C → cwd session a riadok „sa nedal určiť“ s úryvkom" t_bash_cd_unresolved_note
 t "pre-bash: git -C / cd --, -P na iné repo bez devkit.json → allow" t_bash_cd_other_repo_allow
 t "pre-bash: globálne prepínače gitu, env priradenia a obaly pred commit → deny (D17)" t_bash_detect_global_opts
@@ -3661,6 +3744,7 @@ t "stop-check: check.sh exit 3 / 2 → pripomienka „nedala spustiť“, skip n
 t "lib.sh dk_blobs: nečitateľný súbor = - a errors.log, symlink .php vypadne" t_blobs_unreadable_symlink
 t "lib.sh dk__added_spec: súbor v submodule → pridané riadky z diffu submodulu, nový súbor celý (D6)" t_added_spec_submodule
 t "pre-bash: symlink .php v stage aj cez git add → commit gate ho nežiada" t_bash_commit_symlink_code
+t "pre-bash: dve repá v príkaze — nález tajomstva prvého sa neprenesie do druhého bez pridaných riadkov (E8)" t_bash_secrets_two_repos
 t "lib.sh dk_err: errors.log nad 1 MB → posledných 500 riadkov" t_err_log_rotation
 t "kontajner: on-edit číta container.state 30 s, check.sh vždy docker inspect" t_container_state_cache
 t "check.sh: runFiles bez ext dostane do {files} len kódové súbory" t_check_runfiles_code_only

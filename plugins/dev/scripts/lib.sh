@@ -352,12 +352,21 @@ dk_ext() {
     esac
 }
 
+# awk funkcie pre zoznamy súborov, výsledok ako shell dk_ext a dk_shq (volať s LC_ALL=C).
+DK_AWK_FN='function dk_ext(p,   x) { x = p; sub(/.*\//, "", x); if (index(x, ".") == 0) return ""; sub(/.*\./, ".", x); return x }
+function dk_shq(s,   o, i) { o = ""; while ((i = index(s, "\047")) > 0) { o = o substr(s, 1, i - 1) "\047\\\047\047"; s = substr(s, i + 1) } return "\047" o s "\047" }'
+
+# stdin (cesta alebo cesta<TAB>…) → riadky, ktorých prípona je v <csv>; „code“ = bez prípony nikdy (dk_is_code).
+dk_ext_filter() { # <csv> [code]
+    DK_AWK_X=",$1," DK_AWK_C="${2:-}" LC_ALL=C awk -F'\t' "$DK_AWK_FN"'
+        $1 != "" { e = dk_ext($1); if ((e != "" || ENVIRON["DK_AWK_C"] == "") && index(ENVIRON["DK_AWK_X"], "," e ",")) print }'
+}
+
 # <rel> [stop] — prípona je v lint kľúčoch alebo v ext niektorého kroku; „stop“ berie ext len krokov
 # s mode stop, takže súbory, ktoré kontrolujú len kroky quick/full, Stop nespustia (SPEC §4.6).
 dk_is_code() {
-    local e x
-    e=$(dk_ext "$1")
-    [ -n "$e" ] || return 1
+    local b=${1##*/} e x
+    case "$b" in *.*) e=".${b##*.}" ;; *) return 1 ;; esac
     dk_base
     x=$DK_CODE_EXTS
     [ "${2:-}" = stop ] && x=$DK_STOP_EXTS
@@ -626,36 +635,28 @@ dk_added_lines() {
 # "rel<TAB>blob" zoradené podľa cesty; chýbajúci alebo nečitateľný súbor = "-". Symlink s príponou kódu
 # vypadne: git z neho commitne cieľ odkazu, nie obsah, ktorý by sa tu hashoval.
 dk_blobs() {
-    local f ex="" mi="" bl="" b
-    for f in "$@"; do
+    local f all ex mi bl b
+    # Výpis namiesto skladania reťazca v cykle (tisíce súborov).
+    all=$(for f in "$@"; do
         [ -n "$f" ] || continue
         if [ -L "$DK_PROJECT/$f" ] && dk_is_code "$f"; then continue; fi
-        if [ -f "$DK_PROJECT/$f" ]; then ex="$ex$f$DK_NL"; else mi="$mi$f$DK_NL"; fi
-    done
+        if [ -f "$DK_PROJECT/$f" ]; then printf 'E%s\n' "$f"; else printf 'M%s\n' "$f"; fi
+    done)
+    ex=$(printf '%s\n' "$all" | LC_ALL=C sed -n 's/^E//p')
+    mi=$(printf '%s\n' "$all" | LC_ALL=C sed -n 's/^M//p')
+    bl=""
     # Jeden nečitateľný súbor zhodí celú dávku → po jednom.
-    if [ -n "$ex" ] && ! bl=$(printf '%s' "$ex" | git -C "$DK_PROJECT" hash-object --stdin-paths 2>/dev/null); then
-        bl=""
-        while IFS= read -r f; do
-            [ -n "$f" ] || continue
+    if [ -n "$ex" ] && ! bl=$(printf '%s\n' "$ex" | git -C "$DK_PROJECT" hash-object --stdin-paths 2>/dev/null); then
+        bl=$(printf '%s\n' "$ex" | while IFS= read -r f; do
             b=$(git -C "$DK_PROJECT" hash-object -- "$f" 2>/dev/null)
             [ -n "$b" ] || { dk_err "nečitateľný súbor $f (git hash-object)"; b=-; }
-            bl="$bl$b$DK_NL"
-        done <<EOF
-$ex
-EOF
+            printf '%s\n' "$b"
+        done)
     fi
     {
-        if [ -n "$bl" ]; then
-            while IFS= read -r f <&3 && IFS= read -r b <&4; do
-                [ -n "$f" ] || continue
-                printf '%s\t%s\n' "$f" "$b"
-            done 3<<EOF3 4<<EOF4
-$ex
-EOF3
-$bl
-EOF4
-        fi
-        [ -n "$mi" ] && printf '%s' "$mi" | awk '{ print $0 "\t-" }'
+        [ -z "$bl" ] || { printf '%s\n\037\n%s\n' "$ex" "$bl" |
+            LC_ALL=C awk 's { print n[++j] "\t" $0; next } $0 == "\037" { s = 1; next } { n[++i] = $0 }'; }
+        [ -z "$mi" ] || printf '%s\n' "$mi" | LC_ALL=C awk '{ print $0 "\t-" }'
     } | sort -u
 }
 

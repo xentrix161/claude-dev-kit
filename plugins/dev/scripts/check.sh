@@ -97,13 +97,11 @@ elif [ "$mode" = stop ]; then
 else
     ALL=$(dk_changed_files)
 fi
-EXIST="" DELETED=""
-while IFS= read -r f; do
-    [ -n "$f" ] || continue
-    if [ -f "$DK_PROJECT/$f" ]; then EXIST="$EXIST$f$DK_NL"; else DELETED="$DELETED$f$DK_NL"; fi
-done <<EOF
-$ALL
-EOF
+# Existujúce súbory výpisom, nie skladaním reťazca v cykle (tisíce súborov).
+EXIST=$(printf '%s\n' "$ALL" | while IFS= read -r f; do
+    [ -n "$f" ] && [ -f "$DK_PROJECT/$f" ] && printf '%s\n' "$f"
+done)
+[ -z "$EXIST" ] || EXIST="$EXIST$DK_NL"
 
 AUTO_FULL=0
 if [ "$mode" = auto ]; then
@@ -123,7 +121,8 @@ fi
 dk_tmpdir
 if [ "$mode" = stop ]; then
     # Bez --files rovnaká množina ako dk_session_code_files v stop-check (hash v stop.json).
-    HF=$(printf '%s' "$EXIST" | while IFS= read -r f; do [ -n "$f" ] && dk_is_code "$f" stop && printf '%s\n' "$f"; done)
+    dk_base
+    HF=$(printf '%s' "$EXIST" | dk_ext_filter "$DK_STOP_EXTS" code)
     SNAP_HASH=$(set -f; IFS=$DK_NL; dk_hash_files $HF)
 else
     (set -f; IFS=$DK_NL; dk_blobs $ALL) > "$DK_TMP/blobs.snap"
@@ -150,20 +149,13 @@ dk_env_check() { # kontajner + workdir raz pre všetky kroky
 }
 
 dk_files_for() { # <ext-csv> → existujúce súbory s danou príponou (prázdne csv = kódové, v stop kódové pre Stop)
-    local f e sc=""
-    [ "$mode" = stop ] && sc=stop
-    while IFS= read -r f; do
-        [ -n "$f" ] || continue
-        if [ -n "$1" ]; then
-            e=$(dk_ext "$f")
-            case ",$1," in *",$e,"*) ;; *) continue ;; esac
-        else
-            dk_is_code "$f" $sc || continue
-        fi
-        printf '%s\n' "$f"
-    done <<EOF
-$EXIST
-EOF
+    if [ -n "$1" ]; then
+        printf '%s' "$EXIST" | dk_ext_filter "$1"
+    else
+        dk_base
+        if [ "$mode" = stop ]; then printf '%s' "$EXIST" | dk_ext_filter "$DK_STOP_EXTS" code
+        else printf '%s' "$EXIST" | dk_ext_filter "$DK_CODE_EXTS" code; fi
+    fi
 }
 
 # skip = krok sa zmien netýka · block = krok sa nedal spustiť (verdikt najviac PARTIAL)
@@ -286,34 +278,54 @@ while IFS=$DK_US read -r tag id req run runf exts modes cl rt tsec <&3; do
     else
         dk_block "$id" "bez príkazu (run/runFiles)"; continue
     fi
+    # {files}: dávky ≤ 64 KiB citovaných ciest (MAX_ARG_STRLEN na Linuxe), jedna dávka na riadok; krok beží na každú.
     case "$cmd" in
         *"{files}"*)
-            q=""
-            while IFS= read -r f; do
-                [ -n "$f" ] || continue
-                case "$f" in -*) f="./$f" ;; esac
-                q="$q${q:+ }$(dk_shq "$f")"
-            done <<EOF
-$targets
-EOF
-            cmd=${cmd//\{files\}/"$q"}
+            printf '%s\n' "$targets" | LC_ALL=C awk "$DK_AWK_FN"'
+                $0 == "" { next }
+                { f = $0; if (substr(f, 1, 1) == "-") f = "./" f; q = dk_shq(f)
+                  if (b != "" && length(b) + 1 + length(q) > 65536) { print b; b = "" }
+                  b = (b == "" ? q : b " " q) }
+                END { if (b != "") print b }' > "$DK_TMP/batches"
+            [ -s "$DK_TMP/batches" ] || echo > "$DK_TMP/batches"
             ;;
-        *) [ "$cmd" = "$runf" ] || targets=$EXIST ;;
+        *) [ "$cmd" = "$runf" ] || targets=$EXIST; echo > "$DK_TMP/batches" ;;
     esac
+    nb=$(grep -c '' "$DK_TMP/batches")
 
+    # Výsledok kroku = spojený výstup dávok a najvyšší exit; timeoutSec platí pre celý krok.
     s0=$(dk_ms)
-    dk_exec "$cmd" "$srt" "$tsec" > "$DK_TMP/step.raw"
-    rc=$?
-    LC_ALL=C sed "s/$(printf '\033')\[[0-9;]*[A-Za-z]//g" "$DK_TMP/step.raw" > "$DK_TMP/step.out"
+    : > "$DK_TMP/step.out"
+    rc=0 tmo="" k=0
+    while IFS= read -r q <&4; do
+        k=$((k + 1))
+        bcmd=$cmd
+        case "$cmd" in *"{files}"*) bcmd=${cmd//\{files\}/"$q"} ;; esac
+        lim=$tsec
+        if [ "$tsec" -gt 0 ] && [ "$k" -gt 1 ]; then
+            lim=$(( tsec - ($(dk_ms) - s0) / 1000 ))
+            [ "$lim" -ge 1 ] || lim=1
+        fi
+        b0=$(dk_ms)
+        dk_exec "$bcmd" "$srt" "$lim" > "$DK_TMP/step.raw"
+        brc=$?
+        LC_ALL=C sed "s/$(printf '\033')\[[0-9;]*[A-Za-z]//g" "$DK_TMP/step.raw" > "$DK_TMP/step.bout"
+        cat "$DK_TMP/step.bout" >> "$DK_TMP/step.out"
+        bms=$(( $(dk_ms) - b0 ))
+        btmo=""
+        [ "$DK_EXEC_TIMEOUT" = 1 ] && btmo=" · prekročil timeoutSec $tsec s"
+        hdr="=== $id"
+        [ "$nb" -le 1 ] || hdr="$hdr · dávka $k/$nb"
+        {
+            echo
+            echo "$hdr · exit $brc · $(dk_fmt_s "$bms") s$btmo"
+            echo "\$ $bcmd"
+            cat "$DK_TMP/step.bout"
+        } 2>/dev/null >> "$LOG"
+        [ "$brc" -le "$rc" ] || rc=$brc
+        if [ -n "$btmo" ]; then tmo=$btmo; break; fi
+    done 4< "$DK_TMP/batches"
     ms=$(( $(dk_ms) - s0 ))
-    tmo=""
-    [ "$DK_EXEC_TIMEOUT" = 1 ] && tmo=" · prekročil timeoutSec $tsec s"
-    {
-        echo
-        echo "=== $id · exit $rc · $(dk_fmt_s "$ms") s$tmo"
-        echo "\$ $cmd"
-        cat "$DK_TMP/step.out"
-    } 2>/dev/null >> "$LOG"
 
     # Časový limit: krok nedobehol, výsledok nie je o kóde → PARTIAL (Stop neblokuje, commit gate vysvetlí).
     if [ -n "$tmo" ]; then dk_block "$id" "" "! krok $id prekročil $tsec s"; continue; fi

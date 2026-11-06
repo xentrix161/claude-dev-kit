@@ -191,7 +191,8 @@ Semantics:
   `"container"` or absent ⇒ in the container when `container` is set, otherwise on the host (so a CI
   copy with `container: ""` runs everything on the host). Any other value ⇒ the step is blocked
   `! <id>: neznámy runtime "<x>" (host|container)` (§4.5); a lint command is skipped (`errors.log`,
-  decision `skip`). `{file}`/`{files}` are relative to P in both runtimes.
+  decision `skip`). `{file}`/`{files}` are relative to P in both runtimes; a long `{files}` list runs the step in
+  batches (§4.5).
 - Trust (R3): hooks run the `lint` and `check.steps[]` commands as written. A change of the file is reported,
   never blocked: the card once after the change (§4.7 item 9), on-edit and pre-bash once per session (§4.2,
   §4.4); the first sight of a config is trusted silently (`dk_cfg_trust`, §4.1). An allowlist of commands
@@ -257,7 +258,7 @@ Semantics:
     "SessionStart": [{"matcher": "startup|resume|clear|compact", "hooks": [{"type": "command", "command": "bash \"${CLAUDE_PLUGIN_ROOT}/scripts/session-card.sh\"", "timeout": 10}]}],
     "PreToolUse": [
       {"matcher": "Edit|Write|NotebookEdit", "hooks": [{"type": "command", "command": "bash \"${CLAUDE_PLUGIN_ROOT}/scripts/pre-edit.sh\"", "timeout": 10}]},
-      {"matcher": "Bash", "hooks": [{"type": "command", "command": "bash \"${CLAUDE_PLUGIN_ROOT}/scripts/pre-bash.sh\"", "timeout": 30}]}
+      {"matcher": "Bash", "hooks": [{"type": "command", "command": "bash \"${CLAUDE_PLUGIN_ROOT}/scripts/pre-bash.sh\"", "timeout": 60}]}
     ],
     "PostToolUse": [{"matcher": "Edit|Write|NotebookEdit", "hooks": [{"type": "command", "command": "bash \"${CLAUDE_PLUGIN_ROOT}/scripts/on-edit.sh\"", "timeout": 60}]}],
     "Stop": [{"hooks": [{"type": "command", "command": "bash \"${CLAUDE_PLUGIN_ROOT}/scripts/stop-check.sh\"", "timeout": 600}]}],
@@ -265,6 +266,11 @@ Semantics:
   }
 }
 ```
+Known limitation: Claude Code cancels a hook that runs past its `timeout`, and the tool call then goes on as if the
+hook had allowed it. The Bash handler (commit gate and secrets check, §4.4) therefore gets 60 s and handles file sets in
+linear time (§4.4; selftest: 3 000 files well under 10 s). `onFailure: "block"` is deliberately not set: a slow
+hook, a stopped container or a missing tool never blocks (§0 hook discipline, kit `CLAUDE.md` rule 6); the gate
+blocks only by its own verdict.
 Verify tool names and matcher syntax against `hooks.md` (current tool names for file edits). Hook input
 fields used: `session_id`, `cwd`, `hook_event_name`, `tool_name`, `tool_input.file_path` (NotebookEdit:
 `tool_input.notebook_path`; pre-edit and on-edit treat both the same),
@@ -314,7 +320,9 @@ it, the watchdog then kills only the `docker exec` client and the process in the
 when `container` is set and the value is empty or `container`, else `host`; any other value returns 1), `dk_container_ok` (0 when container unset or running; reuses
 `container.state` (§2) younger than 30 s for the same container, otherwise asks `docker inspect` and writes
 it; `check.sh` sets `DK_NO_CONTAINER_CACHE`, so it always asks and only writes the fresh state),
-`dk_glob_match <path> <glob>`, `dk_added_lines <rel>` (newline list of added line numbers vs HEAD from
+`dk_glob_match <path> <glob>`, `dk_ext_filter <csv> [code]` (stdin lines `path` or `path<TAB>…` whose extension is
+in the comma list; `code` ⇒ a path without extension never, like `dk_is_code`; awk with `DK_AWK_FN` = awk `dk_ext` and
+`dk_shq`, run with `LC_ALL=C`), `dk_added_lines <rel>` (newline list of added line numbers vs HEAD from
 `git diff -U0 HEAD --`; untracked file ⇒ all lines; file new in index ⇒ all lines; a path the repo does not know — a
 file in a submodule or a nested repo — ⇒ the same diff in the root of that repo, `git -C <dir of rel> rev-parse
 --show-toplevel`, with the path relative to it; only a root strictly below the project counts), `dk_blobs <rel>…`
@@ -430,6 +438,10 @@ Content of each file: staged blob (`git ls-files -s`) or, for -a/paths/add, `git
 deleted = `-`. A symlink with a code extension is left out of the set (working tree: `dk_blobs`, §4.1;
 staged only: mode `120000` with an extension in `commitGate.ext` or the code extensions): git stores its link
 target, which never equals the content `check.sh` hashed, so the gate would deny it forever.
+File sets (to-be-committed vs working-tree files, `pass.json` blobs, code files, new files for the secrets diff) are
+compared by awk over temp files in `DK_TMP`, never by growing a shell string in a loop or one subshell per file;
+every such temp file is emptied first, because all repos of one command share `DK_TMP` (a repo without added lines
+must not see the secrets diff of the previous one).
 1. Secrets (V5, rule `secrets`): any to-be-committed file matching `forbidFiles` ⇒ deny. Added lines of
    the to-be-committed diff matched against the lib defaults ∪ `secrets.patterns` (defaults: generic
    password/token assignment, `-----BEGIN [A-Z ]*PRIVATE KEY-----`, `AKIA[0-9A-Z]{16}`,
@@ -632,6 +644,14 @@ flags in any order; `--files` consumes paths until the next `--` flag.
   `{files}`; in stop mode (with or without `--files`) prefer `runFiles` when files exist, else
   `run` (for steps without ext, e.g. unit tests, always `run`). A step without `runFiles` runs `run` whole
   with `--files` too. `changedLinesOnly` (`true` | `"stop"`, §3) filters like on-edit.
+- `{files}` = the step's files, each in single quotes (`'` as `'\''`, a leading `-` as `./-…`), joined by spaces, in
+  batches of at most 64 KiB (65 536 bytes; `sh -c` gets the whole command as one argument and Linux caps one argument
+  at 128 KiB, `MAX_ARG_STRLEN`). The step runs once per batch, in order, and all batches run even after a failing
+  one; its result is the joined output (ANSI stripped) and the highest exit code of the batches, so it stays one step
+  line. `timeoutSec` covers the whole step: a later batch gets the remaining seconds (at least 1) and a batch over the
+  limit ends the step (no further batch). The log gets one header per batch `=== <id> · dávka <k>/<n> · exit <rc> ·
+  <s> s` followed by its `$ <command>` and output; a single batch keeps `=== <id> · exit <rc> · <s> s`. `pass.json`
+  is the same as with one batch. Files are filtered by extension with awk (`dk_ext_filter`, `DK_AWK_FN` in lib.sh).
 - Two kinds of skipped step. **Not applicable** (line `– <id>: <reason>`, verdict unaffected): missing
   `requires`, no changed files for its `ext`, tool output `No files were checked` without any finding
   line (`nástroj nič neskontroloval (No files were checked)`). **Blocked** — the step should run but could

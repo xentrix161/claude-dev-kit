@@ -699,13 +699,12 @@ EOF
     fi
 
     # Obsah: pracovný strom pre -a/pathspec/add, inak blob z indexu; zmazaný = "-".
+    # Zoznamy súborov cez awk a súbory: reťazec skladaný v cykle bash rastie kvadraticky (tisíce súborov, hook 60 s).
     local map="" so=""
-    while IFS= read -r f; do
-        [ -n "$f" ] || continue
-        case "$DK_NL$wt$DK_NL" in *"$DK_NL$f$DK_NL"*) ;; *) so="$so$f$DK_NL" ;; esac
-    done <<EOF
-$tbc
-EOF
+    printf '%s\n' "$wt" | grep -v '^$' > "$DK_TMP/wt.list"
+    printf '%s\n' "$tbc" > "$DK_TMP/tbc.list"
+    so=$(LC_ALL=C awk 'FILENAME == ARGV[1] { w[$0] = 1; next } $0 != "" && !($0 in w)' "$DK_TMP/wt.list" "$DK_TMP/tbc.list")
+    [ -z "$so" ] || so="$so$DK_NL"
     if [ -n "$wt" ]; then
         # shellcheck disable=SC2086
         map=$(set -f; IFS=$DK_NL; dk_blobs $wt)
@@ -743,44 +742,38 @@ EOF
         done <<EOF
 $map
 EOF
-        local dfiles_so="" dfiles_wt=""
+        # Diff pridaných riadkov: obsah z indexu (sec.so), z pracovného stromu (sec.wt), nesledovaný súbor celý (sec.new).
+        # DK_TMP zdieľajú všetky repá príkazu → každý súbor najprv vyprázdniť.
+        : > "$DK_TMP/sec.wt"; : > "$DK_TMP/sec.so"; : > "$DK_TMP/sec.new"; : > "$DK_TMP/sec.meta"; : > "$DK_TMP/sec.txt"
         while IFS="$DK_TAB" read -r f b; do
             [ -n "$f" ] && [ "$b" != "-" ] || continue
             dk_re_match "$f" "$are" && continue
-            case "$DK_NL$wt$DK_NL" in
-                *"$DK_NL$f$DK_NL"*) dfiles_wt="$dfiles_wt$f$DK_NL" ;;
-                *) dfiles_so="$dfiles_so$f$DK_NL" ;;
-            esac
-        done <<EOF
+            printf '%s\n' "$f"
+        done > "$DK_TMP/sec.cand" <<EOF
 $map
 EOF
-        local dfiles_new=""
-        if [ -n "$dfiles_wt" ]; then
-            local known
-            known=$(printf '%s' "$dfiles_wt" | tr '\n' '\0' | xargs -0 git -C "$DK_PROJECT" -c core.quotepath=off ls-files -- 2>/dev/null)
-            while IFS= read -r f; do
-                [ -n "$f" ] || continue
-                case "$DK_NL$known$DK_NL" in
-                    *"$DK_NL$f$DK_NL"*) ;;
-                    *) dfiles_new="$dfiles_new$f$DK_NL" ;;
-                esac
-            done <<EOF
-$dfiles_wt
-EOF
+        DK_AWK_WT="$DK_TMP/sec.wt" DK_AWK_SO="$DK_TMP/sec.so" LC_ALL=C awk '
+            BEGIN { wt = ENVIRON["DK_AWK_WT"]; so = ENVIRON["DK_AWK_SO"] }
+            FILENAME == ARGV[1] { w[$0] = 1; next }
+            { if ($0 in w) print > wt; else print > so }' "$DK_TMP/wt.list" "$DK_TMP/sec.cand"
+        if [ -s "$DK_TMP/sec.wt" ]; then
+            tr '\n' '\0' < "$DK_TMP/sec.wt" | xargs -0 git -C "$DK_PROJECT" -c core.quotepath=off ls-files -- 2>/dev/null > "$DK_TMP/sec.known"
+            LC_ALL=C awk 'FILENAME == ARGV[1] { k[$0] = 1; next } !($0 in k)' "$DK_TMP/sec.known" "$DK_TMP/sec.wt" > "$DK_TMP/sec.new"
         fi
         {
-            [ -n "$dfiles_so" ] && printf '%s' "$dfiles_so" | tr '\n' '\0' | xargs -0 git -C "$DK_PROJECT" -c core.quotepath=off \
+            [ -s "$DK_TMP/sec.so" ] && tr '\n' '\0' < "$DK_TMP/sec.so" | xargs -0 git -C "$DK_PROJECT" -c core.quotepath=off \
                 diff --cached -U0 --no-color --no-ext-diff --no-textconv --src-prefix=a/ --dst-prefix=b/ -- 2>/dev/null
-            [ -n "$dfiles_wt" ] && printf '%s' "$dfiles_wt" | tr '\n' '\0' | xargs -0 git -C "$DK_PROJECT" -c core.quotepath=off \
+            [ -s "$DK_TMP/sec.wt" ] && tr '\n' '\0' < "$DK_TMP/sec.wt" | xargs -0 git -C "$DK_PROJECT" -c core.quotepath=off \
                 diff -U0 --no-color --no-ext-diff --no-textconv --src-prefix=a/ --dst-prefix=b/ HEAD -- 2>/dev/null
-            if [ -n "$dfiles_new" ]; then
-                printf '%s' "$dfiles_new" | while IFS= read -r f; do
-                    [ -f "$DK_PROJECT/$f" ] || continue
-                    printf 'diff --git a/%s b/%s\n+++ b/%s\n@@ -0,0 +1 @@\n' "$f" "$f" "$f"
-                    LC_ALL=C grep -Iq . "$DK_PROJECT/$f" 2>/dev/null && sed 's/^/+/' "$DK_PROJECT/$f"
-                done
+            # Nový súbor: textový (grep -I) celý ako pridané riadky; „./“ pred cestou, aby awk nečítal a=b ako priradenie.
+            if [ -s "$DK_TMP/sec.new" ]; then
+                (cd "$DK_PROJECT" 2>/dev/null && LC_ALL=C sed 's|^|./|' "$DK_TMP/sec.new" | tr '\n' '\0' |
+                    LC_ALL=C xargs -0 grep -Il -e . -- 2>/dev/null | tr '\n' '\0' |
+                    LC_ALL=C xargs -0 awk 'FNR == 1 { p = substr(FILENAME, 3); printf "diff --git a/%s b/%s\n+++ b/%s\n@@ -0,0 +1 @@\n", p, p, p }
+                        { print "+" $0 }')
             fi
-        } | awk -v meta="$DK_TMP/sec.meta" -v txt="$DK_TMP/sec.txt" '
+        } | DK_AWK_META="$DK_TMP/sec.meta" DK_AWK_TXT="$DK_TMP/sec.txt" awk '
+            BEGIN { meta = ENVIRON["DK_AWK_META"]; txt = ENVIRON["DK_AWK_TXT"] }
             /^diff / { hd = 1; next }
             hd && /^\+\+\+ / { p = substr($0, 5); sub(/\t$/, "", p); sub(/^b\//, "", p); next }
             /^@@ / { hd = 0; s = $3; sub(/^\+/, "", s); split(s, q, ","); ln = q[1] + 0; next }
@@ -823,54 +816,44 @@ EOF
 
     # 2. Commit gate. Kľúč obsahu (hash kódových blobov) zoskupí pokusy o ten istý commit pre /dev:stats.
     if [ "$gate_on" = 1 ]; then
-        local code="" pmode="" pblobs="" bad="" nbad=0 fullg="" e gmsg="" ckey="" rerun=0 again fl
+        local code="" pmode="" bad="" nbad=0 fullg="" gmsg="" ckey="" rerun=0 again fl
         if [ "$partial" = 1 ]; then
             gmsg="[dev-kit] čiastočný stage (git add -p/-i/-e) v tom istom príkaze ako commit sa nedá overiť — stage-uj zvlášť, potom commit zopakuj.$DK_NL"
         fi
-        while IFS="$DK_TAB" read -r f b; do
-            [ -n "$f" ] || continue
-            e=$(dk_ext "$f")
-            [ -n "$e" ] || continue
-            case ",$gext," in *",$e,"*) code="$code$f$DK_TAB$b$DK_NL" ;; esac
-        done <<EOF
-$map
-EOF
+        code=$(printf '%s\n' "$map" | dk_ext_filter "$gext" code)
+        [ -z "$code" ] || code="$code$DK_NL"
         if [ -n "$code" ]; then
             ckey=$(printf '%s' "$code" | git hash-object --stdin 2>/dev/null | cut -c1-12)
+            printf '%s' "$code" > "$DK_TMP/code.list"
+            : > "$DK_TMP/pass.blobs"
             if [ -f "$DK_PDATA/pass.json" ]; then
-                local pout
-                pout=$(jq -r '"M\u001f\(.mode // "")", ((.blobs // {}) | to_entries[] | "B\u001f\(.key)\u001f\(.value)")' "$DK_PDATA/pass.json" 2>/dev/null)
-                while IFS=$DK_US read -r tag a b; do
-                    case "$tag" in
-                        M) pmode=$a ;;
-                        B) pblobs="$pblobs$a$DK_TAB$b$DK_NL" ;;
-                    esac
-                done <<EOF
-$pout
-EOF
+                jq -r '"M\u001f\(.mode // "")", ((.blobs // {}) | to_entries[] | "B\u001f\(.key)\u001f\(.value)")' "$DK_PDATA/pass.json" 2>/dev/null > "$DK_TMP/pass.out"
+                pmode=$(LC_ALL=C awk -F'\037' '$1 == "M" { print $2; exit }' "$DK_TMP/pass.out")
+                LC_ALL=C awk -F'\037' '$1 == "B" { print $2 "\t" $3 }' "$DK_TMP/pass.out" > "$DK_TMP/pass.blobs"
             fi
-            local note
-            while IFS="$DK_TAB" read -r f b; do
-                [ -n "$f" ] || continue
-                case "$DK_NL$pblobs" in
-                    *"$DK_NL$f$DK_TAB$b$DK_NL"*) ;;
-                    *)
-                        nbad=$((nbad + 1))
-                        note=""
-                        # check.sh hashuje pracovný strom; iný obsah v indexe by ďalší /dev:check neopravil.
-                        if [ "$nbad" -le 8 ] && [ "$b" != "-" ]; then
-                            case "$DK_NL$so" in
-                                *"$DK_NL$f$DK_NL"*)
-                                    [ "$(dk_blobs "$f" | cut -f2)" = "$b" ] || note=" (index ≠ pracovný strom → git add $f)" ;;
-                            esac
-                        fi
-                        bad="$bad- $f$note$DK_NL"
-                        ;;
-                esac
-                if [ -z "$fullg" ] && [ -n "$fullw" ]; then fullg=$(dk_first_glob "$f" "$fullw"); fi
-            done <<EOF
-$code
-EOF
+            LC_ALL=C awk 'FILENAME == ARGV[1] { p[$0] = 1; next } $0 != "" && !($0 in p)' "$DK_TMP/pass.blobs" "$DK_TMP/code.list" > "$DK_TMP/bad.list"
+            nbad=$(grep -c '' "$DK_TMP/bad.list")
+            # check.sh hashuje pracovný strom; iný obsah v indexe by ďalší /dev:check neopravil (len zobrazených 8).
+            local note k=0
+            while IFS="$DK_TAB" read -r f b && [ "$k" -lt 8 ]; do
+                k=$((k + 1))
+                note=""
+                if [ "$b" != "-" ]; then
+                    case "$DK_NL$so" in
+                        *"$DK_NL$f$DK_NL"*)
+                            [ "$(dk_blobs "$f" | cut -f2)" = "$b" ] || note=" (index ≠ pracovný strom → git add $f)" ;;
+                    esac
+                fi
+                bad="$bad- $f$note$DK_NL"
+            done < "$DK_TMP/bad.list"
+            [ "$nbad" -le 8 ] || bad="$bad$(LC_ALL=C awk -F'\t' 'NR > 8 { print "- " $1 }' "$DK_TMP/bad.list")$DK_NL"
+            if [ -n "$fullw" ]; then
+                local fwre
+                fwre=$(dk_globs_re "$fullw")
+                while IFS="$DK_TAB" read -r f b; do
+                    if dk_re_match "$f" "$fwre"; then fullg=$(dk_first_glob "$f" "$fullw"); break; fi
+                done < "$DK_TMP/code.list"
+            fi
             if [ "$nbad" -gt 0 ]; then
                 gmsg="$gmsg[dev-kit] commit gate$when: $(dk_plural "$nbad" súbor súbory súborov) bez PASS z /dev:check pre presne tento obsah:$DK_NL$(dk__items 8 'ďalšie súbory' "$bad")$DK_NL"
                 rerun=1
