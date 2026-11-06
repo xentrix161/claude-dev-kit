@@ -3239,6 +3239,86 @@ t_templates_settings_team() {
     "$CASE/local.out" >/dev/null 2>&1 || fail "zlúčenie lokálne: $(flat "$(cat "$CASE/local.out")")"
 }
 
+# ---------------------------------------------------------------- schéma devkit.json (E4)
+# Kľúče hodnoty mimo schémy (cesta .a.b[0].c po riadkoch): properties, patternProperties, additionalProperties,
+# items, $ref a vetvy oneOf/anyOf podľa typu hodnoty. Hodnoty a vzory overí až plná validácia.
+DK_JQ_SCHEMA_BAD='$sch[0] as $R
+| def r: if type == "object" and has("$ref") then . as $x | $R | getpath($x["$ref"] | ltrimstr("#/") | split("/")) | r else . end;
+  def alts: r | if ((has("properties") or has("items") or has("additionalProperties")) | not) and ((.oneOf // .anyOf) != null)
+    then (.oneOf // .anyOf)[] | alts else . end;
+  def pick($t): [alts | select(.type == $t or ($t == "object" and has("properties")))] | (first // {});
+  def bad($s; $p):
+    if type == "object" then ($s | pick("object")) as $o
+      | to_entries[] | .key as $k | .value as $v
+      | if (($o.properties // {}) | has($k)) then $v | bad($o.properties[$k]; "\($p).\($k)")
+        elif any(($o.patternProperties // {}) | keys[]; . as $re | $k | test($re)) then empty
+        elif ($o.additionalProperties | type) == "object" then $v | bad($o.additionalProperties; "\($p).\($k)")
+        elif $o.additionalProperties == false then "\($p).\($k)"
+        else empty end
+    elif type == "array" then ($s | pick("array") | .items // null) as $it
+      | if $it == null then empty else to_entries[] | .key as $i | .value | bad($it; "\($p)[\($i)]") end
+    else empty end;
+  bad($R; "")'
+DK_PY_SCHEMA='import json, sys, jsonschema
+s = json.load(open(sys.argv[1], encoding="utf-8"))
+jsonschema.Draft7Validator.check_schema(s)
+v = jsonschema.Draft7Validator(s)
+r = 0
+for f in sys.argv[2:]:
+    for e in v.iter_errors(json.load(open(f, encoding="utf-8"))):
+        r = 1
+        print(f, "/".join(map(str, e.absolute_path)), e.message[:120])
+sys.exit(r)'
+t_devkit_schema() {
+  local sc="$KIT/plugins/dev/devkit.schema.json" T="$KIT/plugins/dev/templates" repo url f k s bad=""
+  jq empty "$sc" 2>/dev/null || { fail "plugins/dev/devkit.schema.json nie je platný JSON (jq empty)"; return 1; }
+  repo=$(LC_ALL=C sed -n 's/^claude plugin marketplace add \([[:alnum:]_.-]*\/[[:alnum:]_.-]*\)$/\1/p' "$KIT/README.md" | head -n 1)
+  url="https://raw.githubusercontent.com/$repo/main/plugins/dev/devkit.schema.json"
+  s=$(jq -r --arg u "$url" '
+    if ."$schema" != "http://json-schema.org/draft-07/schema#" then "$schema \(."$schema")"
+    elif ."$id" != $u then "$id \(."$id")"
+    elif .required != ["version", "stack"] or .additionalProperties != false then "koreň: required alebo additionalProperties"
+    elif .definitions.step.additionalProperties != false then "krok: additionalProperties"
+    elif .definitions.step.properties.modes.items.enum != ["stop", "quick", "full"] then "krok: enum modes"
+    elif .definitions.runtime.enum != ["host", "container"] then "enum runtime"
+    elif .definitions.step.properties.changedLinesOnly.enum != [true, false, "stop"] then "krok: enum changedLinesOnly"
+    else empty end' "$sc" 2>&1)
+  [ -n "$repo" ] && [ -z "$s" ] || { fail "devkit.schema.json: ${s:-repo z README nenájdené}"; return 1; }
+  new_case
+  awk '/^## 3\./ { s = 1 } s && /^```json$/ { b = 1; next } b && /^```$/ { exit } b { print }' "$KIT/docs/SPEC.md" > "$CASE/spec.json"
+  jq empty "$CASE/spec.json" 2>/dev/null || { fail "SPEC §3: príklad devkit.json nie je platný JSON"; return 1; }
+  for f in "$T"/*/devkit.json "$KIT/.claude/devkit.json"; do
+    jq -e --arg u "$url" '."$schema" == $u' "$f" >/dev/null 2>&1 || bad="$bad${f#"$KIT"/}: \$schema nie je $url; "
+  done
+  set -- "$T"/*/devkit.json "$KIT/.claude/devkit.json" "$FIX/devkit.json" "$EV/fixtures/shop/.claude/devkit.json" \
+    "$EV"/fixtures/config/*.json "$CASE/spec.json"
+  for f in "$@"; do
+    s=$(jq -r --slurpfile sch "$sc" "$DK_JQ_SCHEMA_BAD" "$f" 2>&1)
+    [ -z "$s" ] || bad="$bad${f#"$KIT"/}: kľúče mimo schémy $(flat "$s"); "
+  done
+  printf '%s\n' '{"version": 1, "stack": "x", "stopChek": true, "lint": {".php": [{"run": "x", "runtim": "host"}]},
+    "check": {"steps": [{"id": "a", "run": "x", "mode": ["quick"]}]}, "secrets": {"allow": [], "forbid": []}, "_init": []}' > "$CASE/bad.json"
+  s=$(jq -r --slurpfile sch "$sc" "$DK_JQ_SCHEMA_BAD" "$CASE/bad.json" 2>&1 | tr '\n' ' ')
+  [ "$s" = '.stopChek .lint..php[0].runtim .check.steps[0].mode .secrets.forbid ' ] || bad="${bad}kontrola kľúčov nechytila preklepy: $s; "
+  for k in $(jq -r '(.properties | keys[]), (.definitions.step.properties | keys[])' "$sc"); do
+    LC_ALL=C grep -qF "\`$k\`" "$KIT/docs/devkit-json.md" || bad="${bad}docs/devkit-json.md: chýba \`$k\`; "
+  done
+  if command -v check-jsonschema >/dev/null 2>&1; then
+    s=$(check-jsonschema --schemafile "$sc" "$@" 2>&1) || bad="${bad}check-jsonschema: $(flat "$s"); "
+    ! check-jsonschema --schemafile "$sc" "$CASE/bad.json" >/dev/null 2>&1 || bad="${bad}check-jsonschema: zlý config prešiel; "
+  elif python3 -c 'import jsonschema' >/dev/null 2>&1; then
+    s=$(python3 -c "$DK_PY_SCHEMA" "$sc" "$@" 2>&1) || bad="${bad}jsonschema: $(flat "$s"); "
+    ! python3 -c "$DK_PY_SCHEMA" "$sc" "$CASE/bad.json" >/dev/null 2>&1 || bad="${bad}jsonschema: zlý config prešiel; "
+  fi
+  [ -z "$bad" ] || { fail "$bad"; return 1; }
+  cfg --arg u "$url" '{"$schema": $u} + .'
+  add app/Foo.php '$f = 6;'
+  on_edit app/Foo.php
+  want_rc 0 "on-edit s \$schema" && want_silent "on-edit s \$schema" || return 1
+  check --quick --project "$REPO"
+  want_rc 0 "check.sh s \$schema" && want_out 'check quick: PASS' "check.sh s \$schema"
+}
+
 # ---------------------------------------------------------------- audit závislostí (B14)
 # composer audit (Advisory ID + CVE) a pip-audit (ID + aliasy): vzor na jedno id pokryje záznam — SPEC §3
 t_check_known_failures_audit() {
@@ -3936,6 +4016,7 @@ t "session-card: pri startup zmaže dáta projektu s neexistujúcou cestou z pro
 t "šablóny php: CLAUDE.md.tmpl php-nette a php-symfony s rovnakými sekciami a {{…}} okrem frameworku, písmeno stacku v tabuľke project-init, api-platform.md len s api-platform/*, vetvy AssetMapper/Encore (E1)" t_templates_php_parity
 t "šablóna php-nette: lokálny config len ako {{localConfig}} (kandidáti v project-init), lint .neon neon-lint — [ERROR] … on line N bez hlavičky, bez nástroja edit prejde (E2)" t_templates_nette_neon
 t "šablóny settings.json: marketplace dev-kit a plugin dev (mená z manifestov), plansDirectory, bez attribution; zlúčenie project-init — tím pridá a hodnoty projektu nechá, lokálne bez marketplace (E3)" t_templates_settings_team
+t "devkit.schema.json: draft-07, kľúče šablón, configu kitu, fixtúr a príkladu zo SPEC ⊆ schéma, \$schema = URL z README, každý kľúč v docs/devkit-json.md, plná validácia s jsonschema, skripty \$schema ignorujú (E4)" t_devkit_schema
 
 wait
 for f in "$RES"/*; do

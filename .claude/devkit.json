@@ -1,4 +1,5 @@
 {
+  "$schema": "https://raw.githubusercontent.com/xentrix161/claude-dev-kit/main/plugins/dev/devkit.schema.json",
   "version": 1,
   "stack": "shell",
   "container": "",

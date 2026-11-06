@@ -1,4 +1,5 @@
 {
+  "$schema": "https://raw.githubusercontent.com/xentrix161/claude-dev-kit/main/plugins/dev/devkit.schema.json",
   "_init": [
     "Pokyny pre /dev:project-init — tento kľúč do projektu nezapisuj.",
     "lint a kroky vypusti pre chýbajúce balíky: .twig + lint-twig (symfony/twig-bundle), .yaml/.yml + lint-yaml (symfony/yaml), doctrine-schema (doctrine/doctrine-bundle), php-cs-fixer.",

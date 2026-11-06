@@ -52,10 +52,12 @@ plugins/dev/skills/               príkazy /dev:* a referenčné skilly
 plugins/dev/agents/               read-only agenti
 plugins/dev/templates/            šablóny projektov (<stack>/, common/, skills/ = vrstva B)
 plugins/dev/evals/                eval suite príkazov /dev:* nad syntetickým projektom (make eval)
+plugins/dev/devkit.schema.json    JSON Schema .claude/devkit.json pre editor ($schema v šablónach)
 plugins/dev/PROVENANCE.md         kusy prevzaté z ECC s pinom
 tests/selftest.sh                 kontrakty skriptov, každý prípad vo vlastnom git repe
 tools/                            details.sh (rozpočet), upstream.sh (ECC)
 docs/SPEC.md                      kontrakt
+docs/devkit-json.md               referencia devkit.json pre ľudí (každý kľúč schémy, t_devkit_schema)
 .github/workflows/check.yml       CI kitu: validate, guards a selftest na ubuntu-latest a macos-latest
 ```
 

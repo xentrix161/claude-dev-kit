@@ -76,10 +76,11 @@ KIT/
     evals/     <case>/ (prompt.md case.yaml scaffold.sh graders/)  fixtures/   (see §9, make eval)
     LICENSES/ECC-MIT.txt
     PROVENANCE.md
+    devkit.schema.json                # JSON Schema of .claude/devkit.json for editors (§3)
   tests/selftest.sh  tests/fixtures/…   # deterministic, no docker, no network
   tools/upstream.sh                     # P3: diff of pinned ECC pieces vs upstream
   tools/details.sh                      # inventory + always-on budget (§5)
-  Makefile  README.md  CHANGELOG.md  LICENSE  docs/SPEC.md
+  Makefile  README.md  CHANGELOG.md  LICENSE  docs/SPEC.md  docs/devkit-json.md (§3, for humans)
   .github/workflows/check.yml           # kit CI: validate + selftest on Linux and macOS (§9)
 ```
 Version lives only in `plugin.json` (never in the marketplace entry). The kit's own code is MIT (`LICENSE`);
@@ -130,7 +131,7 @@ maintains the data (§4.7):
 Located at `<project>/.claude/devkit.json`. Missing file ⇒ every hook is a no-op (except the one-line
 hint in session-card and the `agentReadOnly` deny of the kit's agents in pre-edit, §4.3). Only `check.sh`
 can read another file of this schema instead (`--config`/`DEVKIT_CONFIG`, CI, §4.5). Unknown keys
-and keys starting with `_` (template notes such as `_init`) are ignored. Example (typical Nette project):
+and keys starting with `_` (template notes such as `_init`) are ignored, `$schema` too. Example (typical Nette project):
 ```json
 {
   "version": 1,
@@ -182,6 +183,14 @@ and keys starting with `_` (template notes such as `_init`) are ignored. Example
 }
 ```
 Semantics:
+- `$schema` (optional, for editors only): `https://raw.githubusercontent.com/xentrix161/claude-dev-kit/main/plugins/dev/devkit.schema.json`
+  — the `main` branch, not a release tag, so the URL never changes between versions. The schema (JSON Schema draft-07,
+  `$id` = that URL) describes this section: `required` `version` and `stack`, `additionalProperties: false` at the
+  root (keys starting with `_` allowed) and in every object of the config (a step must have `run` or `runFiles`),
+  enums for `modes`, `runtime`, `changedLinesOnly` and the rule ids of `disabledRules`. The templates and the kit's
+  own config carry the key (§7). `docs/devkit-json.md` describes every key for humans. Selftest `t_devkit_schema`:
+  the keys of the templates, the kit's config, the test fixtures and the example above are a subset of the schema,
+  the reference names every key, and with `check-jsonschema` or Python `jsonschema` the files fully validate.
 - `container` empty/absent ⇒ commands run on the host: `cd <project> && sh -c "<cmd>"`.
 - `lint`: `"<ext>": [<command>, …]`; a command is a string or an object `{"run": "<cmd>", "runtime":
   "host"|"container"}` (a single string or object instead of the list is accepted). Steps take the same
@@ -1014,6 +1023,7 @@ resolve check findings (`knownFailures`, baseline, `changedLinesOnly`, dropping 
    when the frontend detection of point 1 finds the tool, together with its extensions for `commitGate.ext`;
    a new `tester` step only when point 1 finds Nette Tester, together with `.phpt` for `lint` and `commitGate.ext`;
    a new `migration` step only when `phpunit.xml*` defines the suite (point 1);
+   A missing `$schema` in `devkit.json` is proposed with the template's URL (§3).
    Settings: a missing `plansDirectory`, and in team mode (`.claude/devkit.json` tracked) `extraKnownMarketplaces.dev-kit`
    and `enabledPlugins["dev@dev-kit"]` in `.claude/settings.json`, are proposed; a different existing value is only
    listed; `attribution` is never proposed by `--sync`.
@@ -1084,6 +1094,8 @@ python/…                         # CLAUDE.md.tmpl, devkit.json (pytest, ruff, 
 skills/ecc-design-system/  skills/ecc-api-design/  skills/ecc-inherit-legacy-style/  skills/ecc-seo/   # layer B, copied into <project>/.claude/skills/ on request
 ```
 Template content is GENERIC for the stack (no project specifics, no project names, no data).
+Every `devkit.json` template starts with the `$schema` key of §3; init writes it into the project like the other
+keys (only keys starting with `_` stay out).
 All templates use the same placeholder name for the same thing (`{{projectDescription}}`, `{{run}}`, …)
 and the same compaction heading `## Compact instructions`. A directory placeholder (`{{entityDir}}`,
 `{{repositoryDir}}`, `{{migrationsDir}}`) ends with `/` and is the only name for that directory: a glob in

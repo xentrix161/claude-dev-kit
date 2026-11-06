@@ -1,0 +1,167 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://raw.githubusercontent.com/xentrix161/claude-dev-kit/main/plugins/dev/devkit.schema.json",
+  "title": "dev-kit .claude/devkit.json",
+  "description": "Nastavenie pluginu dev v projekte. Kontrakt: docs/SPEC.md §3, popis kľúčov: docs/devkit-json.md.",
+  "type": "object",
+  "required": ["version", "stack"],
+  "additionalProperties": false,
+  "patternProperties": {
+    "^_": {"description": "Poznámka šablóny (napr. _init); skripty kitu ju ignorujú."}
+  },
+  "properties": {
+    "$schema": {"type": "string", "description": "URL tejto schémy pre editor; skripty kitu ho ignorujú."},
+    "version": {"const": 1, "description": "Verzia schémy configu."},
+    "stack": {"type": "string", "minLength": 1, "examples": ["php-nette", "php-symfony", "python"], "description": "Stack projektu; vetvy skillov a karty."},
+    "container": {"type": "string", "description": "Meno kontajnera pre lint a kroky; prázdne = hostiteľ."},
+    "appRoot": {"type": "string", "description": "Cesta, kam kontajner mountuje koreň repa."},
+    "lint": {
+      "type": "object",
+      "description": "Prípona → príkaz(y) po edite; {file} = cesta súboru.",
+      "propertyNames": {"pattern": "^\\."},
+      "additionalProperties": {
+        "oneOf": [
+          {"$ref": "#/definitions/lintCommand"},
+          {"type": "array", "items": {"$ref": "#/definitions/lintCommand"}}
+        ]
+      }
+    },
+    "lintChangedLinesOnly": {"type": "boolean", "description": "Nálezy lintu len na pridaných riadkoch."},
+    "check": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "steps": {"type": "array", "items": {"$ref": "#/definitions/step"}},
+        "fullWhen": {"$ref": "#/definitions/globs", "description": "Zmena v týchto cestách prepne --auto na full a commit chce full PASS."},
+        "knownFailures": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["step", "pattern"],
+            "properties": {
+              "step": {"type": "string", "minLength": 1},
+              "pattern": {"type": "string", "minLength": 1, "description": "POSIX ERE na identifikátor zlyhania."}
+            }
+          }
+        }
+      }
+    },
+    "guards": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "pattern", "message"],
+        "properties": {
+          "id": {"type": "string", "minLength": 1},
+          "ext": {"$ref": "#/definitions/exts"},
+          "pattern": {"type": "string", "minLength": 1, "description": "POSIX ERE nad pridanými riadkami; (?i) na začiatku = bez ohľadu na veľkosť písmen."},
+          "message": {"type": "string"}
+        }
+      }
+    },
+    "pairs": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "when", "say"],
+        "properties": {
+          "id": {"type": "string", "minLength": 1},
+          "when": {"$ref": "#/definitions/globOrList"},
+          "unless": {"$ref": "#/definitions/globOrList"},
+          "say": {"type": "string", "minLength": 1}
+        }
+      }
+    },
+    "secrets": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "patterns": {"type": "array", "items": {"type": "string", "minLength": 1}, "description": "POSIX ERE navyše k predvoleným vzorom kitu."},
+        "allow": {"$ref": "#/definitions/globs", "description": "Cesty bez kontroly tajomstiev; položka s / na konci = prefix."},
+        "forbidFiles": {"$ref": "#/definitions/globs", "description": "Súbory, ktoré Claude neupraví ani necommitne."}
+      }
+    },
+    "migrations": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "paths": {"$ref": "#/definitions/globs"}
+      }
+    },
+    "testLock": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "ttlHours": {"type": "integer", "minimum": 0, "default": 6}
+      }
+    },
+    "stopCheck": {"type": "boolean", "default": true},
+    "commitGate": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {"type": "boolean", "default": true},
+        "ext": {"$ref": "#/definitions/exts"}
+      }
+    },
+    "handoffDoc": {"type": "string", "minLength": 1, "examples": ["docs/handoff.md"]},
+    "disabledRules": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "pattern": "^((guard|lint|step|pair):.+|secrets|migrations|testLock|stopCheck|commitGate|testRemoved)$"
+      }
+    }
+  },
+  "definitions": {
+    "runtime": {"enum": ["host", "container"]},
+    "exts": {"type": "array", "items": {"type": "string", "pattern": "^\\."}},
+    "globs": {"type": "array", "items": {"type": "string", "minLength": 1}},
+    "globOrList": {
+      "oneOf": [
+        {"type": "string", "minLength": 1},
+        {"$ref": "#/definitions/globs"}
+      ]
+    },
+    "lintCommand": {
+      "oneOf": [
+        {"type": "string", "minLength": 1},
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["run"],
+          "properties": {
+            "run": {"type": "string", "minLength": 1},
+            "runtime": {"$ref": "#/definitions/runtime"}
+          }
+        }
+      ]
+    },
+    "step": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id"],
+      "anyOf": [{"required": ["run"]}, {"required": ["runFiles"]}],
+      "properties": {
+        "id": {"type": "string", "minLength": 1},
+        "run": {"type": "string", "minLength": 1, "description": "Príkaz nad celým projektom."},
+        "runFiles": {"type": "string", "minLength": 1, "description": "Príkaz nad zmenenými súbormi; {files} = ich zoznam."},
+        "ext": {"$ref": "#/definitions/exts"},
+        "modes": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {"enum": ["stop", "quick", "full"]},
+          "default": ["quick", "full"]
+        },
+        "requires": {"type": "string", "minLength": 1, "description": "Cesta na hostiteľovi; chýba = krok sa preskočí."},
+        "runtime": {"$ref": "#/definitions/runtime"},
+        "changedLinesOnly": {"enum": [true, false, "stop"]},
+        "timeoutSec": {"type": "integer", "minimum": 0, "default": 300}
+      }
+    }
+  }
+}

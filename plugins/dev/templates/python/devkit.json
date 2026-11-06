@@ -1,4 +1,5 @@
 {
+  "$schema": "https://raw.githubusercontent.com/xentrix161/claude-dev-kit/main/plugins/dev/devkit.schema.json",
   "_init": [
     "Pokyny pre /dev:project-init — tento kľúč do projektu nezapisuj.",
     "{{bin}} = adresár nástrojov s lomkou na konci: .venv/bin/ (venv na hostiteľovi, aj uv), /opt/venv/bin/ v kontajneri, alebo prázdne (nástroje v PATH).",

@@ -62,6 +62,7 @@ Referenčné skilly (MySQL, E2E, prístupnosť, Python, dopad zmeny, TLDR do tas
 - `/dev:stats` ukáže najhlučnejšie pravidlá.
 - Pravidlo v projekte vypneš cez `"disabledRules": ["guard:sql-concat"]` v `.claude/devkit.json`. Id je v hláške hooku (`guard:<id>`, `lint:<ext>`, `step:<id>`, `pair:<id>`, `secrets`, `migrations`, `testLock`, `stopCheck`, `commitGate`, `testRemoved`).
 - Kontrolu na konci ťahu alebo commit gate vypneš cez `"stopCheck": false` alebo `"commitGate": {"enabled": false}`.
+- Všetky kľúče `.claude/devkit.json` s príkladmi a s tým, kedy ktorý použiť, popisuje [docs/devkit-json.md](docs/devkit-json.md). Editor ich dopĺňa a kontroluje podľa schémy z kľúča `$schema`.
 - Kit v jednom projekte vypneš cez `"enabledPlugins": {"dev@dev-kit": false}` v `.claude/settings.local.json`, všade príkazom `claude plugin disable dev@dev-kit`.
 - Falošný poplach nahlás ako issue: id pravidla, `súbor:riadok` a prečo nejde o chybu.
 
