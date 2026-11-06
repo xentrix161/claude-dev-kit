@@ -40,7 +40,7 @@
        "modes": ["stop", "quick"]},
       {"id": "pytest", "requires": "{{bin}}pytest",
        "run": "{{bin}}pytest -q",
-       "modes": ["full"]},
+       "modes": ["full"], "timeoutSec": 1800},
       {"id": "audit", "requires": "{{bin}}pip-audit",
        "run": "{{bin}}pip-audit --progress-spinner off --aliases on",
        "modes": ["full"]}

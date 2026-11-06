@@ -51,6 +51,9 @@ Hotovo = príkaz prebehol a výstup to dokazuje. PASS nikdy nehlás bez výstupu
 | `{{run}}php bin/console doctrine:schema:validate` | `[OK] The mapping files are correct.` + `… in sync with the mapping files.` |
 | `{{run}}php bin/console doctrine:migrations:up-to-date` | `[OK] Up-to-date! No migrations to execute.` |
 
+Testy migrácií patria do vlastnej sady `migration` v `phpunit.xml` (nie do rýchlych testov); bežia len vo `/dev:check --full`
+(bez sady `migration` v projekte túto vetu zmaž).
+
 Počty testov ani časy sem nepíš — zastarávajú; `/dev:review` hlási zastaraný CLAUDE.md a rules.
 
 ## Architektúra

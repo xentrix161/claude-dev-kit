@@ -2058,6 +2058,18 @@ EOF
   [ -z "$s" ] || bad="${bad}templates/php-nette/CLAUDE.md.tmpl: neznáma značka $(flat "$s"); "
   s=$(jq -r '(.check.steps // [])[] | select((.id | startswith("doctrine-")) and ((.requires // "") == "")) | .id' "$T/php-nette/devkit.json")
   [ -z "$s" ] || bad="${bad}templates/php-nette/devkit.json: krok doctrine-* bez requires $(flat "$s"); "
+  for f in "$T/php-nette/devkit.json" "$T/php-symfony/devkit.json"; do
+    s=$(jq -r '[.check.steps[].id] as $ids | ([.check.steps[] | select(.id == "migration")] | first) as $m
+      | if $m == null then "chýba krok migration"
+        elif $m.modes != ["full"] or $m.run != "php vendor/bin/phpunit --testsuite migration" or $m.requires != "vendor/bin/phpunit" then "krok migration: \($m | tojson)"
+        elif ($ids | index("migration")) != ($ids | index("integration")) + 1 then "krok migration nie je hneď za integration"
+        else empty end' "$f" 2>&1)
+    [ -z "$s" ] || bad="$bad${f#"$KIT"/}: $s; "
+  done
+  for f in "$T"/*/devkit.json; do
+    s=$(jq -r '.check.steps[] | select(.id == "integration" or .id == "migration" or .id == "pytest") | select(.timeoutSec != 1800) | .id' "$f" 2>&1)
+    [ -z "$s" ] || bad="$bad${f#"$KIT"/}: testová sada len vo full bez timeoutSec 1800: $(flat "$s"); "
+  done
   [ -z "$bad" ] || fail "$bad"
 }
 
@@ -3596,7 +3608,7 @@ t "session-card: python worktree bez .venv/ → upozornenie (D20)" t_card_worktr
 t "session-card: stará verzia Claude Code (pod 2.1.314), kontrola raz za deň" t_card_cc_version
 t "session-card: šablóny zo staršieho kitu (hlavičky rules, REVIEW.md, .worktreeinclude) → riadok raz za session, aktuálne či bez hlavičky ticho, karta ≤ 10 riadkov (D8)" t_card_templates_outdated
 t "devkit.json zmenený (R3): karta raz, on-edit a pre-bash systemMessage raz za session, hooky bežia ďalej" t_cfg_trust
-t "šablóny: ukotvené deny, bez \\s/\\w v [...], vzorky tajomstiev, rules (paths, Pasce, ≤ 60), značky db:" t_templates_lint
+t "šablóny: ukotvené deny, bez \\s/\\w v [...], vzorky tajomstiev, rules (paths, Pasce, ≤ 60), značky db:, krok migration len vo full za integration, testové sady len vo full s timeoutSec 1800 (D12)" t_templates_lint
 t "stop-check: check.sh exit 3 / 2 → pripomienka „nedala spustiť“, skip namiesto pass, bez bloku" t_stop_check_not_run
 t "lib.sh dk_blobs: nečitateľný súbor = - a errors.log, symlink .php vypadne" t_blobs_unreadable_symlink
 t "lib.sh dk__added_spec: súbor v submodule → pridané riadky z diffu submodulu, nový súbor celý (D6)" t_added_spec_submodule

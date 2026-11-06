@@ -890,6 +890,9 @@ resolve check findings (`knownFailures`, baseline, `changedLinesOnly`, dropping 
    (`php vendor/bin/tester tests -s -C`) instead of `unit`/`integration` when the project has no PHPUnit;
    with PHPUnit both, `tester` only over the directory of the `.phpt` tests (Tester runs `*Test.php` too);
    without Tester the step and the `.phpt` lint key are dropped.
+   Migration tests (php-nette, php-symfony): step `migration` (`--testsuite migration`, full only) only when `phpunit.xml*`
+   defines that suite (exact name, like `unit`/`integration`); otherwise it is dropped without a question, together with its
+   lines in `CLAUDE.md`. The fast step must not run that suite (`--testsuite <fast>`, not only `--exclude-group`).
    Phinx (php-nette): executable `vendor/bin/phinx` and a config in the root, in Phinx's lookup order
    `phinx.php`, `phinx.json`, `phinx.yaml`, `phinx.yml` (another file only from `-c`/`--configuration` in the
    `Makefile` or composer scripts) ⇒ `migrations.paths` = `<path>/**` for every path of `paths.migrations` (a
@@ -960,6 +963,7 @@ resolve check findings (`knownFailures`, baseline, `changedLinesOnly`, dropping 
    changed is listed with its difference, never overwritten. A new `eslint`/`stylelint` step is proposed only
    when the frontend detection of point 1 finds the tool, together with its extensions for `commitGate.ext`;
    a new `tester` step only when point 1 finds Nette Tester, together with `.phpt` for `lint` and `commitGate.ext`;
+   a new `migration` step only when `phpunit.xml*` defines the suite (point 1);
    Phinx or Doctrine migration paths of point 1 that `migrations.paths` does not cover are proposed as `<path>/**` (outside `db/`
    and `migrations/` also for `fullWhen`); a new `audit` step follows the detection of point 1 and is written
    only after consent to sending the package list.
@@ -1025,7 +1029,9 @@ Deny rules in `settings.json` start with `/`
 (php-nette, php-symfony) and mypy (python). Stop mode runs only fast steps: tests without the slow ones
 (php-nette `--testsuite unit`, php-symfony `--exclude-group integration` or the fast `<testsuite>` that
 init picks from `phpunit.xml`, python `-m 'not slow and not integration'`); slow tests are a separate
-step with `modes: ["full"]` (`integration`; python the whole `pytest`). php-symfony `settings.json` has the
+step with `modes: ["full"]` (`integration`; python the whole `pytest`), migration tests in php-nette and php-symfony
+too (`migration`, `--testsuite migration`, right after `integration`). These full-only test steps have `"timeoutSec": 1800`
+(§3; the default 300 s would end a slow suite as PARTIAL); `doctrine-schema` and `audit` keep the default. php-symfony `settings.json` has the
 same `ask` rules as php-nette (`migrations:migrate` is not in the template's command list, it runs only on
 request); its broader deny is intended. The PHPStan baseline wording is the same in both PHP templates:
 „nový nález oprav v kóde; baseline sa regeneruje len na pokyn používateľa“.

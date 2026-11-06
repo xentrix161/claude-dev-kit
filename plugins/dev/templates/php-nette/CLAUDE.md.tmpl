@@ -18,7 +18,8 @@ zdravý výstup `OK (N tests, S seconds)`), v Overovaní práce markTestSkipped(
 Phinx (db:dibi, project-init krok 1): config mimo koreňa → príkaz migrácií s `-c <config>`; Dibi bez Phinx → zo Stacku
 zmaž „ · migrácie Phinx (…)“, riadok migrácií v Príkazoch a slovo Phinx v pravidle 5.
 Nástroj, ktorého krok alebo lint init vypustil, zmaž aj bez symbolu: PHPStan (v Kvalite, riadok v Príkazoch, veta o baseline),
-PHPUnit, PHPCS a latte-lint (v Kvalite, ich riadky v Príkazoch), bez kroku integration vetu za „—“ pri /dev:check --auto.
+PHPUnit, PHPCS a latte-lint (v Kvalite, ich riadky v Príkazoch), bez kroku integration vetu za „—“ pri /dev:check --auto,
+bez kroku migration riadok testov migrácií v Príkazoch aj vetu o sade migration v Overovaní práce.
 -->
 # CLAUDE.md — {{projectName}}
 
@@ -46,6 +47,7 @@ Agent nemá TTY → `docker exec` **bez `-it`** (make ciele s `-it` padnú: „t
 | kontrola zmien | `/dev:check` · `--auto` · `--full` | `[dev-kit] check quick: PASS · N ok · 0 fail · 0 skip · S s` |
 | unit testy | `{{run}}php vendor/bin/phpunit --testsuite unit` | `OK (N tests, M assertions)` |
 | integračné testy | `{{run}}php vendor/bin/phpunit --testsuite integration` | `OK (N tests, M assertions)` |
+| testy migrácií | `{{run}}php vendor/bin/phpunit --testsuite migration` | `OK (N tests, M assertions)` |
 | PHPStan | `{{run}}php vendor/bin/phpstan analyse -c {{phpstanConfig}} --memory-limit=1G` | `[OK] No errors` |
 | code style | `{{run}}php vendor/bin/phpcs -q -n --standard=PSR12 <súbory>` | žiadny výstup, exit 0 |
 | Latte | `{{run}}php vendor/bin/latte-lint <cesta>` | `Done (checked N files, found errors in 0)` |
@@ -62,6 +64,7 @@ Agent nemá TTY → `docker exec` **bez `-it`** (make ciele s `-it` padnú: „t
 ## Overovanie práce
 
 - Pred „hotovo" spusti `/dev:check --auto` — pri zmene modelov, `libs/`, `db/` či presenterov pustí aj integračné testy.
+- Testy migrácií patria do vlastnej sady `migration` (nie do `unit` ani `integration`); bežia len vo `/dev:check --full`.
 - Do odpovede vlož súhrnný riadok výstupu. Bez výstupu netvrď, že testy prešli.
 - Padá test → oprav kód, nie test. Test meníš len keď je preukázateľne zlý — povedz prečo.
 - Žiadne `markTestSkipped()` ani mazanie asercií kvôli zelenej.

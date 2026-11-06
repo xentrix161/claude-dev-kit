@@ -3,6 +3,7 @@
     "Pokyny pre /dev:project-init — tento kľúč do projektu nezapisuj.",
     "lint a kroky vypusti pre chýbajúce balíky: .twig + lint-twig (symfony/twig-bundle), .yaml/.yml + lint-yaml (symfony/yaml), doctrine-schema (doctrine/doctrine-bundle), php-cs-fixer.",
     "phpunit a integration: init vyberie podľa phpunit.xml(.dist) — rýchla a pomalá <testsuite> (napr. unit, integration) → --testsuite <rýchla> v phpunit a --testsuite <pomalá> v integration; inak testy so skupinou integration → --exclude-group integration / --group integration; bez pomalých testov krok integration vypusti. V stop nechaj len rýchle kroky.",
+    "migration: len keď phpunit.xml(.dist) má sadu testov migrácií (<testsuite name=\"migration\">, meno presne podľa súboru), inak krok vypusti bez otázky; rýchly krok phpunit ju potom nesmie spúšťať (--testsuite <rýchla>, nie len --exclude-group). Kroky testových sád len vo full (integration, migration) majú timeoutSec 1800 — kratší limit by ich ukončil ako PARTIAL.",
     "doctrine-schema: lokálna DB trvalo mimo sync (drift indexov) → pridaj --skip-sync, inak commit gate pri zmene entít neprejde.",
     "fullWhen: config/doctrine/** ponechaj len pri XML/YAML mapovaní.",
     "Frontend: krok eslint a prípony .js, .ts v commitGate.ext ponechaj len keď package.json má eslint (dependencies/devDependencies) a projekt má jeho config; rovnako stylelint s .css, .scss; inak krok aj prípony vypusť bez otázky (AssetMapper bez package.json ich nemá). runtime host = Node na hostiteľovi; Node len v kontajneri z poľa container → runtime vypusť. eslint bez changedLinesOnly (výstup stylish nemá cestu na riadku nálezu). Guardy console-log a inner-html ponechaj vždy.",
@@ -34,7 +35,8 @@
       {"id": "lint-twig", "requires": "vendor/symfony/twig-bundle/composer.json", "run": "php bin/console lint:twig templates", "modes": ["quick", "full"]},
       {"id": "eslint", "requires": "node_modules/.bin/eslint", "runtime": "host", "runFiles": "node_modules/.bin/eslint {files}", "ext": [".js", ".ts"], "modes": ["quick", "full"]},
       {"id": "stylelint", "requires": "node_modules/.bin/stylelint", "runtime": "host", "runFiles": "node_modules/.bin/stylelint --allow-empty-input --formatter unix {files}", "ext": [".css", ".scss"], "modes": ["quick", "full"]},
-      {"id": "integration", "requires": "vendor/bin/phpunit", "run": "php vendor/bin/phpunit --group integration", "modes": ["full"]},
+      {"id": "integration", "requires": "vendor/bin/phpunit", "run": "php vendor/bin/phpunit --group integration", "modes": ["full"], "timeoutSec": 1800},
+      {"id": "migration", "requires": "vendor/bin/phpunit", "run": "php vendor/bin/phpunit --testsuite migration", "modes": ["full"], "timeoutSec": 1800},
       {"id": "doctrine-schema", "requires": "vendor/doctrine/doctrine-bundle/composer.json", "run": "php bin/console doctrine:schema:validate", "modes": ["full"]},
       {"id": "audit", "requires": "composer.json", "run": "composer audit --no-interaction --format=plain", "modes": ["full"]}
     ],
