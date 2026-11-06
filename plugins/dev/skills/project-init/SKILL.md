@@ -16,7 +16,7 @@ Argumenty: `$ARGUMENTS`
 ## Zásady (platia v každom kroku)
 
 - **Najprv plán, potom zápis.** Pred schválením plánu (fáza 1) nemeň žiadny súbor.
-- **Existujúci súbor nikdy neprepíš bez výslovného súhlasu** — návrh ulož do dočasného súboru (scratchpad, inak `mktemp -d`) a ukáž `diff -u`. Schválený plán pokrýva nové súbory a zmeny, ktorých presný obsah plán ukázal (blok `permissions` pred → po, riadky `info/exclude` a `.worktreeinclude`, diff `.gitignore`); iný existujúci súbor má vlastný diff a súhlas.
+- **Existujúci súbor nikdy neprepíš bez výslovného súhlasu** — návrh ulož do dočasného súboru (scratchpad, inak `mktemp -d`) a ukáž `diff -u`. Schválený plán pokrýva nové súbory a zmeny, ktorých presný obsah plán ukázal (blok `permissions` a ostatné kľúče settings pred → po, riadky `info/exclude` a `.worktreeinclude`, diff `.gitignore`); iný existujúci súbor má vlastný diff a súhlas.
 - Pred úpravou existujúceho súboru: sledovaný (`git ls-files --error-unmatch <súbor>`) s necommitnutými zmenami (`git status --porcelain <súbor>` nie je prázdny) → môže na ňom robiť iná session → nechaj ho a povedz to. Nesledovaný alebo ignorovaný súbor najprv skopíruj do `<súbor>.pred-devkit` (na vrátenie).
 - Zapisuj len do projektu. Nikdy: commit, push, `git checkout`/`switch`, štart/stop/reštart kontajnerov, `composer install`, `npm install`. Docker len na čítanie (`docker inspect`, `docker compose … config|ps`); `docker exec` len cez `check.sh` (výnimky: `docker exec <c> sh -c 'command -v composer'` v kroku 1 pre krok `audit`, phpstan baseline v kroku 3 so súhlasom).
 - Z compose nikdy nevypisuj `environment`, `env_file` ani `secrets` (`config` ich interpoluje z `.env`); pri čítaní YAML pozeraj len `services.*.{container_name,image,volumes,working_dir,ports}`.
@@ -36,7 +36,7 @@ Súhlas pýtaj len na konci týchto štyroch fáz, vždy jednou správou; medzi 
 
 | Fáza | Kroky | Používateľ schvaľuje |
 |---|---|---|
-| 1 plán | 1–2 | dry-run: súbory, celý `devkit.json` (aj odosielanie zoznamu balíkov krokom `audit`), blok `permissions` pred → po, lokálne alebo tím (riadky `info/exclude` a `.worktreeinclude`, diff `.gitignore`), B-kusy, odpovede na otázky |
+| 1 plán | 1–2 | dry-run: súbory, celý `devkit.json` (aj odosielanie zoznamu balíkov krokom `audit`), blok `permissions` a ostatné kľúče settings pred → po, lokálne alebo tím (riadky `info/exclude` a `.worktreeinclude`, diff `.gitignore`), B-kusy, odpovede na otázky |
 | 2 zápis a overenie | 3–4 | nič nové — zapíš, čo schválila fáza 1, a spusti `check.sh --quick`; súhlas len na riešenie nálezov kontroly (`knownFailures`, baseline, `changedLinesOnly`, vypustenie kroku, `commitGate` pri SKIP, `--full`) |
 | 3 konvencie | 5 | každú konvenciu zvlášť (`áno 1,3`) |
 | 4 `CLAUDE.md` / `AGENTS.md` | 6 | celý nový súbor, `diff -u` a mapu presunov |
@@ -91,21 +91,29 @@ Zhrnutie detekcie: každé zistenie jedným riadkom s dôkazom; hodnoty `{{…}}
 - **Audit závislostí:** pri kroku `audit` jednou vetou povedz, že `/dev:check --full` pošle zoznam balíkov projektu (mená a verzie) na Packagist (`composer audit`) alebo PyPI (`pip-audit`). Schválenie plánu je súhlas aj s týmto odosielaním — samostatná otázka to nie je (limit 4 ostáva); odpoveď, ktorá ho odmietne (napr. „bez auditu“), krok vypustí.
 - **DB vrstva** (php-nette) s dôkazom `composer.json:N` a **rozpory šablóny s pravidlami projektu** (zásady).
 - **Pravidlá:** ktoré `templates/<stack>/rules/*.md` (s ich `paths:`), čo pôjde do `projekt-*.md` (krok 6) a `conventions.md` (krok 5).
-- **Oprávnenia:** cieľový súbor a presný blok `permissions` pred → po (nižšie).
+- **Oprávnenia a nastavenia:** cieľový súbor a presný blok `permissions` a ostatné kľúče settings pred → po (nižšie).
 - **Lokálne alebo tím:** režim navrhni podľa gitu z kroku 1 a ukáž jeho presné riadky do `info/exclude` a `.worktreeinclude`, alebo diff `.gitignore` (nižšie).
 - **Ďalej:** `.worktreeinclude`, `REVIEW.md` (z `common/`), vrstva B z `${CLAUDE_PLUGIN_ROOT}/templates/skills/*/SKILL.md` — meno + 1 riadok z `description`; odporuč len tie, pre ktoré má projekt signál (dizajn systém/CSS, verejné API, legacy kód, verejný web).
 - **CLAUDE.md / AGENTS.md:** čo navrhuješ (lokálne `CLAUDE.local.md`, nový `CLAUDE.md` nie), každá zmena jedným riadkom (detail v kroku 6).
-- **Otázky naraz (max 4):** 1) potvrdiť kontajner a príkazy — compose chýba: hostiteľ (`container: ""`) alebo meno kontajnera; compose mountuje len podadresár (kroky by v ňom neboli z koreňa repa): hostiteľ, alebo mount koreňa repa upraví používateľ a init pokračuje s kontajnerom; Kontrola bez kroku: kontajner či nástroje na hostiteľovi, inak gate vypnutý podľa návrhu · 2) lokálne (len ty, `.git/info/exclude`) alebo tím (na commit) · 3) ktoré B-kusy · 4) len ak treba, v jednej otázke: `{{projectDescription}}` a `{{commitStyle}}`, keď ich detekcia nedala; `{{localConfig}}` (php-nette), keď ho nenašla; DB vrstva pri viacerých kandidátoch; adresár migrácií Phinx, keď ho `paths.migrations` nedal (s kandidátom); súhlas s rozpornými šablónovými rules.
+- **Otázky naraz (max 4):** 1) potvrdiť kontajner a príkazy — compose chýba: hostiteľ (`container: ""`) alebo meno kontajnera; compose mountuje len podadresár (kroky by v ňom neboli z koreňa repa): hostiteľ, alebo mount koreňa repa upraví používateľ a init pokračuje s kontajnerom; Kontrola bez kroku: kontajner či nástroje na hostiteľovi, inak gate vypnutý podľa návrhu · 2) lokálne (len ty, `.git/info/exclude`) alebo tím (na commit); v tej istej otázke, či skryť atribúciu Claude v commitoch a PR (`attribution`, predvolene nie — bez zmeny) · 3) ktoré B-kusy · 4) len ak treba, v jednej otázke: `{{projectDescription}}` a `{{commitStyle}}`, keď ich detekcia nedala; `{{localConfig}}` (php-nette), keď ho nenašla; DB vrstva pri viacerých kandidátoch; adresár migrácií Phinx, keď ho `paths.migrations` nedal (s kandidátom); súhlas s rozpornými šablónovými rules.
 - **Schválenie plánu = súhlas fázy 1** so všetkým, čo plán presne ukázal. Odpoveď, ktorá plán mení (iný režim, iný kontajner), → ukáž zmenené časti ešte raz pred zápisom.
 
-### Oprávnenia v pláne
+### Oprávnenia a nastavenia v pláne
 
-- Zdroj `${CLAUDE_PLUGIN_ROOT}/templates/<stack>/settings.json`: `permissions.ask` = brány nad zdieľaným prostredím, deštruktívnymi príkazmi git a docker a zmenou závislostí, `permissions.deny` = vendor cesty.
+- Zdroj `${CLAUDE_PLUGIN_ROOT}/templates/<stack>/settings.json`: `permissions.ask` = brány nad zdieľaným prostredím, deštruktívnymi príkazmi git a docker a zmenou závislostí, `permissions.deny` = vendor cesty; ďalej `plansDirectory`, `extraKnownMarketplaces` a `enabledPlugins`.
 - Make ciele obchádzajú brány šablóny: ciele, ktoré `Makefile` naozaj má a ktoré zastavia či prestavia kontajnery alebo menia DB či index (napr. `stop`, `down`, `restart`, `rebuild`, `destroy`, `init`, `db-import`, `db-migrate`, `*-reset`, `*-baseline`, `fixtures`), navrhni do `ask` ako `Bash(make <cieľ>*)`.
 - Cieľ: tím → `.claude/settings.json`; lokálne → vždy `.claude/settings.local.json` (vylúčenie z gitu rieši Lokálne alebo tím).
-- Zlúčenie len pridáva, zachová poradie, nič nemaže, do `allow` nič nedáva (neexistujúci cieľ = `{}`):
-  `jq -s '.[0] as $p | (.[1].permissions // {}) as $t | $p | .permissions.ask = (($p.permissions.ask // []) as $a | $a + (($t.ask // []) - $a)) | .permissions.deny = (($p.permissions.deny // []) as $d | $d + (($t.deny // []) - $d))' <cieľ> <vyplnená-šablóna>`
-- Do commitnutých settings nepridávaj `enabledPlugins` ani `extraKnownMarketplaces` (kolegovia marketplace kitu zatiaľ nemajú).
+- `plansDirectory: "docs/plans"` (plány z režimu plánovania ležia vedľa plánov `/dev:plan`) do cieľa v oboch režimoch. `extraKnownMarketplaces` (`dev-kit` z GitHubu) a `enabledPlugins` (`dev@dev-kit`) len v tímovom režime do `.claude/settings.json` — kolega po prijatí dôvery priečinka dostane marketplace kitu a plugin zapnutý; v lokálnom režime ich vynechaj. Kľúč, ktorý cieľ už má, nemeň (ani `"dev@dev-kit": false`), len ho ukáž.
+- `attribution` podľa otázky 2: áno → `"attribution": {"commit": "", "pr": "", "sessionUrl": false}` do cieľa (tvar, ktorý čítajú aj staršie verzie Claude Code; hodnotu `false` by odmietli spolu s celým súborom); predvolene nie → kľúč nepridávaj a existujúci nemeň.
+- Zlúčenie len pridáva, zachová poradie a hodnoty projektu, nič nemaže, do `allow` nič nedáva (neexistujúci cieľ = `{}`, `team` = `true` v tímovom režime, inak `false`):
+  ```bash
+  jq -s --argjson team <true|false> '.[0] as $p | .[1] as $s | ($s.permissions // {}) as $t | $p
+    | .permissions.ask = (($p.permissions.ask // []) as $a | $a + (($t.ask // []) - $a))
+    | .permissions.deny = (($p.permissions.deny // []) as $d | $d + (($t.deny // []) - $d))
+    | .plansDirectory = ($p.plansDirectory // $s.plansDirectory)
+    | if $team then .extraKnownMarketplaces = (($s.extraKnownMarketplaces // {}) + ($p.extraKnownMarketplaces // {}))
+        | .enabledPlugins = (($s.enabledPlugins // {}) + ($p.enabledPlugins // {})) else . end' <cieľ> <vyplnená-šablóna>
+  ```
 - Vendor kód v repe z kroku 1 navrhni do `deny` ukotvene ku koreňu: adresár `Edit(/<cesta>/**)`, vzor súborov `Edit(/www/js/**/*.min.js)`. Rovnaký zoznam použi pre `{{vendorFrontendPaths}}`.
 - Heslo alebo token v existujúcich `allow` pravidlách len nahlás, needituj.
 
@@ -113,7 +121,7 @@ Zhrnutie detekcie: každé zistenie jedným riadkom s dôkazom; hodnoty `{{…}}
 
 - **Lokálne:** riadky do `"$(git rev-parse --git-common-dir)/info/exclude"` (spoločný pre všetky worktree), len chýbajúce: vždy `.claude/worktrees/` (aj keď ešte žiadny worktree neexistuje) a pre nesledované súbory, ktoré init vytvorí: `.claude/devkit.json`, `.claude/rules/`, `.claude/skills/<meno>/`, `.claude/settings.local.json` (ak ho git ešte neignoruje — vytvorený nástrojom Write sa sám nevylúči), `.worktreeinclude`, `REVIEW.md`, `CLAUDE.local.md`, `*.pred-devkit`, nesledovaný `handoffDoc` (`docs/handoff.md` založí až `/dev:handoff`) a `docs/plans/` (plány z `/dev:plan` ostávajú lokálne — v lokálnom režime z kitu nič nejde do gitu). Už sledované súbory exclude neskryje — povedz to.
 - **Lokálne, `.worktreeinclude`:** `.claude/rules/`, `CLAUDE.local.md` a `REVIEW.md` — len tie, ktoré init vytvorí a vylúči — a vždy `docs/plans/` (plán úlohy má byť aj vo worktree). `claude --worktree` ich inak nemá: z hlavného checkoutu sa čítajú len skills, agents a commands, a ignorovaný `CLAUDE.local.md` existuje len vo svojom checkoute. Súbor neexistuje → vytvor ho s hlavičkou `# dev-kit: <stack>/.worktreeinclude @ <VER>`. Nepridávaj `.claude/settings.local.json` (súhlasy sa čítajú z hlavného checkoutu), `.claude/skills/` (čítajú sa z hlavného checkoutu) ani `.claude/devkit.json` (skripty kitu siahnu po kópii v hlavnom checkoute).
-- **Tím:** nič nevylučuj. Diff `.gitignore` s riadkom `.claude/worktrees/`. Súbory na commit vypíš v závere, necommituj (ponúkni `/dev:commit`).
+- **Tím:** nič nevylučuj. Diff `.gitignore` s riadkom `.claude/worktrees/`. `.claude/settings.json` dostane `extraKnownMarketplaces` a `enabledPlugins` (Oprávnenia a nastavenia) — kit aj s commit gate sa zapne každému, kto v projekte prijme dôveru priečinka. Súbory na commit vypíš v závere, necommituj (ponúkni `/dev:commit`).
 
 `--dry-run` končí tu.
 
@@ -121,7 +129,7 @@ Zhrnutie detekcie: každé zistenie jedným riadkom s dôkazom; hodnoty `{{…}}
 
 1. Lokálne: najprv riadky do `info/exclude` z plánu (pred prvým novým súborom), over `git check-ignore -v <cesta>`. Tím: riadok do `.gitignore`.
 2. Zapíš `.claude/devkit.json` (existuje → diff + súhlas, neznáme kľúče používateľa zachovaj). Over `jq -e .version .claude/devkit.json`.
-3. Zapíš blok `permissions` z plánu do cieľa (zlúčenie vyššie).
+3. Zapíš blok `permissions` a ostatné kľúče settings z plánu do cieľa (zlúčenie vyššie).
 4. Spusti `bash "${CLAUDE_PLUGIN_ROOT}/scripts/check.sh" --quick --project "${CLAUDE_PROJECT_DIR}"`.
 5. Exit kód:
    - `0` PASS → ďalej;
@@ -188,13 +196,13 @@ Zhrnutie detekcie: každé zistenie jedným riadkom s dôkazom; hodnoty `{{…}}
    - s `BASE` → `git merge-file -p LOCAL BASE TEMPLATE` (lokálne úpravy ostanú); bez `BASE` → `diff -u LOCAL TEMPLATE` po blokoch: prevziať / ponechať.
 3. Per súbor ukáž diff výsledku, zapíš až po súhlase, v hlavičke nastav `@ <VER>`. Konfliktné značky (`<<<<<<<`) nikdy nezapíš — vyrieš ich s používateľom.
 4. Nové súbory šablóny, ktoré projekt nemá (rules, B-kusy) → ponúkni ako v kroku 4; php-nette: DB vrstva = skopírovaný `db-*.md`, inak detekcia z kroku 1 — Dibi projektu neponúkaj `db-doctrine.md` ani položky `doctrine-*`, Doctrine projektu `db-dibi.md`. php-symfony: `api-platform.md` len s balíkom `api-platform/*` v `composer.json`. Rovnako chýbajúce riadky z časti Lokálne alebo tím v pláne (režim: `.claude/devkit.json` v gite = tím, inak lokálne): `.claude/worktrees/`, nesledovaný `handoffDoc` a `docs/plans/` v `info/exclude` (lokálne) alebo `.claude/worktrees/` v `.gitignore` (tím, so súhlasom); lokálne `.claude/rules/`, `CLAUDE.local.md`, `REVIEW.md` (len existujúce a ignorované) a `docs/plans/` v `.worktreeinclude`.
-5. `devkit.json` a settings (bez hlavičky): porovnaj `guards`, `pairs`, `check.steps` podľa `id`, kľúče `lint` a `secrets.forbidFiles` a `permissions.ask`/`deny` so šablónou; navrhni **nové** položky (kľúč `lint` len s nástrojom z kroku 1 — php-nette `.neon` len so spustiteľným `vendor/bin/neon-lint`; `forbidFiles` len súbory, ktoré v projekte existujú, `{{localConfig}}` podľa detekcie; bez `doctrine-*` mimo Doctrine projektu; krok `eslint`/`stylelint` len podľa detekcie frontendu z kroku 1 a spolu s ním jeho prípony do `commitGate.ext`; krok `tester` len keď krok 1 našiel Nette Tester, spolu s `.phpt` do `lint` a `commitGate.ext`; krok `migration` len keď `phpunit.xml*` má sadu testov migrácií; cesty migrácií Phinx alebo Doctrine z kroku 1, ktoré `migrations.paths` nepokrýva, ako `<cesta>/**`, mimo `db/` a `migrations/` aj do `fullWhen`; krok `audit` podľa detekcie z kroku 1 a s vetou o odosielaní zoznamu balíkov na Packagist/PyPI — zapíš ho len po súhlase). Položka s rovnakým `id`, ktorá sa líši od šablóny: zhoduje sa so šablónou verzie `OLD` (z hlavičiek rules; `git -C "${CLAUDE_PLUGIN_ROOT}" show "dev--v<OLD>:./templates/<stack>/devkit.json"`, `{{…}}` vyplnené ako v projekte) → navrhni novú hodnotu (diff, súhlas); inak ju projekt zmenil → len vypíš rozdiel, nemeň ju.
+5. `devkit.json` a settings (bez hlavičky): porovnaj `guards`, `pairs`, `check.steps` podľa `id`, kľúče `lint` a `secrets.forbidFiles` a `permissions.ask`/`deny` so šablónou; navrhni **nové** položky (kľúč `lint` len s nástrojom z kroku 1 — php-nette `.neon` len so spustiteľným `vendor/bin/neon-lint`; `forbidFiles` len súbory, ktoré v projekte existujú, `{{localConfig}}` podľa detekcie; bez `doctrine-*` mimo Doctrine projektu; krok `eslint`/`stylelint` len podľa detekcie frontendu z kroku 1 a spolu s ním jeho prípony do `commitGate.ext`; krok `tester` len keď krok 1 našiel Nette Tester, spolu s `.phpt` do `lint` a `commitGate.ext`; krok `migration` len keď `phpunit.xml*` má sadu testov migrácií; cesty migrácií Phinx alebo Doctrine z kroku 1, ktoré `migrations.paths` nepokrýva, ako `<cesta>/**`, mimo `db/` a `migrations/` aj do `fullWhen`; krok `audit` podľa detekcie z kroku 1 a s vetou o odosielaní zoznamu balíkov na Packagist/PyPI — zapíš ho len po súhlase; settings: chýbajúci `plansDirectory` a v tímovom režime `extraKnownMarketplaces.dev-kit` a `enabledPlugins` `dev@dev-kit` v `.claude/settings.json`, existujúcu inú hodnotu len vypíš; `attribution` `--sync` nenavrhuje). Položka s rovnakým `id`, ktorá sa líši od šablóny: zhoduje sa so šablónou verzie `OLD` (z hlavičiek rules; `git -C "${CLAUDE_PLUGIN_ROOT}" show "dev--v<OLD>:./templates/<stack>/devkit.json"`, `{{…}}` vyplnené ako v projekte) → navrhni novú hodnotu (diff, súhlas); inak ju projekt zmenil → len vypíš rozdiel, nemeň ju.
 6. Súhrn: tabuľka súbor · stav (aktualizované/aktuálne/konflikt/nové) · čo sa zmenilo.
 
 ## 8. Záver
 
 - Vytvorené / zmenené: zoznam ciest.
-- Commit: tím → zoznam na commit (`/dev:commit`) vrátane `.gitignore` s `.claude/worktrees/`; lokálne → „v `.git/info/exclude` (aj `.claude/worktrees/`), nič na commit“.
+- Commit: tím → zoznam na commit (`/dev:commit`) vrátane `.gitignore` s `.claude/worktrees/` a `.claude/settings.json` (kolegovia po dôvere priečinka dostanú marketplace `dev-kit` a plugin `dev`); lokálne → „v `.git/info/exclude` (aj `.claude/worktrees/`), nič na commit“.
 - Worktree: kam išiel `.claude/worktrees/` a ktoré riadky pribudli do `.worktreeinclude` (lokálne).
 - Vrátenie: nové súbory `rm <cesty>`; sledované zmenené `git checkout -- <cesta>`; nesledované zmenené `mv <súbor>.pred-devkit <súbor>`. Po overení `*.pred-devkit` zmaž (nie sú na commit).
 - Kedy platí: hooky čítajú `devkit.json` hneď; `CLAUDE.md` a rules po `/clear` alebo v novej session.

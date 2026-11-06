@@ -1,5 +1,10 @@
 {
   "$schema": "https://json.schemastore.org/claude-code-settings.json",
+  "extraKnownMarketplaces": {
+    "dev-kit": {"source": {"source": "github", "repo": "xentrix161/claude-dev-kit"}}
+  },
+  "enabledPlugins": {"dev@dev-kit": true},
+  "plansDirectory": "docs/plans",
   "permissions": {
     "ask": [
       "Bash(git push *)",

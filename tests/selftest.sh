@@ -3200,6 +3200,45 @@ SH
     && want_not "$(printf '\r')" "chyba .neon"
 }
 
+# settings.json šablón: marketplace a plugin kitu (mená z manifestov, repo z README), plansDirectory, bez attribution;
+# zlúčenie z project-init: tím pridá kľúče a hodnoty projektu nechá, lokálne bez marketplace a pluginu (E3)
+t_templates_settings_team() {
+  local T="$KIT/plugins/dev/templates" sk="$KIT/plugins/dev/skills/project-init/SKILL.md" st s m p repo cmd c
+  m=$(jq -r .name "$KIT/.claude-plugin/marketplace.json")
+  p=$(jq -r .name "$KIT/plugins/dev/.claude-plugin/plugin.json")
+  repo=$(LC_ALL=C sed -n 's/^claude plugin marketplace add \([[:alnum:]_.-]*\/[[:alnum:]_.-]*\)$/\1/p' "$KIT/README.md" | head -n 1)
+  [ -n "$m" ] && [ -n "$p" ] && [ -n "$repo" ] || { fail "meno marketplace, pluginu alebo repo z README: '$m' '$p' '$repo'"; return 1; }
+  for st in php-nette php-symfony python; do
+    s=$(jq -r --arg m "$m" --arg k "$p@$m" --arg r "$repo" '
+      if .extraKnownMarketplaces != {($m): {source: {source: "github", repo: $r}}} then "extraKnownMarketplaces \(.extraKnownMarketplaces | tojson)"
+      elif .enabledPlugins != {($k): true} then "enabledPlugins \(.enabledPlugins | tojson)"
+      elif .plansDirectory != "docs/plans" then "plansDirectory \(.plansDirectory | tojson)"
+      elif has("attribution") or has("includeCoAuthoredBy") then "attribution v šablóne"
+      else empty end' "$T/$st/settings.json" 2>&1)
+    [ -z "$s" ] || { fail "$st/settings.json: $s"; return 1; }
+  done
+  LC_ALL=C grep -qF '`"attribution": {"commit": "", "pr": "", "sessionUrl": false}`' "$sk" &&
+    LC_ALL=C grep -q '2) lokálne .* alebo tím (na commit); v tej istej otázke, či skryť atribúciu' "$sk" &&
+    ! LC_ALL=C grep -q 'nepridávaj `enabledPlugins`' "$sk" ||
+    { fail "project-init: otázka attribution, jej tvar alebo starý zákaz enabledPlugins"; return 1; }
+  cmd=$(awk '/^- Zlúčenie len pridáva/ { f = 1; next } f && /^  ```bash$/ { b = 1; next } b && /^  ```$/ { exit } b { sub(/^  /, ""); print }' "$sk")
+  case "$cmd" in "jq -s --argjson team <true|false> "*"<cieľ> <vyplnená-šablóna>") ;; *) fail "project-init: blok zlúčenia settings: $(flat "$cmd")"; return 1 ;; esac
+  new_case
+  printf '%s\n' '{"permissions": {"ask": ["Bash(make up*)"], "allow": ["Bash(ls *)"]}, "enabledPlugins": {"dev@dev-kit": false}, "plansDirectory": "plans"}' > "$CASE/team.json"
+  printf '{}\n' > "$CASE/local.json"
+  c=$(printf '%s\n' "$cmd" | LC_ALL=C sed -e 's/<true|false>/true/' -e 's|<cieľ> <vyplnená-šablóna>|"$CASE/team.json" "$T/php-nette/settings.json"|')
+  eval "$c" > "$CASE/team.out" 2>&1 || { fail "zlúčenie tím: $(flat "$(cat "$CASE/team.out")")"; return 1; }
+  jq -e --slurpfile t "$T/php-nette/settings.json" '.permissions.allow == ["Bash(ls *)"] and .permissions.ask[0] == "Bash(make up*)"
+    and (.permissions.ask | index("Bash(git push *)")) and .permissions.deny == $t[0].permissions.deny
+    and .enabledPlugins == {"dev@dev-kit": false} and .extraKnownMarketplaces == $t[0].extraKnownMarketplaces and .plansDirectory == "plans"' \
+    "$CASE/team.out" >/dev/null 2>&1 || { fail "zlúčenie tím: $(flat "$(cat "$CASE/team.out")")"; return 1; }
+  c=$(printf '%s\n' "$cmd" | LC_ALL=C sed -e 's/<true|false>/false/' -e 's|<cieľ> <vyplnená-šablóna>|"$CASE/local.json" "$T/python/settings.json"|')
+  eval "$c" > "$CASE/local.out" 2>&1 || { fail "zlúčenie lokálne: $(flat "$(cat "$CASE/local.out")")"; return 1; }
+  jq -e --slurpfile t "$T/python/settings.json" '.plansDirectory == "docs/plans" and .permissions == $t[0].permissions
+    and (has("extraKnownMarketplaces") | not) and (has("enabledPlugins") | not)' \
+    "$CASE/local.out" >/dev/null 2>&1 || fail "zlúčenie lokálne: $(flat "$(cat "$CASE/local.out")")"
+}
+
 # ---------------------------------------------------------------- audit závislostí (B14)
 # composer audit (Advisory ID + CVE) a pip-audit (ID + aliasy): vzor na jedno id pokryje záznam — SPEC §3
 t_check_known_failures_audit() {
@@ -3896,6 +3935,7 @@ t "session-card: decisions.jsonl nad 10 MB → .1 len pri startup, stats.sh čí
 t "session-card: pri startup zmaže dáta projektu s neexistujúcou cestou z project.json bez súboru < 90 dní; existujúca cesta, novší súbor a bez project.json ostanú (E13)" t_card_prune_projects
 t "šablóny php: CLAUDE.md.tmpl php-nette a php-symfony s rovnakými sekciami a {{…}} okrem frameworku, písmeno stacku v tabuľke project-init, api-platform.md len s api-platform/*, vetvy AssetMapper/Encore (E1)" t_templates_php_parity
 t "šablóna php-nette: lokálny config len ako {{localConfig}} (kandidáti v project-init), lint .neon neon-lint — [ERROR] … on line N bez hlavičky, bez nástroja edit prejde (E2)" t_templates_nette_neon
+t "šablóny settings.json: marketplace dev-kit a plugin dev (mená z manifestov), plansDirectory, bez attribution; zlúčenie project-init — tím pridá a hodnoty projektu nechá, lokálne bez marketplace (E3)" t_templates_settings_team
 
 wait
 for f in "$RES"/*; do

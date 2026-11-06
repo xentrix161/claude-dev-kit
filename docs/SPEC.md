@@ -886,7 +886,7 @@ a first line comment `<!-- prevzaté z ECC <path> @ b92f181, upravené -->` afte
 
 Arguments: none | `--sync` | `--dry-run`.
 Consent is asked in four named phases only, each with one message: (1) plan — the dry-run incl. the exact
-`permissions` block before → after and the local/team choice with its exact `info/exclude` and
+`permissions` block and other settings keys before → after and the local/team choice with its exact `info/exclude` and
 `.worktreeinclude` lines or `.gitignore` diff; (2) write + `check.sh --quick` — nothing new, consent only to
 resolve check findings (`knownFailures`, baseline, `changedLinesOnly`, dropping a step, `--full`);
 (3) conventions, one by one; (4) `CLAUDE.md`/`AGENTS.md`/`CLAUDE.local.md` diff with the move map. At most
@@ -963,8 +963,9 @@ resolve check findings (`knownFailures`, baseline, `changedLinesOnly`, dropping 
    but `paths.migrations` cannot be read without running it. `{{dbContainer}}` is text in `CLAUDE.md`, not
    a `devkit.json` field. Selftest `t_templates_symbols` keeps the table complete.
 2. Dry-run plan shown to the user BEFORE writing anything: files to create/modify, devkit.json draft,
-   which template rules, `permissions` block before → after, local-only vs team (commit) choice with its
-   exact lines, layer-B skills offered (`templates/skills/*`). The plan says next to step `audit` that
+   which template rules, `permissions` block and other settings keys before → after, local-only vs team (commit)
+   choice with its exact lines, layer-B skills offered (`templates/skills/*`). Question 2 (local or team) also asks
+   whether to hide Claude's commit and PR attribution (default no: the key is not added). The plan says next to step `audit` that
    `/dev:check --full` sends the project's package list (names and versions) to Packagist (`composer audit`) or
    PyPI (`pip-audit`); approving the plan is the consent to it (no separate question), an answer that declines
    it drops the step. Approving the plan covers new files and the changes it showed exactly; any other
@@ -998,6 +999,13 @@ resolve check findings (`knownFailures`, baseline, `changedLinesOnly`, dropping 
    new worktrees get the untracked files); local mode never creates a new `CLAUDE.md` — the filled skeleton
    goes to `CLAUDE.local.md`; team ⇒ leave for commit (do not commit yourself) and propose
    `.claude/worktrees/` for `.gitignore`.
+   Settings: the merge only adds and keeps the project's values (`permissions.ask`/`deny` items, existing keys,
+   `"dev@dev-kit": false` included). `plansDirectory: "docs/plans"` goes to the target of either mode
+   (`.claude/settings.json` in team mode, `.claude/settings.local.json` locally); `extraKnownMarketplaces`
+   (`dev-kit`, GitHub `xentrix161/claude-dev-kit`) and `enabledPlugins` (`dev@dev-kit: true`) only to the shared
+   `.claude/settings.json` in team mode, so a colleague gets the marketplace and the plugin after accepting the
+   folder's workspace trust; local mode leaves both out. Attribution yes ⇒ `"attribution": {"commit": "", "pr": "",
+   "sessionUrl": false}` (`attribution: false` needs Claude Code 2.1.281+, older versions skip the whole file).
 8. `--sync` (P5): for each project file with a `dev-kit:` header (JSON files: by template id/keys),
    compare with current template version; show per-file diff and propose update keeping local edits;
    update header version. A JSON item with an existing id gets the new template value (with consent) only
@@ -1006,6 +1014,9 @@ resolve check findings (`knownFailures`, baseline, `changedLinesOnly`, dropping 
    when the frontend detection of point 1 finds the tool, together with its extensions for `commitGate.ext`;
    a new `tester` step only when point 1 finds Nette Tester, together with `.phpt` for `lint` and `commitGate.ext`;
    a new `migration` step only when `phpunit.xml*` defines the suite (point 1);
+   Settings: a missing `plansDirectory`, and in team mode (`.claude/devkit.json` tracked) `extraKnownMarketplaces.dev-kit`
+   and `enabledPlugins["dev@dev-kit"]` in `.claude/settings.json`, are proposed; a different existing value is only
+   listed; `attribution` is never proposed by `--sync`.
    Phinx or Doctrine migration paths of point 1 that `migrations.paths` does not cover are proposed as `<path>/**` (outside `db/`
    and `migrations/` also for `fullWhen`); a new `audit` step follows the detection of point 1 and is written
    only after consent to sending the package list.
@@ -1079,7 +1090,9 @@ and the same compaction heading `## Compact instructions`. A directory placehold
 `devkit.json` is written as `{{entityDir}}**`. A placeholder named like a `devkit.json` key means that key
 (`{{container}}`, `{{appRoot}}`); python's environment line uses `{{pythonEnv}}`, because `runtime` is reserved
 for the step field. Every placeholder has a row in the project-init table (§6), checked by `t_templates_symbols`.
-Deny rules in `settings.json` start with `/`
+All three `settings.json` carry `plansDirectory: "docs/plans"`, `extraKnownMarketplaces` (`dev-kit` → GitHub
+`xentrix161/claude-dev-kit`) and `enabledPlugins` (`dev@dev-kit: true`); init writes the last two only to the shared
+`.claude/settings.json` in team mode (§6); no template has `attribution` (an init question). Deny rules in `settings.json` start with `/`
 (relative to the settings source = project root, permissions.md). `changedLinesOnly: "stop"` on phpstan
 (php-nette, php-symfony) and mypy (python). Stop mode runs only fast steps: tests without the slow ones
 (php-nette `--testsuite unit`, php-symfony `--exclude-group integration` or the fast `<testsuite>` that
