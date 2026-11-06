@@ -3,7 +3,7 @@
 - Formát: `## <verzia> — <dátum>`, najnovšie hore; verzia = `version` v `plugins/dev/.claude-plugin/plugin.json`.
 - Posun pinu ECC (P3) zapíš ako odrážku: kusy + nový commit.
 
-## 0.5.0 — nevydané
+## 0.5.0 — 2026-11-06
 
 - Vývoj kitu: `make release VERSION=x.y.z` má poistky — pred zmenou `plugin.json` odmietne (exit 2) špinavý strom, inú vetvu ako `main`, verziu nie vyššiu ako posledný tag `dev--v*` a chýbajúcu sekciu `## x.y.z — nevydané` v `CHANGELOG.md`, potom spustí `make check`. Nadpis `— nevydané` nahradí dnešným dátumom; keď `claude plugin validate --strict` alebo `tag --dry-run` zlyhá, `plugin.json` aj `CHANGELOG.md` vráti. Nový cieľ `make tag` spustí `claude plugin tag --push plugins/dev` až na čistom strome, keď je `HEAD` po `git fetch` zhodný s `origin/main` a CI preň skončilo `success` (`gh run list`); bežiace či zlyhané CI odmietne, bez `gh` poradí ručný tag. Postup v `docs/DEVELOPMENT.md`, sekcia Vydanie.
 - Údržba dát kitu pri štarte session (len `startup`): dáta projektu v `~/.claude/dev-kit/projects/<phash>/` majú `project.json` s cestou projektu (zapíše ho prvý hook projektu s configom) a úvodná karta zmaže adresár, ktorého cesta už neexistuje (zmazaný worktree či projekt) a v ktorom nie je súbor novší ako 90 dní. Adresár bez `project.json` ostáva. Rotácia `decisions.jsonl` nad 10 MB do `decisions.jsonl.1` a jeho čítanie v `/dev:stats` sú v SPEC a v selfteste. SPEC §9 uvádza pin `ecc-python-testing` `25278e7d` zhodne s `PROVENANCE.md`.

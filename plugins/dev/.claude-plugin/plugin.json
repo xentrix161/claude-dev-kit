@@ -1,6 +1,6 @@
 {
   "name": "dev",
-  "version": "0.4.2",
+  "version": "0.5.0",
   "description": "Vývojársky kit pre PHP Nette/Symfony a Python: kontroly po edite, Stop kontrola, commit gate, príkazy /dev:check, /dev:commit, /dev:review a šablóny projektov.",
   "author": {
     "name": "dev-kit"
@@ -8,5 +8,12 @@
   "homepage": "https://github.com/xentrix161/claude-dev-kit",
   "repository": "https://github.com/xentrix161/claude-dev-kit",
   "license": "MIT",
-  "keywords": ["php", "nette", "symfony", "python", "hooks", "checks"]
+  "keywords": [
+    "php",
+    "nette",
+    "symfony",
+    "python",
+    "hooks",
+    "checks"
+  ]
 }
