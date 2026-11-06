@@ -18,6 +18,7 @@ dk_stop_ctx() {
         printf 'cfg %s\n' "$(git hash-object --no-filters -- "$DK_CFG" 2>/dev/null)"
         printf 'head %s\n' "$(dk_git rev-parse -q --verify HEAD 2>/dev/null)"
         printf 'lock %s\n' "$([ -f "$DK_PDATA/test-lock.json" ] && git hash-object --no-filters -- "$DK_PDATA/test-lock.json" 2>/dev/null)"
+        # shellcheck disable=SC2046
         (set -f; IFS=$DK_NL; dk_blobs $(dk_changed_files))
     } | git hash-object --stdin 2>/dev/null
 }
@@ -154,6 +155,7 @@ EOF
         logp=$plog
     else
         # 2. check.sh --stop nad configom projektu, DEVKIT_CONFIG z prostredia neplatí
+        # shellcheck disable=SC1007
         cout=$(cd "$DK_PROJECT" && DEVKIT_CONFIG= bash "$DK_SCRIPTS/check.sh" --stop --session "$DK_SESSION" --project "$DK_PROJECT" </dev/null 2>&1)
         crc=$?
         logp=$(printf '%s\n' "$cout" | sed -n 's/^log: //p' | tail -n 1)

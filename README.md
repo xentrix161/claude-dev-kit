@@ -118,14 +118,14 @@ dev-kit:
 ```bash
 git clone https://github.com/xentrix161/claude-dev-kit.git
 claude plugin marketplace add ./claude-dev-kit    # in-place: zmena platí po /reload-plugins
-make check                                        # validate --strict, selftest, rozpočet tokenov
+make check                                        # validate --strict, guardy, selftest, rozpočet tokenov
 ```
 
 - Kontrakt (názvy, cesty, výstupy, `devkit.json`): `docs/SPEC.md`. Ďalšie ciele vypíše `make help`.
 - Jednorazový test bez inštalácie: `claude --plugin-dir ./claude-dev-kit/plugins/dev`.
 - Skripty sú pre bash 3.2 (macOS) bez GNU-only prepínačov. Text pre ľudí je po slovensky s plnou diakritikou.
 - `make details` stráži, aby trvalý kontext kitu ostal pod 3 000 tokenov. Odhad `claude plugin details` závisí od prihlásenia aj od modelu, rozpočet preto overuj v prihlásenom Claude Code.
-- [CI](https://github.com/xentrix161/claude-dev-kit/actions/workflows/check.yml) (`.github/workflows/check.yml`) spustí pri pushi do `main` a pri každom PR na `ubuntu-latest` (bash 5, GNU nástroje) aj `macos-latest` (`/bin/bash` 3.2, BSD nástroje) s najnovším Claude Code z npm povinne `make validate` a `make selftest`, tie prihlásenie nepotrebujú. `make details` tam beží len informatívne (`continue-on-error`): runner nie je prihlásený a `claude plugin details` bez prihlásenia počíta iný, nižší odhad tokenov (pri tomto kite zhruba polovicu), takže rozpočet 3 000 tokenov stráži len lokálny `make check` v prihlásenom Claude Code.
+- [CI](https://github.com/xentrix161/claude-dev-kit/actions/workflows/check.yml) (`.github/workflows/check.yml`) spustí pri pushi do `main` a pri každom PR na `ubuntu-latest` (bash 5, GNU nástroje) aj `macos-latest` (`/bin/bash` 3.2, BSD nástroje) s najnovším Claude Code z npm povinne `make validate`, `make guards` a `make selftest`, tie prihlásenie nepotrebujú. `make guards` skontroluje celý strom skriptov (`bash -n`, guardy `bash4` a `gnu-only` z `.claude/devkit.json`, `shellcheck -S warning`, ak ho runner má), nielen pridané riadky ako hooky. `make details` tam beží len informatívne (`continue-on-error`): runner nie je prihlásený a `claude plugin details` bez prihlásenia počíta iný, nižší odhad tokenov (pri tomto kite zhruba polovicu), takže rozpočet 3 000 tokenov stráži len lokálny `make check` v prihlásenom Claude Code.
 
 ### Údržba
 

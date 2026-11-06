@@ -24,6 +24,7 @@ Spúšťaj z koreňa repa.
 | selftest | `bash tests/selftest.sh` | `PASS N/N` |
 | jeden prípad | `bash tests/selftest.sh <podreťazec názvu>` | `PASS N/N` |
 | manifesty a frontmatter | `make validate` | `✔ Validation passed` (2×) |
+| celý strom skriptov | `make guards` | `[dev-kit] guards: PASS · N skriptov` (bez shellcheck v PATH aj `shellcheck: skip`) |
 | rozpočet kontextu | `make details` | `[dev-kit] always-on ~N tok. ≤ 3000 …` |
 | eval suite (pred vydaním) | `make eval` | tabuľka `WITH · W/OUT · Δ`, `WITH` 1.00 |
 | vydanie | `make release VERSION=x.y.z` | postup v `README.md`, sekcia Vydanie |
@@ -54,7 +55,7 @@ plugins/dev/PROVENANCE.md         kusy prevzaté z ECC s pinom
 tests/selftest.sh                 kontrakty skriptov, každý prípad vo vlastnom git repe
 tools/                            details.sh (rozpočet), upstream.sh (ECC)
 docs/SPEC.md                      kontrakt
-.github/workflows/check.yml       CI kitu: validate a selftest na ubuntu-latest a macos-latest
+.github/workflows/check.yml       CI kitu: validate, guards a selftest na ubuntu-latest a macos-latest
 ```
 
 - Nový prípad selftestu: funkcia `t_<meno>()` + riadok `t "<popis>" t_<meno>` v zozname na konci súboru.

@@ -1066,7 +1066,11 @@ summary line. Verify frontmatter keys in `sub-agents.md`.
   `claude plugin tag --push`) and license.
 - `CHANGELOG.md`: `## 0.1.0 — 2026-10-27` initial.
 - `Makefile`: `check` (= `claude plugin validate --strict plugins/dev` + `claude plugin validate
-  --strict .` + `selftest` + `details` when installed), `selftest`, `upstream`, `release
+  --strict .` + `guards` + `selftest` + `details` when installed), `guards` (every `*.sh` under
+  `plugins/dev/scripts`, `tests`, `tools`: `bash -n`, the patterns of guards `bash4` and `gnu-only` from
+  `.claude/devkit.json` via `grep -nIE` over whole files — a finding or a missing guard fails —, and `shellcheck -S
+  warning -e SC1087,SC1111,SC2034` only when `shellcheck` is on `PATH`, otherwise the line `shellcheck: skip`;
+  healthy output `[dev-kit] guards: PASS · N skriptov`), `selftest`, `upstream`, `release
   VERSION=x.y.z` (bump plugin.json, remind CHANGELOG, `claude plugin tag --dry-run plugins/dev`), `eval`
   (= `claude plugin eval plugins/dev --ablation with-without --scaffold --allow-tools Bash Edit Write
   $(EVAL_ARGS)`; not part of `check` — every agent run and every `llm` judge call costs tokens).
@@ -1103,7 +1107,7 @@ summary line. Verify frontmatter keys in `sub-agents.md`.
   contents: read`): matrix `ubuntu-latest` (bash 5, GNU tools) and `macos-latest` (`/bin/bash` 3.2 put
   first on `PATH`, BSD tools, GNU make 3.81); steps: checkout without persisted credentials, `jq` via
   apt/brew only when missing, `npm i -g @anthropic-ai/claude-code`, then the `make check` targets one by
-  one: `make validate` and `make selftest` required (neither needs a login), `make details` with
+  one: `make validate`, `make guards` and `make selftest` required (none needs a login), `make details` with
   `continue-on-error: true` — the runner is not logged in and `claude plugin details` then reports a
   different, lower token estimate (about half for this kit), so only a local `make check` in a logged-in
   Claude Code guards the §5 budget. `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1` (no auto-update, no

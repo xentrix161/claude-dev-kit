@@ -20,6 +20,7 @@ dk_strip_quotes() {
         \"*\") s=${s#\"}; s=${s%\"} ;;
         \'*\') s=${s#\'}; s=${s%\'} ;;
     esac
+    # shellcheck disable=SC2088
     case "$s" in "~"|"~/"*) s="${DK_HOME:-$HOME}${s#\~}" ;; esac
     printf '%s' "$s"
 }
@@ -56,6 +57,7 @@ dk__repl() { # <token> <value> <boundary>
 # Návrat 1 = neznámy cieľ ($(…), iná premenná, ~iný, `cd -`, prepínač bez adresára).
 dk_expand_dir() { # <raw> <base>
     local raw="$1" base="$2" home="${DK_HOME:-$HOME}" n v
+    # shellcheck disable=SC2088
     case "$raw" in '~'|'~/'*) [ -z "${DK_HOME_UNKNOWN:-}" ] || return 1 ;; '~'*) return 1 ;; esac
     case "$raw" in
         \'*\') DK_X=$(dk_strip_quotes "$raw") ;;

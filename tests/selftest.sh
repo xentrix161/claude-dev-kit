@@ -2531,8 +2531,8 @@ t_templates_php_guards() {
   for stack in php-nette php-symfony; do
     new_case
     cfg --slurpfile t "$KIT/plugins/dev/templates/$stack/devkit.json" '.guards = $t[0].guards' || return 1
-    dql=dql-concat
-    [ "$stack" = php-nette ] && dql=doctrine-dql-concat
+    dql='dql-concat'
+    [ "$stack" = php-nette ] && dql='doctrine-dql-concat'
     add app/Foo.php "$(printf '%s\n' '$this->exit(1);' '$this->dump($x);' 'Debugger::dump($x);' 'return $exit;' \
       "die('x');" '    exit;' 'dump($x);' "\$qb->where('a.id = ' . \$id);")"
     on_edit app/Foo.php
@@ -3163,6 +3163,7 @@ t_evals_suite() {
       LC_ALL=C grep -qx '  scaffold_script: scaffold.sh' "$c/case.yaml" ||
       { fail "${c##*/}/case.yaml: schema_version \"1.1\", name a context.scaffold_script"; return 1; }
     for k in $(ev_keys "$c/prompt.md"); do
+      # shellcheck disable=SC2194
       case " schema_version name description tags plugins runs expected_outcome model max_turns timeout_seconds allowed_tools append_system_prompt env " in
         *" $k "*) ;;
         *) fail "${c##*/}/prompt.md: neznámy kľúč $k"; return 1 ;;
@@ -3350,6 +3351,7 @@ t_hook_text_cap() {
 }
 t_card_templates_outdated() {
   new_case
+  # shellcheck disable=SC2155
   local ver pj="$(dirname "$S")/.claude-plugin/plugin.json" line base=$SID
   [ -f "$pj" ] || pj="$KIT/plugins/dev/.claude-plugin/plugin.json"
   ver=$(jq -r .version "$pj")
