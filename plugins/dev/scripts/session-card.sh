@@ -252,14 +252,34 @@ EOF
     )
     dk_emit "$(printf '%s\n' "$card" | head -n 10)" "$(printf '%s' "$warn" | grep -v '^$')"
 
-    # Údržba dát kitu: staré zoznamy session, veľký log rozhodnutí.
+    # Údržba dát kitu: staré zoznamy session, veľký log rozhodnutí, dáta zmazaných projektov a worktree.
     if [ "${DK_SOURCE:-startup}" = startup ]; then
         find "$DK_PDATA/sessions" \( -name '*.files' -o -name '*.head' -o -name '*.stop.json' -o -name '*.cfgnote' -o -name '*.tplnote' -o -name '*.t0' \) -mtime +14 -exec rm -f {} + 2>/dev/null
         find "$DK_PDATA" -maxdepth 1 -name 'pairs-*.done' -mtime +14 -exec rm -f {} + 2>/dev/null
         if [ -f "$DK_DATA/decisions.jsonl" ] && [ "$(wc -c < "$DK_DATA/decisions.jsonl" | tr -d ' ')" -gt 10485760 ]; then
             mv "$DK_DATA/decisions.jsonl" "$DK_DATA/decisions.jsonl.1" 2>/dev/null
         fi
+        dk_prune_projects
     fi
+    return 0
+}
+
+# Zmaže projects/<phash>, ktorého cesta z project.json neexistuje a nemá súbor novší ako 90 dní.
+# Bez project.json alebo s cestou, v ktorej je \ či " (escapovaná), ostáva.
+dk_prune_projects() {
+    local pj l path d
+    for pj in "$DK_DATA"/projects/*/project.json; do
+        [ -f "$pj" ] || continue
+        IFS= read -r l < "$pj" || continue
+        case "$l" in '{"path":"/'*'"}') ;; *) continue ;; esac
+        path=${l#'{"path":"'}
+        path=${path%'"}'}
+        case "$path" in *\\*|*'"'*) continue ;; esac
+        [ -e "$path" ] && continue
+        d=${pj%/project.json}
+        [ -z "$(find "$d" -type f -mtime -90 2>/dev/null | head -n 1)" ] || continue
+        rm -rf "$d" 2>/dev/null
+    done
     return 0
 }
 

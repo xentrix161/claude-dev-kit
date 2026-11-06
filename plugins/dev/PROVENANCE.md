@@ -1,6 +1,6 @@
 # Provenience prevzatého obsahu
 
-- Zdroj: ECC (`https://github.com/affaan-m/ECC`), lokálny klon v `ECC_DIR` (predvolene `<KIT>/../ECC`, vedľa pracovnej kópie kitu), pin `b92f181` (2026-10-11).
+- Zdroj: ECC (`https://github.com/affaan-m/ECC`), lokálny klon v `ECC_DIR` (predvolene `<KIT>/../ECC`, vedľa pracovnej kópie kitu), pin `b92f181` (2026-10-11), `ecc-python-testing` `25278e7d` (2026-10-26, prevzaté 2026-10-28).
 - Licencia ECC: MIT, © 2026 Affaan Mustafa — plný text v `LICENSES/ECC-MIT.txt`; pri distribúcii kitu musí ostať pri kite.
 - Každý prevzatý kus je upravený (slovenčina, stručne, ale úplne, `docker exec` namiesto npm, bez „80 % coverage“ a conventional commits) → upstream sa preberá ručne, nie kopírovaním.
 - `make upstream` (`tools/upstream.sh`) číta tabuľku nižšie podľa poradia stĺpcov: 2. stĺpec cesta v ECC, 3. stĺpec pin; 4. stĺpec je dátum prevzatia do kitu.

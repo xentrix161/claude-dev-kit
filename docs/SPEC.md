@@ -93,8 +93,10 @@ from skills via the Bash tool (the Bash tool does not get CLAUDE_PLUGIN_DATA). T
 existing one owned by the user is set to 700 once per process.
 ```
 $DK_DATA/decisions.jsonl                          # V8 log, all projects
+$DK_DATA/decisions.jsonl.1                        # the previous log, moved there by the card (below); stats.sh reads both
 $DK_DATA/errors.log                               # dk_err; over 1 MB trimmed to the last 500 lines
 $DK_DATA/maintenance.json                         # {"lastUpstreamCheck": <epoch>} written by tools/upstream.sh
+$DK_DATA/projects/<phash>/project.json            # {"path":"<project dir>"} (JSON-escaped), written by dk_set_project when missing (§4.1)
 $DK_DATA/projects/<phash>/pass.json               # commit-gate PASS marker
 $DK_DATA/projects/<phash>/partial.json            # last quick/full check ended PARTIAL (§4.5), explained by the commit gate (§4.4)
 $DK_DATA/projects/<phash>/test-lock.json          # V3: locked tests and their blobs (§4.8)
@@ -113,8 +115,15 @@ $DK_DATA/projects/<phash>/card-hint.<YYYYMMDD>    # "no devkit.json" hint shown 
 $DK_DATA/projects/<phash>/last-handoff.json       # {"time":…, "title":"…", "path":"…"}
 $DK_DATA/cc-version.<YYYYMMDD>                    # `claude --version` cached for the day (§4.7)
 ```
-`<phash>` = first 12 chars of `printf %s "<project dir>" | git hash-object --stdin`. On `startup` the card
-deletes `sessions/*.files|.head|.t0|.stop.json|.cfgnote|.tplnote` and `pairs-*.done` older than 14 days (§4.7).
+`<phash>` = first 12 chars of `printf %s "<project dir>" | git hash-object --stdin`. On `startup` (empty `source`
+counts as `startup`; never on `resume`, `clear` or `compact`), after its output, the card of a project with a config
+maintains the data (§4.7):
+- deletes `sessions/*.files|.head|.t0|.stop.json|.cfgnote|.tplnote` and `pairs-*.done` older than 14 days;
+- `decisions.jsonl` larger than 10 MB (10 485 760 bytes) ⇒ `mv` to `decisions.jsonl.1`, overwriting the previous one;
+  the next `dk_log` starts a new file;
+- deletes `projects/<phash>` whose `project.json` path does not exist (`[ -e ]`; a deleted project or worktree, also
+  an unmounted volume) and that holds no file newer than 90 days (`find -type f -mtime -90`). A directory without
+  `project.json`, or whose stored path is not absolute or contains `\` or `"` (escaped in the JSON), is kept.
 
 ## 3. Project config `.claude/devkit.json` (schema v1)
 
@@ -276,7 +285,8 @@ multibyte character at a read-chunk boundary into U+FFFD).
 ### 4.1 `lib.sh` (sourced by all scripts)
 Functions (names fixed, other scripts depend on them):
 `dk_init` (reads stdin into `DK_INPUT` when stdin is not a tty; sets `DK_PROJECT`, `DK_DATA`, `DK_PDATA`
-(per-project data dir, created), `DK_CFG` (path or empty), `DK_SESSION`), `dk_in <jq-filter>` (query
+(per-project data dir, created when the project has a config, together with `project.json` when missing, §2), `DK_CFG`
+(path or empty), `DK_SESSION`), `dk_in <jq-filter>` (query
 DK_INPUT), `dk_cfg <jq-filter> [default]`, `dk_rule_on <rule-id>` (false when listed in disabledRules),
 `dk_cfg_trust [note]` (R3: `git hash-object --no-filters` of `DK_CFG` vs `config.hash` (§2); on a difference the
 config's commands (`DK_JQ_CMDS`: each `lint` command as `lint <ext>[ (<runtime>)]: <cmd>`, each step's `run` and
@@ -764,6 +774,8 @@ flags in any order; `--files` consumes paths until the next `--` flag.
      `version` in `${CLAUDE_PLUGIN_ROOT}/.claude-plugin/plugin.json` (x.y.z compared numerically) ⇒ `šablóny z kitu
      <oldest> (aktuálna <version>): /dev:project-init --sync`, also as a `systemMessage` warning. No header ⇒ nothing.
   Optional lines 4–10 are one line each and take precedence over the `git status` lines, so all of them fit in 10.
+- After the output, with config and `source` `startup` only: the data maintenance of §2 (old session files, rotation of
+  `decisions.jsonl`, data dirs of deleted projects and worktrees).
 - Subcommand outside the hook (used by `/dev:handoff`): `session-card.sh --record-handoff <path> <title>
   [--project P]` (P defaults to `pwd`, stdin is not read) writes `last-handoff.json`
   `{"time":<epoch>,"title":"…","path":"…"}` for card line 4; an absolute path inside P is stored relative,
@@ -780,7 +792,7 @@ deletes the file. Prints one Slovak line. Exit 0.
 
 ### 4.9 `stats.sh` (V8, called by /dev:stats)
 `stats.sh [--days 30] [--project P|--all]` → scope = project from `pwd` (or `--project`) by default,
-`--all` = every project; reads decisions.jsonl, prints ≤ 20 lines: `obdobie: N dní`, counts per hook+rule
+`--all` = every project; reads `decisions.jsonl.1` (when present) and `decisions.jsonl` (§2), prints ≤ 20 lines: `obdobie: N dní`, counts per hook+rule
 (block/deny/ask/warn/pass), top 5 noisiest rules, stop-check block rate, commit-gate denials and the
 `PASS na prvý raz` share (commit gate attempts grouped by the content key from §4.4), average ms per
 hook. Exit 0.
@@ -1058,7 +1070,8 @@ summary line. Verify frontmatter keys in `sub-agents.md`.
 - `PROVENANCE.md`: table `kit path | ECC source path | ECC commit | date adopted | changes` — one row per
   adopted ECC piece (incl. python skills, layer-B template skills and review sources) and per kit file
   whose content was derived from ECC (fix, learn, check, project-init); ECC commit `b92f181`, date
-  adopted `2026-10-27`. `tools/upstream.sh` reads the columns by position.
+  adopted `2026-10-27`, except `skills/ecc-python-testing/` (`skills/python-testing` at `25278e7d`, adopted
+  `2026-10-28` from an upstream update). `tools/upstream.sh` reads the columns by position.
 - `README.md` (Slovak, stručne, ale úplne (§0)), written for a colleague first: what it is, install from
   the GitHub marketplace + requirements, project setup (`/dev:project-init`), what the hooks do,
   commands table, noisy hook and disabling (`/dev:stats`, `disabledRules`, `claude plugin disable`), then

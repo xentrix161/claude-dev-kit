@@ -2166,6 +2166,52 @@ t_err_log_rotation() {
   n=$(wc -l < "$DATA/errors.log" | tr -d ' ')
   [ "$n" = 501 ] || fail "malý errors.log sa nemá skracovať: $n riadkov"
 }
+# decisions.jsonl nad 10 MB → decisions.jsonl.1 len pri startup karty; stats.sh číta .1 aj aktuálny log (SPEC §2, §4.9)
+t_decisions_rotation() {
+  new_case
+  local big=10485761 n
+  dd if=/dev/zero of="$DATA/decisions.jsonl" bs=1 count=0 seek=10485760 2>/dev/null
+  card
+  want_rc 0 "presne 10 MB" || return 1
+  [ -f "$DATA/decisions.jsonl" ] && [ ! -e "$DATA/decisions.jsonl.1" ] || { fail "log s presne 10 MB sa nemá rotovať"; return 1; }
+  dd if=/dev/zero of="$DATA/decisions.jsonl" bs=1 count=0 seek=$big 2>/dev/null
+  printf 'stary\n' > "$DATA/decisions.jsonl.1"
+  hook session-card "$(j_start | jq -c '.source = "resume"')"
+  n=$(wc -c < "$DATA/decisions.jsonl" | tr -d ' ')
+  [ "$n" = "$big" ] && [ "$(cat "$DATA/decisions.jsonl.1")" = stary ] || { fail "resume nemá rotovať (log $n B)"; return 1; }
+  card
+  n=$(wc -c < "$DATA/decisions.jsonl.1" 2>/dev/null | tr -d ' ')
+  [ "$n" = "$big" ] && [ ! -e "$DATA/decisions.jsonl" ] || { fail "startup: .1 má ${n:-0} B, čakal som $big a žiadny decisions.jsonl"; return 1; }
+  (cd "$REPO" && bash -c '. "$1" && dk_init && dk_log on-edit guard:debug-php block app/Foo.php 1' _ "$S/lib.sh") < /dev/null
+  mv "$DATA/decisions.jsonl" "$DATA/decisions.jsonl.1"
+  (cd "$REPO" && bash -c '. "$1" && dk_init && dk_log on-edit guard:debug-php block app/Foo.php 1 && dk_log pre-bash commitGate deny "" 2' _ "$S/lib.sh") < /dev/null
+  run stats --days 30
+  want_rc 0 "stats" && want_out 'záznamy: 3' "stats .1 + log"
+}
+# karta pri startup zmaže projects/<phash> s neexistujúcou cestou z project.json a bez súboru novšieho ako 90 dní (SPEC §2)
+t_card_prune_projects() {
+  new_case
+  local p
+  card
+  want_jfile "$PDATA/project.json" '.path == $p' --arg p "$REPO" || return 1
+  for p in aaaaaaaaaaaa bbbbbbbbbbbb cccccccccccc dddddddddddd; do
+    mkdir -p "$DATA/projects/$p/sessions" && : > "$DATA/projects/$p/pass.json"
+  done
+  printf '{"path":"%s"}\n' "$CASE/zmazany-worktree" > "$DATA/projects/aaaaaaaaaaaa/project.json"
+  printf '{"path":"%s"}\n' "$CASE" > "$DATA/projects/bbbbbbbbbbbb/project.json"
+  printf '{"path":"%s"}\n' "$CASE/zmazany-nedavno" > "$DATA/projects/cccccccccccc/project.json"
+  for p in aaaaaaaaaaaa bbbbbbbbbbbb cccccccccccc dddddddddddd; do find "$DATA/projects/$p" -exec touch -t 202001010000 {} +; done
+  : > "$DATA/projects/cccccccccccc/sessions/$SID.files"
+  hook session-card "$(j_start | jq -c '.source = "resume"')"
+  [ -d "$DATA/projects/aaaaaaaaaaaa" ] || { fail "resume nemá upratovať projekty"; return 1; }
+  card
+  want_rc 0 || return 1
+  [ ! -e "$DATA/projects/aaaaaaaaaaaa" ] || { fail "neexistujúca cesta a staré súbory: projects/aaaaaaaaaaaa ostal"; return 1; }
+  for p in bbbbbbbbbbbb cccccccccccc dddddddddddd; do
+    [ -f "$DATA/projects/$p/pass.json" ] || { fail "projects/$p nemal byť zmazaný (cesta existuje, novší súbor alebo bez project.json)"; return 1; }
+  done
+  [ -f "$PDATA/project.json" ] || fail "karta zmazala dáta aktuálneho projektu"
+}
 # stav kontajnera: on-edit a karta čítajú container.state (30 s, rovnaký kontajner), check.sh vždy docker inspect
 t_container_state_cache() {
   new_case
@@ -3654,6 +3700,8 @@ t "hooks.json: Edit|Write|NotebookEdit bez MultiEdit, žiadny handler s if; agen
 t "karta, Stop a pre-compact: text pre Clauda najviac 9 000 znakov UTF-16 s „…“ (dlhý handoff a say)" t_hook_text_cap
 t "partial.json, pass.json, test-lock.json a stats.sh: diakritika cez hranicu bloku čítania jq bez U+FFFD" t_jq_multibyte
 t "šablóny: ask na git reset --hard, clean, stash drop/clear, branch -D a docker volume/system prune, composer (php), alembic upgrade a manage.py migrate (python); git restore nie (D9)" t_templates_ask_destructive
+t "session-card: decisions.jsonl nad 10 MB → .1 len pri startup, stats.sh číta .1 aj aktuálny log (E13)" t_decisions_rotation
+t "session-card: pri startup zmaže dáta projektu s neexistujúcou cestou z project.json bez súboru < 90 dní; existujúca cesta, novší súbor a bez project.json ostanú (E13)" t_card_prune_projects
 
 wait
 for f in "$RES"/*; do

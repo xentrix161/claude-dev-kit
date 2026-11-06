@@ -190,8 +190,13 @@ dk_set_project() {
     [ -n "$t" ] || t=$(printf '%s' "$p" | cksum | cut -d' ' -f1)
     DK_PHASH=${t:0:12}
     DK_PDATA="$DK_DATA/projects/$DK_PHASH"
-    if [ -n "$DK_CFG" ] && [ ! -d "$DK_PDATA/sessions" ]; then
-        mkdir -p "$DK_PDATA/sessions" "$DK_PDATA/logs" 2>/dev/null
+    if [ -n "$DK_CFG" ]; then
+        [ -d "$DK_PDATA/sessions" ] || mkdir -p "$DK_PDATA/sessions" "$DK_PDATA/logs" 2>/dev/null
+        # Cesta projektu pre údržbu karty: dáta zmazaného worktree sa podľa nej uprace (SPEC §2).
+        if [ ! -f "$DK_PDATA/project.json" ] && [ -d "$DK_PDATA" ]; then
+            dk__esc "$p"
+            printf '{"path":"%s"}\n' "$DK_ESC" 2>/dev/null > "$DK_PDATA/project.json"
+        fi
     fi
     DK_DISABLED_LOADED=""
     DK_CONTAINER_STATE=""

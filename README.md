@@ -65,7 +65,7 @@ Referenčné skilly (MySQL, E2E, prístupnosť, Python, dopad zmeny, TLDR do tas
 - Kit v jednom projekte vypneš cez `"enabledPlugins": {"dev@dev-kit": false}` v `.claude/settings.local.json`, všade príkazom `claude plugin disable dev@dev-kit`.
 - Falošný poplach nahlás ako issue: id pravidla, `súbor:riadok` a prečo nejde o chybu.
 
-Logy sú v `~/.claude/dev-kit/`, iné miesto nastavíš cez `DEVKIT_DATA`.
+Logy sú v `~/.claude/dev-kit/`, iné miesto nastavíš cez `DEVKIT_DATA`. Úvodná karta ich pri štarte session udržiava: log rozhodnutí nad 10 MB presunie do `decisions.jsonl.1` a dáta projektu či worktree, ktorý už neexistuje, zmaže po 90 dňoch bez zmeny.
 
 ## CI
 
