@@ -81,3 +81,4 @@
 
 ## Odchýlky
 - D5: skrátený zoznam končí riadkom `… ďalšie súbory: N` (ako doterajšie zoznamy kitu: `… ďalšie nálezy: N` v on-edit a pre-bash), nie `… a ďalších N`. Skracujú sa všetky zoznamy bloku (nálezy tajomstiev, súbory, riadky `!` z PARTIAL), najprv najdlhší; samotný orez na konci len keď to nestačí. Pri viacerých repách s deny má blok menej ako 12 riadkov, aby celý text ostal ≤ 20 (SPEC §0). `--files` dostáva kódové súbory commitu (tie, ktoré gate overuje); `dk_deny` text nijako neskracuje (žiadny `dk_cap`), jediný orez bol `head -n 20`, ten je preč.
+- D8: riadok šablón ide aj do `systemMessage` (ako údržba kitu či zmena `devkit.json`) — `/dev:project-init` spúšťa používateľ, Claude ho z karty len pripomenie. Porovnanie verzií `dk_ver_lt` je v `session-card.sh` (zdieľa ho kontrola `DK_MIN_CC`), nie v `lib.sh`. Značka `sessions/<id>.tplnote` sa zapíše pri každom porovnaní, nielen pri riadku.

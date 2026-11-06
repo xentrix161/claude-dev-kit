@@ -3155,6 +3155,46 @@ t_hook_text_cap() {
   want_rc 0 "Stop" && want_no_block "Stop" || return 1
   cap_ok "$(printf '%s' "$OUT" | jq -r '.hookSpecificOutput.additionalContext // empty')" "Stop"
 }
+t_card_templates_outdated() {
+  new_case
+  local ver pj="$(dirname "$S")/.claude-plugin/plugin.json" line base=$SID
+  [ -f "$pj" ] || pj="$KIT/plugins/dev/.claude-plugin/plugin.json"
+  ver=$(jq -r .version "$pj")
+  line="šablóny z kitu 0.3.0 (aktuálna $ver): /dev:project-init --sync"
+  put .claude/rules/x.md "$(printf -- '---\npaths: ["app/**"]\n---\n<!-- dev-kit: php-nette/rules/x.md @ 0.3.0 -->\n# x')"
+  put REVIEW.md "$(printf '<!-- dev-kit: common/REVIEW.md @ v0.4.0 -->\n# review')"
+  put .worktreeinclude "$(printf '# dev-kit: php-nette/.worktreeinclude @ 9.9.9\nvendor/')"
+  card
+  want_rc 0 "staré šablóny" && want_out "$line" "staré šablóny" || return 1
+  case "$SYSMSG" in *"[dev-kit] $line"*) ;; *) fail "systemMessage bez riadku šablón: $(flat "$RAW")"; return 1 ;; esac
+  card
+  want_rc 0 "2. karta v tej istej session" && want_not 'šablóny z kitu' "2. karta v tej istej session" || return 1
+  SID="$base-b"
+  put .claude/rules/x.md "<!-- dev-kit: php-nette/rules/x.md @ $ver -->"
+  put REVIEW.md "<!-- dev-kit: common/REVIEW.md @ $ver -->"
+  card
+  want_rc 0 "aktuálne šablóny" && want_not 'šablóny z kitu' "aktuálne šablóny" || return 1
+  SID="$base-c"
+  put .claude/rules/x.md '# bez hlavičky'
+  rm -f "$REPO/REVIEW.md" "$REPO/.worktreeinclude"
+  card
+  want_rc 0 "bez hlavičky" && want_not 'šablóny z kitu' "bez hlavičky" || return 1
+  # Všetky voliteľné riadky naraz: karta ≤ 10 riadkov a riadok šablón ostane.
+  SID="$base-d"
+  put .claude/rules/x.md '<!-- dev-kit: php-nette/rules/x.md @ 0.3.0 -->'
+  kit_scripts upstream || return 1
+  mkdir -p "$CASE/kit/plugins/dev/.claude-plugin" && cp "$pj" "$CASE/kit/plugins/dev/.claude-plugin/" || return 1
+  run session-card --record-handoff docs/handoff.md 'Handoff'
+  run test-lock lock tests/FooTest.php --project "$REPO"
+  export DK_FAKE_CC_VERSION=2.0.1
+  rm -f "$DATA"/cc-version.*
+  cfg '.lint[".py"] = ["true {file}"]'
+  card
+  want_rc 0 "všetky riadky" && want_out "$line" "všetky riadky" && want_out 'devkit.json sa zmenil' "všetky riadky" \
+    && want_out 'zamknutý test' "všetky riadky" && want_out 'údržba kitu' "všetky riadky" \
+    && want_out 'posledný handoff' "všetky riadky" && want_out 'Claude Code 2.0.1' "všetky riadky" || return 1
+  [ "$(nlines "$OUT")" -le 10 ] || fail "karta má $(nlines "$OUT") riadkov (limit 10)$(ctx)"
+}
 # C5: JSON zo súborov stavu bez jq -R z rúry (SPEC §4). jq 1.7.1 delí len riadok dlhší ako blok čítania
 # (~4 kB): každá časť má riadok cez dve hranice bloku (zásah nezávisí od parity); pass.json len stráž (cesta).
 no_fffd() { # <súbor|-> <popis> — bez U+FFFD (stdin pri „-“)
@@ -3365,6 +3405,7 @@ t "session-card: bez jq → statický JSON so systemMessage" t_card_no_jq_json
 t "session-card: container bez docker binárky → chýba docker" t_card_no_docker_binary
 t "session-card: python worktree bez .venv/ → upozornenie (D20)" t_card_worktree_venv
 t "session-card: stará verzia Claude Code (pod 2.1.314), kontrola raz za deň" t_card_cc_version
+t "session-card: šablóny zo staršieho kitu (hlavičky rules, REVIEW.md, .worktreeinclude) → riadok raz za session, aktuálne či bez hlavičky ticho, karta ≤ 10 riadkov (D8)" t_card_templates_outdated
 t "devkit.json zmenený (R3): karta raz, on-edit a pre-bash systemMessage raz za session, hooky bežia ďalej" t_cfg_trust
 t "šablóny: ukotvené deny, bez \\s/\\w v [...], vzorky tajomstiev, rules (paths, Pasce, ≤ 60), značky db:" t_templates_lint
 t "stop-check: check.sh exit 3 / 2 → pripomienka „nedala spustiť“, skip namiesto pass, bez bloku" t_stop_check_not_run

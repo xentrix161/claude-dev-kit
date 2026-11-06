@@ -42,9 +42,27 @@ dk_emit() { # <karta> <upozornenia>
          + (if $w == "" then {} else {systemMessage: ($w | dk_cap)} end)'
 }
 
+# <a> <b> → 0 keď verzia a < b (x.y.z, chýbajúca časť = 0, prípona za číslom sa ignoruje).
+dk_ver_lt() {
+    local a1 a2 a3 b1 b2 b3 r x y
+    IFS=. read -r a1 a2 a3 r <<EOF
+$1
+EOF
+    IFS=. read -r b1 b2 b3 r <<EOF
+$2
+EOF
+    for r in "$a1 $b1" "$a2 $b2" "$a3 $b3"; do
+        x=${r%% *} y=${r#* }
+        x=${x%%[!0-9]*} y=${y%%[!0-9]*}
+        [ "${x:-0}" -lt "${y:-0}" ] && return 0
+        [ "${x:-0}" -gt "${y:-0}" ] && return 1
+    done
+    return 1
+}
+
 # Verzia Claude Code staršia ako DK_MIN_CC → riadok upozornenia; `claude --version` najviac raz za deň.
 dk_cc_old() { # <today>
-    local f="$DK_DATA/cc-version.$1" v="" a b i
+    local f="$DK_DATA/cc-version.$1" v=""
     if [ -f "$f" ]; then
         v=$(head -n 1 "$f" 2>/dev/null)
     elif command -v claude >/dev/null 2>&1; then
@@ -52,16 +70,25 @@ dk_cc_old() { # <today>
         rm -f "$DK_DATA"/cc-version.* 2>/dev/null
         printf '%s\n' "$v" 2>/dev/null > "$f"
     fi
-    [ -n "$v" ] || return 1
-    i=1
-    while [ "$i" -le 3 ]; do
-        a=$(printf '%s' "$v" | cut -d. -f"$i")
-        b=$(printf '%s' "$DK_MIN_CC" | cut -d. -f"$i")
-        if [ "${a:-0}" -lt "${b:-0}" ]; then printf 'Claude Code %s je starší ako %s → claude update' "$v" "$DK_MIN_CC"; return 0; fi
-        [ "${a:-0}" -gt "${b:-0}" ] && return 1
-        i=$((i + 1))
+    [ -n "$v" ] && dk_ver_lt "$v" "$DK_MIN_CC" || return 1
+    printf 'Claude Code %s je starší ako %s → claude update' "$v" "$DK_MIN_CC"
+}
+
+# Najstaršia verzia v hlavičkách šablón (.claude/rules, REVIEW.md, .worktreeinclude) staršia ako kit → riadok;
+# raz za session (značka sessions/<id>.tplnote).
+dk_tpl_old() {
+    local mark="$DK_PDATA/sessions/$DK_SESSION.tplnote" cur v old=""
+    [ -f "$mark" ] && return 1
+    mkdir -p "$DK_PDATA/sessions" 2>/dev/null
+    : 2>/dev/null > "$mark"
+    cur=$(jq -r '.version // empty' "${CLAUDE_PLUGIN_ROOT:-$DK_SCRIPTS/..}/.claude-plugin/plugin.json" 2>/dev/null)
+    [ -n "$cur" ] || return 1
+    for v in $(cat "$DK_PROJECT"/.claude/rules/*.md "$DK_PROJECT/REVIEW.md" "$DK_PROJECT/.worktreeinclude" 2>/dev/null \
+        | sed -nE 's/^(<!--|#) dev-kit: .* @ v?([0-9]+(\.[0-9]+)*).*/\2/p'); do
+        if [ -z "$old" ] || dk_ver_lt "$v" "$old"; then old=$v; fi
     done
-    return 1
+    [ -n "$old" ] && dk_ver_lt "$old" "$cur" || return 1
+    printf 'šablóny z kitu %s (aktuálna %s): /dev:project-init --sync' "$old" "$cur"
 }
 
 dk_card() {
@@ -185,6 +212,7 @@ EOF
         extra="$extra$w$DK_NL"
         warn="$warn[dev-kit] $w — skontroluj diff$DK_NL"
     fi
+    if w=$(dk_tpl_old); then extra="$extra$w$DK_NL"; warn="$warn[dev-kit] $w$DK_NL"; fi
 
     local st branch n first rest nextra room
     st=$(dk_git status --short --branch 2>/dev/null)
@@ -218,7 +246,7 @@ EOF
 
     # Údržba dát kitu: staré zoznamy session, veľký log rozhodnutí.
     if [ "${DK_SOURCE:-startup}" = startup ]; then
-        find "$DK_PDATA/sessions" \( -name '*.files' -o -name '*.head' -o -name '*.stop.json' -o -name '*.cfgnote' \) -mtime +14 -exec rm -f {} + 2>/dev/null
+        find "$DK_PDATA/sessions" \( -name '*.files' -o -name '*.head' -o -name '*.stop.json' -o -name '*.cfgnote' -o -name '*.tplnote' \) -mtime +14 -exec rm -f {} + 2>/dev/null
         find "$DK_PDATA" -maxdepth 1 -name 'pairs-*.done' -mtime +14 -exec rm -f {} + 2>/dev/null
         if [ -f "$DK_DATA/decisions.jsonl" ] && [ "$(wc -c < "$DK_DATA/decisions.jsonl" | tr -d ' ')" -gt 10485760 ]; then
             mv "$DK_DATA/decisions.jsonl" "$DK_DATA/decisions.jsonl.1" 2>/dev/null

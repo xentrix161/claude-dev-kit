@@ -10,6 +10,7 @@
 - Minimálna verzia Claude Code je 2.1.314 (`DK_MIN_CC`): staršie verzie nespúšťali hooky s matcherom `Bash` pri nástroji Monitor, takže commit spustený cez Monitor obišiel commit gate aj kontrolu tajomstiev. Úvodná karta pri staršej verzii upozorní (`claude update`).
 - `secrets.forbidFiles` stráži aj Edit/Write: úpravu súboru zo zoznamu (napr. `.env`, `config.local.neon`) pre-edit zamietne hláškou `[dev-kit] <súbor> je v secrets.forbidFiles — tajomstvá sa needitujú cez Claude`; zhoda bez ohľadu na veľkosť písmen, vypína ju `disabledRules secrets` spolu s kontrolou tajomstiev v commite. Čítanie súboru sa nestráži.
 - Súbor v submodule (aj vo vnorenom repe): on-edit, Stop a `changedLinesOnly` berú pridané riadky z diffu v koreni submodulu, nie celý súbor — guardy, tajomstvá a lint už nehlásia staré riadky submodulu. Nový súbor v submodule sa kontroluje celý ako doteraz.
+- Úvodná karta raz za session upozorní na šablóny zo staršieho kitu: najstaršia verzia z hlavičiek `@ <verzia>` v `.claude/rules/*.md`, `REVIEW.md` a `.worktreeinclude` je nižšia ako verzia pluginu → riadok `šablóny z kitu <stará> (aktuálna <nová>): /dev:project-init --sync` v karte aj v upozornení pre používateľa. Projekt bez hlavičiek nič nevidí.
 
 ## 0.4.1 — 2026-11-05
 

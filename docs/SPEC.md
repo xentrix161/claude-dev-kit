@@ -105,6 +105,7 @@ $DK_DATA/projects/<phash>/sessions/<session_id>.files   # files edited in that s
 $DK_DATA/projects/<phash>/sessions/<session_id>.head    # HEAD at the session's first .files write (empty without HEAD)
 $DK_DATA/projects/<phash>/sessions/<session_id>.stop.json   # last stop-check state of that session
 $DK_DATA/projects/<phash>/sessions/<session_id>.cfgnote     # on-edit or pre-bash reported a devkit.json change in that session
+$DK_DATA/projects/<phash>/sessions/<session_id>.tplnote     # the card compared the template headers in that session (§4.7 item 10)
 $DK_DATA/projects/<phash>/pairs-<session_id>.done # Stop reminders already given (pairs, testRemoved)
 $DK_DATA/projects/<phash>/logs/check-<mode>-<epoch>.log  # full check output (keep last 20)
 $DK_DATA/projects/<phash>/card-hint.<YYYYMMDD>    # "no devkit.json" hint shown today
@@ -112,7 +113,7 @@ $DK_DATA/projects/<phash>/last-handoff.json       # {"time":…, "title":"…", 
 $DK_DATA/cc-version.<YYYYMMDD>                    # `claude --version` cached for the day (§4.7)
 ```
 `<phash>` = first 12 chars of `printf %s "<project dir>" | git hash-object --stdin`. On `startup` the card
-deletes `sessions/*.files|.head|.stop.json|.cfgnote` and `pairs-*.done` older than 14 days (§4.7).
+deletes `sessions/*.files|.head|.stop.json|.cfgnote|.tplnote` and `pairs-*.done` older than 14 days (§4.7).
 
 ## 3. Project config `.claude/devkit.json` (schema v1)
 
@@ -688,7 +689,7 @@ flags in any order; `--files` consumes paths until the next `--` flag.
 - stdout = one JSON object: `hookSpecificOutput.additionalContext` (`hookEventName` `SessionStart`) =
   the card (context for Claude, facts without imperatives, §0 assumption 7); top-level `systemMessage` =
   user-facing warnings only (jq, docker, container down, maintenance, worktree, Claude Code version,
-  devkit.json change), omitted when there are none. Both go through `dk_cap` (§4).
+  devkit.json change, outdated templates), omitted when there are none. Both go through `dk_cap` (§4).
 - No jq ⇒ print a static JSON object (built without jq) whose message says `[dev-kit] chýba jq → hooky
   kitu nebežia (brew install jq)`, exit 0.
 - No config: if P has composer.json|pyproject.toml|package.json and `card-hint.<today>` absent ⇒ hint
@@ -717,6 +718,12 @@ flags in any order; `--files` consumes paths until the next `--` flag.
      neither reads nor writes `.cfgnote`) ⇒ `devkit.json sa zmenil od poslednej session: <N> príkaz|príkazy|príkazov
      (lint/kroky)`, N = new or changed commands (0 when only other keys changed); the `systemMessage` warning
      adds ` — skontroluj diff` for the user. The next start without a change prints nothing.
+  10. templates copied from an older kit, once per session (marker `sessions/<id>.tplnote` written when the
+     comparison runs): the oldest `@ <VER>` (a leading `v` dropped) of the header lines `<!-- dev-kit: <path> @ <VER> -->`
+     in `.claude/rules/*.md` and `REVIEW.md` and `# dev-kit: <path> @ <VER>` in `.worktreeinclude` (§6) is older than
+     `version` in `${CLAUDE_PLUGIN_ROOT}/.claude-plugin/plugin.json` (x.y.z compared numerically) ⇒ `šablóny z kitu
+     <oldest> (aktuálna <version>): /dev:project-init --sync`, also as a `systemMessage` warning. No header ⇒ nothing.
+  Optional lines 4–10 are one line each and take precedence over the `git status` lines, so all of them fit in 10.
 - Subcommand outside the hook (used by `/dev:handoff`): `session-card.sh --record-handoff <path> <title>
   [--project P]` (P defaults to `pwd`, stdin is not read) writes `last-handoff.json`
   `{"time":<epoch>,"title":"…","path":"…"}` for card line 4; an absolute path inside P is stored relative,
