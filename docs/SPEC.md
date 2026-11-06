@@ -855,8 +855,8 @@ hook. Exit 0.
 
 Frontmatter: `name`, `description` (≤ 250 chars, key use first), optional `when_to_use`,
 `argument-hint`, `disable-model-invocation`, `paths`, `allowed-tools`, `disallowed-tools`. Verify key names in `skills.md`.
-`disallowed-tools: Edit, Write, NotebookEdit` only on skills that read and report (`explain`, `stats`): the tools are
-gone while the skill runs and come back with the user's next message (skills.md). `debug` has none — its minimal
+`disallowed-tools: Edit, Write, NotebookEdit` only on skills that read and report (`explain`, `stats`, `mr`): the tools
+are gone while the skill runs and come back with the user's next message (skills.md). `debug` has none — its minimal
 repro is a failing test file. Shell injection (skills.md, inline form at line start or after whitespace) only for
 cheap read-only state: each command ends with `|| true` (a non-zero exit aborts the whole invocation), is allowed by
 `allowed-tools` (outside auto mode a command the permission check does not allow aborts it too), never takes
@@ -882,6 +882,7 @@ Command skills — all `disable-model-invocation: true` (0 always-on tokens):
 | `handoff` | plan §14 Kontext row | write state (hotové, rozpracované, ďalší krok, rozhodnutia, zmenené súbory, príkazy na overenie) to `handoffDoc` from devkit.json (append dated section) or `docs/handoff.md`; record it with `session-card.sh --record-handoff <path> <title> --project "${CLAUDE_PROJECT_DIR}"` (§4.7); then suggest `/clear` |
 | `explain` | the user's original command `explain` | same structure (Čo to robí / Ako to funguje / Závislosti / Riziká pri zmene), Slovak, depth by request; `disallowed-tools` |
 | `stats` | §4.9 | `stats.sh` output for the project (30 days) injected on load; `--days N`/`--all` ⇒ run `stats.sh` again with only those flags; interpret: which rules are noisy, propose `disabledRules`/pattern tweaks, never change config without approval (`disallowed-tools`; edits after approval in the next turn) |
+| `mr` | plan 0.5.0 E10 | PR/MR description of the branch. Base = argument, else `git symbolic-ref --short refs/remotes/origin/HEAD`, else the first existing of `main`, `master`, `develop` (compared as `origin/<base>` when it exists; no `git fetch`). Sources: `git log <base>..HEAD`, `git diff <base>...HEAD` (over ~400 lines or 15 files: stat + selected files), task id as in `commit`, plan `docs/plans/<task>-*.md`, the project's commit rule (title form, language), the last `/dev:check` verdict from `partial.json`/`pass.json` and the newest quick/full log name (§2, §4.5) by one read-only command (`partial.json` ⇒ PARTIAL; a log newer than `pass.json` `time` ⇒ `neoverené`; `head` = HEAD or `HEAD~1` ⇒ PASS for HEAD; nothing ⇒ `neoverené`; anything but a full PASS for HEAD ⇒ propose `/dev:check --full`), migrations by `migrations.paths`, post-deploy steps (migrations, env names, cache, cron) only from the diff. Agents `dev:ecc-pr-test-analyzer` and `dev:ecc-silent-failure-hunter` in parallel over the diff (docs-only diff ⇒ none), verified 🔴/🟡 ⇒ Riziká. Output: title + a `markdown` block `## Čo`, `## Prečo`, `## Ako overiť`, `## Riziká`, `## Po nasadení` (English headings with an English commit rule). `gh pr create` / `glab mr create` (by the `origin` host, tool checked by `command -v`) only when the branch is on origin and equals HEAD, and only after the user's explicit answer to a question with options (create, draft, fix findings first, text only); otherwise the text to copy and stop. Never push. `allowed-tools`: read-only git only; `disallowed-tools` |
 | `project-init` | ECC `skills/codebase-onboarding`, `commands/project-init.md`, plan §4.4, §14 PHP prax (infer-conventions), §16 P5, §17, §18 V2/V4/V6/V9 | see §6 |
 
 Reference skills — model-invocable, short descriptions (always-on budget for the whole plugin ≤ 3k
@@ -1204,23 +1205,27 @@ summary line. Verify frontmatter keys in `sub-agents.md`.
   | `commit-no-attribution` | `/dev:commit` with the approval given in the argument | `.git/COMMIT_EDITMSG` is one line `[#12] <type>: …` (number from branch `feature/12-pocet-poloziek`) without `Co-Authored-By`/`Generated with`; no `git push`, `--no-verify`, `--amend`, `core.hooksPath`; `check.sh` before `git commit`; llm: hash + message reported |
   | `commit-style-jira` | `/dev:commit` with the approval given in the argument; `CLAUDE.md` rule `Commit: ABC-123 výstih …`, history `ABC-100 …`, branch `feature/ABC-123-pocet-poloziek` | `.git/COMMIT_EDITMSG` is one line starting `ABC-123 ` without `[#` or a `typ:`/`typ(` after the key; no `git push`, `--no-verify`, `--amend`, `core.hooksPath`; `check.sh` before `git commit` |
   | `review-format` | `/dev:review` | `git diff`/`status` ran; line `<🔴🟡🔵> N. lib/orders.sh:<line> — …` and `X critical, Y warning, Z suggestions`; no Edit; llm: `eval` injection in `orders_export` and the skipped last line in `orders_sum` found |
+  | `mr-describe` | `/dev:mr`; branch `feature/42-zlava-objednavky` with two commits over `main` (code, migration `db/migrations/…_orders_discount.sql`, `.env.example`, plan `docs/plans/42-…`, test), `check.sh --full` PASS after the last commit, no remote | reply has the five `## ` sections in order, the migration file name and `PASS`; no Edit; no `gh`/`glab` subcommand, no `git push`; both agents dispatched (`arm: with-only`); llm: why from the plan, `/dev:check --full` PASS, migration and `SHOP_MAX_DISCOUNT_PERCENT` after deploy without invented steps, text to copy because the branch is not on origin |
   | `fix-locked-test` | `/dev:fix <bug>` | `tests/run.sh` before the `lib/price.sh` Edit, `test-lock.sh lock` before it, `check.sh --auto` after it; the pre-edit deny text of the locked test is absent from the trace; llm on `lib/price.sh`: rounds to the nearest cent; llm: cause, test, RED → GREEN |
 
   Fixture `fixtures/` (synthetic, e-shop domain, no real data): `shop/` (bash library with `lib/`,
-  `tests/run.sh`, `.claude/devkit.json` with `container: ""` and step `unit`), `config/container.json`
-  (step `integration` in container `devkit-eval-shop`, which never runs), `changes/<name>/` (overlay
-  left uncommitted) and `claude/<name>.md` (a `CLAUDE.md` of the project). `fixtures/scaffold.sh [--config <c>]
-  [--branch <b>] [--change <ch>] [--claude <md>] [--first <message>]` copies `shop/` (and `claude/<md>.md` as
+  `tests/run.sh`, `.claude/devkit.json` with `container: ""`, step `unit` and `migrations.paths`), `config/container.json`
+  (step `integration` in container `devkit-eval-shop`, which never runs), `changes/<name>/` (overlay, left
+  uncommitted or committed by `--commit`) and `claude/<name>.md` (a `CLAUDE.md` of the project). `fixtures/scaffold.sh
+  [--config <c>] [--branch <b>] [--change <ch>] [--claude <md>] [--first <message>] [--feature <b>] [--commit
+  <ch>=<message>]… [--checked quick|full]` copies `shop/` (and `claude/<md>.md` as
   `CLAUDE.md`) into the empty workspace, `git init` with a repo-local identity, commits it as `[#11] …` (or
-  `<message>`), applies the overlay and links `$HOME/.claude/dev-kit` (the run's own HOME) to `<workspace>/.git/dev-kit-data`: the
+  `<message>`), links `$HOME/.claude/dev-kit` (the run's own HOME) to `<workspace>/.git/dev-kit-data`, then
+  `--feature <branch>` (a branch from the first commit), each `--commit <change>=<message>` (overlay committed, in
+  order), `--checked quick|full` (`check.sh` must PASS: a real `pass.json` for HEAD) and last the uncommitted overlay. The
   granted Bash runs in the sandbox (writes only to the workspace and its temp dir) and only an
   allowlist plus `EVAL_*` variables reach the run (no `DEVKIT_DATA`), so this link is how `check.sh` and
   `test-lock.sh` (Bash tool) and the hooks (outside the sandbox) share `pass.json`, `test-lock.json` and
   `partial.json`. No `prompt.md` or `case.yaml` anywhere under `fixtures/` (it would load as a case).
   Results go to `evals/results/` (gitignored). `--max-cost-usd 0` loads and checks every case and grader
-  without starting a run (exit 2, partial). Selftest `t_evals_suite` checks the file shape, the five
-  scaffold variants against `check.sh`, the commit gate and `pre-edit.sh`, and the grader strings that
-  depend on kit output or on the skill text.
+  without starting a run (exit 2, partial). Selftest `t_evals_suite` checks the file shape, the scaffold
+  variants against `check.sh`, the commit gate and `pre-edit.sh`, the grader strings that depend on kit output
+  or on the skill text, and that the verdict command of `mr/SKILL.md` finds the scaffold's `pass.json`.
 - `.github/workflows/check.yml` (GitHub Actions, on push to `main` and on pull requests, `permissions:
   contents: read`): matrix `ubuntu-latest` (bash 5, GNU tools) and `macos-latest` (`/bin/bash` 3.2 put
   first on `PATH`, BSD tools, GNU make 3.81); steps: checkout without persisted credentials, `jq` via

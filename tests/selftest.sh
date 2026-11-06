@@ -3541,7 +3541,7 @@ t_evals_suite() {
       done
     done
   done
-  [ "$n" -ge 5 ] || { fail "evals: $n prípadov, čakal som 5"; return 1; }
+  [ "$n" -ge 6 ] || { fail "evals: $n prípadov, čakal som 6"; return 1; }
   [ -z "$(find "$EV/fixtures" -name prompt.md -o -name case.yaml)" ] ||
     { fail "evals/fixtures: prompt.md alebo case.yaml by sa načítal ako prípad"; return 1; }
   LC_ALL=C grep -q '^eval:' "$KIT/Makefile" && ! LC_ALL=C grep -Eq '^check:.* eval( |$)' "$KIT/Makefile" ||
@@ -3612,7 +3612,28 @@ t_evals_suite() {
 
   ev_scaffold review-format || return 1
   [ "$(git -C "$W" diff --name-only)" = lib/orders.sh ] && git -C "$W" diff | LC_ALL=C grep -qF '+    eval "grep' ||
-    fail "review-format: diff lib/orders.sh s eval"
+    { fail "review-format: diff lib/orders.sh s eval"; return 1; }
+
+  # mr-describe: vetva s dvomi commitmi nad main bez remote, pass.json z check.sh --full po poslednom commite;
+  # príkaz na verdikt z mr/SKILL.md nájde ten istý pass.json ako check.sh.
+  ev_scaffold mr-describe || return 1
+  [ "$(git -C "$W" branch --show-current)" = feature/42-zlava-objednavky ] &&
+    [ "$(git -C "$W" log --format=%s main..HEAD | tr '\n' '|')" = '[#42] test: zľava objednávky pod stropom a nad ním|[#42] feat: zľava objednávky s limitom|' ] &&
+    [ -z "$(git -C "$W" status --porcelain)" ] && [ -z "$(git -C "$W" remote)" ] &&
+    git -C "$W" diff --name-only main...HEAD | LC_ALL=C grep -qx 'db/migrations/20261101120000_orders_discount\.sql' &&
+    git -C "$W" diff main...HEAD -- .env.example | LC_ALL=C grep -qx '+SHOP_MAX_DISCOUNT_PERCENT=30' &&
+    jq -e '.migrations.paths == ["db/migrations/**"]' "$W/.claude/devkit.json" >/dev/null 2>&1 ||
+    { fail "mr-describe: vetva, commity, migrácia, .env.example alebo remote: $(flat "$(git -C "$W" log --format=%s; git -C "$W" status --porcelain -b)")"; return 1; }
+  [ "$(ev_pattern "$EV/mr-describe/graders/migration.md")" = '20261101120000_orders_discount\.sql' ] ||
+    { fail "mr-describe: grader migration nesedí s fixtúrou"; return 1; }
+  jq -e --arg h "$(git -C "$W" rev-parse HEAD)" '.mode == "full" and .head == $h' "$W"/.git/dev-kit-data/projects/*/pass.json >/dev/null 2>&1 ||
+    { fail "mr-describe: pass.json full pre HEAD v .git/dev-kit-data"; return 1; }
+  awk '/Posledný verdikt/ { s = 1 } s && /^```bash$/ { b = 1; next } b && /^```$/ { exit } b { print }' \
+    "$KIT/plugins/dev/skills/mr/SKILL.md" > "$CASE/verdict.sh"
+  OUT=$(cd "$W" && bash "$CASE/verdict.sh" 2>&1)
+  printf '%s\n' "$OUT" | LC_ALL=C grep -q '^{"file":"pass.json",.*"mode":"full","head":"'"$(git -C "$W" rev-parse HEAD)"'"' &&
+    printf '%s\n' "$OUT" | LC_ALL=C grep -q '^check-full-[0-9]*\.log$' ||
+    fail "mr/SKILL.md: príkaz na verdikt nenašiel pass.json a log: $(flat "$OUT")"
 }
 
 # ---------------------------------------------------------------- PreCompact (B12)
@@ -3712,7 +3733,7 @@ t_manifest_meta() {
     [ -n "$repo" ] && [ "$(sed -n 1p "$KIT/LICENSE")" = "MIT License" ] ||
     { fail "plugin.json: homepage a repository = https://github.com/${repo:-?}, license MIT podľa LICENSE, keywords"; return 1; }
   local sk="$KIT/plugins/dev/skills" f n c r a ok inj rules
-  for n in explain stats; do
+  for n in explain stats mr; do
     sed -n '2,/^---$/p' "$sk/$n/SKILL.md" | grep -qx 'disallowed-tools: Edit, Write, NotebookEdit' ||
       { fail "$n/SKILL.md: disallowed-tools má byť Edit, Write, NotebookEdit"; return 1; }
   done
@@ -4086,11 +4107,11 @@ t "check.sh: audit — abandoned ostáva FAIL, Ignore reason a blok bez id, tabu
 t "šablóny: krok audit len vo full so súhlasom v pláne initu; review a production-audit odkazujú na krok" t_templates_audit
 t "check.sh --config / DEVKIT_CONFIG: kópia s container \"\" beží na hoste, bez pass.json a partial.json, Stop berie config projektu" t_check_config
 t "check.sh --config: projekt bez devkit.json, neplatný JSON, chýbajúca hodnota, ten istý súbor a prázdne DEVKIT_CONFIG → markery" t_check_config_edges
-t "eval suite: prompt.md a gradery, fixture shop zo scaffold.sh (PARTIAL, commit gate, štýl commitu Jira z CLAUDE.md, zámok testu, diff), make eval mimo check" t_evals_suite
+t "eval suite: prompt.md a gradery, fixture shop zo scaffold.sh (PARTIAL, commit gate, štýl commitu Jira z CLAUDE.md, zámok testu, diff, vetva s migráciou a pass.json pre /dev:mr), make eval mimo check" t_evals_suite
 t "pre-compact: hooks.json PreCompact; bez devkit.json, bez jq, s neplatným configom a bez stavu session exit 0 bez výstupu" t_pre_compact_silent
 t "pre-compact: plain text (nie JSON) — súbory session (8 + ďalšie), Stop len tejto session, pass.json, zámok a handoff < 24 h" t_pre_compact_facts
 t "hooks.json: Edit|Write|NotebookEdit bez MultiEdit, žiadny handler s if; agenti bez MultiEdit" t_hooks_tools_no_if
-t "manifesty a frontmatter: hooks.json = blok SPEC §4, Stop so statusMessage; plugin.json homepage, repository, license MIT, keywords; disallowed-tools explain a stats; injekcia len stats a commit s || true v allowed-tools; agenti tools Read, Bash a skills (E9)" t_manifest_meta
+t "manifesty a frontmatter: hooks.json = blok SPEC §4, Stop so statusMessage; plugin.json homepage, repository, license MIT, keywords; disallowed-tools explain, stats a mr; injekcia len stats a commit s || true v allowed-tools; agenti tools Read, Bash a skills (E9)" t_manifest_meta
 t "karta, Stop a pre-compact: text pre Clauda najviac 9 000 znakov UTF-16 s „…“ (dlhý handoff a say)" t_hook_text_cap
 t "partial.json, pass.json, test-lock.json a stats.sh: diakritika cez hranicu bloku čítania jq bez U+FFFD" t_jq_multibyte
 t "šablóny: ask na git reset --hard, clean, stash drop/clear, branch -D a docker volume/system prune, composer (php), alembic upgrade a manage.py migrate (python); git restore nie (D9)" t_templates_ask_destructive

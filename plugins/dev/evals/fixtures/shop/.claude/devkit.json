@@ -17,6 +17,7 @@
      "say": "Zmena knižnice bez zmeny testov: navrhni používateľovi test, nepridávaj ho sám."}
   ],
   "secrets": {"allow": [], "forbidFiles": []},
+  "migrations": {"paths": ["db/migrations/**"]},
   "stopCheck": true,
   "commitGate": {"enabled": true, "ext": [".sh"]},
   "disabledRules": []

@@ -5,9 +5,11 @@
 # ($HOME/.claude/dev-kit) preto vedú do .git/dev-kit-data, kde ich vidí check.sh aj hooky.
 # scaffold.sh [--config <meno v config/>] [--branch <vetva>] [--change <meno v changes/>]
 #             [--claude <meno v claude/> (CLAUDE.md v prvom commite)] [--first <správa prvého commitu>]
+#             [--feature <vetva z prvého commitu>] [--commit <meno v changes/>=<správa>]… [--checked quick|full]
+# --commit commitne zmenu na vetve (v poradí argumentov), --checked potom spustí check.sh (musí dať PASS, zapíše pass.json).
 set -eu
 FIX=$(cd "$(dirname "$0")" && pwd -P)
-config="" branch="main" change="" claude="" first="[#11] feat: košík, ceny a objednávky"
+config="" branch="main" change="" claude="" first="[#11] feat: košík, ceny a objednávky" feature="" commits="" checked=""
 while [ $# -gt 0 ]; do
     case "$1" in
         --config) config=${2:?}; shift ;;
@@ -15,6 +17,10 @@ while [ $# -gt 0 ]; do
         --change) change=${2:?}; shift ;;
         --claude) claude=${2:?}; shift ;;
         --first) first=${2:?}; shift ;;
+        --feature) feature=${2:?}; shift ;;
+        --commit) commits="$commits${2:?}
+"; shift ;;
+        --checked) checked=${2:?}; shift ;;
         *) echo "scaffold.sh: neznámy argument $1" >&2; exit 2 ;;
     esac
     shift
@@ -30,7 +36,18 @@ git config user.email "eval@example.invalid"
 git config commit.gpgsign false
 git add -A
 git commit -qm "$first"
-[ -z "$change" ] || cp -R "$FIX/changes/$change/." .
 
 mkdir -p .git/dev-kit-data "$HOME/.claude"
 [ -e "$HOME/.claude/dev-kit" ] || ln -s "$(pwd -P)/.git/dev-kit-data" "$HOME/.claude/dev-kit"
+
+[ -z "$feature" ] || git checkout -qb "$feature"
+while IFS= read -r c; do
+    [ -n "$c" ] || continue
+    cp -R "$FIX/changes/${c%%=*}/." .
+    git add -A
+    git commit -qm "${c#*=}"
+done <<LIST
+$commits
+LIST
+[ -z "$checked" ] || DEVKIT_DATA="$(pwd -P)/.git/dev-kit-data" bash "$FIX/../../scripts/check.sh" "--$checked" --project "$(pwd -P)" >/dev/null
+[ -z "$change" ] || cp -R "$FIX/changes/$change/." .
