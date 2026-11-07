@@ -409,8 +409,10 @@ per added line that matches; used by on-edit), `dk_data_dir` (creates `$DK_DATA`
 - Log decisions. Otherwise exit 0 silently.
 
 ### 4.4 `pre-bash.sh` — PreToolUse (Bash)
-Fast path: if `tool_input.command` does not contain a `git … commit` invocation nor a `git rebase|merge|cherry-pick|
-revert|am … --continue` ⇒ exit 0. Here-doc bodies
+Fast path: if no line of `tool_input.command` matches `DK_RE_COMMIT_ANY` (`git`, `$` or a backtick, later on the
+same line whitespace and `commit` or `--continue`) ⇒ exit 0; the parser decides whether it is a commit (§4.4.1), and
+without a commit record and without `R` (e.g. only `git add` and the text `git commit`) ⇒ exit 0 as well.
+Here-doc bodies
 (e.g. a commit message via `<<'EOF'`) are blanked before analysis, line numbers kept. Detection uses
 the EREs `DK_RE_GITPFX` (command start + `git` with its global options), `DK_RE_COMMIT`, `DK_RE_COMMIT_CONT`
 (`rebase|merge|cherry-pick|revert|am` with `--continue` before the next `;`, `&` or `|`) and `DK_RE_ADD`
@@ -434,8 +436,11 @@ target, the previous báza). The checks below run in the repo (`dk_set_project`)
 each once; repos without config are skipped. A deny starts with the lines of §4.4.1 (`U`, `N`, `R`) and, when more
 than one repo denies, each block is headed by `[dev-kit] repo <path>:`.
 Known limitations (§4.4.1 lists what the parser models): the structure inside strings (`sh -c`, `bash -c`, `eval`,
-`xargs`, `source` / `.`) is not seen beyond the fallback `R` (session cwd plus every directory named after a word
-`cd`, `pushd` or `-C` anywhere in the text); aliases and functions from the user's shell startup files, which Claude
+`xargs`) is not seen beyond the fallback `R` (session cwd plus every directory named after a word
+`cd`, `pushd` or `-C` anywhere in the text); a string inside a string (`bash -c "sh -c '…'"`), a variable commit
+inside a string, `source` / `.` of a script; a hidden `git add` / `git stage` (variable, string, `xargs git add`)
+before a literal `git commit` (the commit is checked against the index as it is before the command runs); aliases
+and functions from the user's shell startup files, which Claude
 Code applies to every Bash command (docs: tools reference, Bash tool behavior), including a function or alias named
 `cd` or `git`; `CDPATH` from the environment, zsh `AUTO_CD` / `CDABLE_VARS`, bash `cdable_vars`; `GIT_INDEX_FILE`;
 `$(…)` inside an unquoted here-doc body; functions defined by an earlier Bash call; a `git commit` that git or
@@ -488,7 +493,8 @@ must not see the secrets diff of the previous one).
    imperative `spusti kontajner` — the `check` and `commit` skills forbid Claude to start containers.
    What the gate proves: the content of every committed code file passed `check.sh` in the working tree
    (together with the other uncommitted changes present at that time) — not that the resulting commit tree
-   passes. A commit hidden in `sh -c '…'` / `bash -c '…'` is not recognised (§4.4 Known limitations).
+   passes. A commit hidden in a variable or a string (`$G commit`, `sh -c '…'`, `eval`, `xargs git commit`) is denied
+   by the fallback `R` whatever its files (§4.4.1).
 3. Length and order of the deny text: the `U`/`N`/`R` lines (§4.4.1), then per repo the header (more than one
    repo), the block (secrets, then gate) and last the `Spusti kontrolu: …` line, which is added after the block
    is cut and never cut itself. A block has at most 12 lines; when more repos deny, fewer, so the whole text stays
@@ -530,7 +536,17 @@ optional `!` / `time` in front; command = simple command, `( … )`, `{ …; }`,
 in command position (`echo then cd /x` is one simple command `echo`).
 
 **Commands.** A simple command is a commit / add when its masked text matches `DK_RE_COMMIT` or `DK_RE_COMMIT_CONT` / `DK_RE_ADD`
-(wrappers, prefix assignments and git options as in §4.4). It changes the directory when its command word — after
+(wrappers, prefix assignments and git options as in §4.4). Any other simple command is a hidden commit (record `R`,
+see Fallback) when, after prefix assignments and the bare wrappers `builtin`, `command`, `exec`, `env`, `nice`,
+`nohup`: its command word is one expansion (`$G`, `${G}`, `${G:-git}`, `$(…)`, `` `…` ``, also in `"…"`) or `git`
+with quotes in it (`'git'`, `"git"`, `/usr/bin/'git'`) and the words after it, read as `git` with its options, match
+`DK_RE_COMMIT` / `DK_RE_COMMIT_CONT` from the start; or a later word is `git` (also by path) followed the same way by
+a commit (`xargs git commit`, `sudo git commit`); or the word after a `-c` option (`-c`, `-lc`, …) of a word `sh`,
+`bash`, `zsh`, `dash`, `ksh` or `su` anywhere in the command, or the words after the command word `eval` joined by
+spaces, contain a commit — the string with its newlines as `;` and its `"…"` / `'…'` masked, matched by
+`DK_RE_COMMIT` / `DK_RE_COMMIT_CONT` anywhere (`sh -c 'cd x && git commit'`, `sudo sh -c '…'`, `xargs sh -c '…'`).
+The command words `echo`, `printf` and `print` are never a hidden commit.
+It changes the directory when its command word — after
 prefix assignments, redirections and `builtin` / `command` — is `cd` (also `\cd`, `"cd"`), `pushd`, `popd` or
 `chdir`:
 - `cd` / `pushd` skip `-L` / `-P` (also combined) and one `--` after them (A4); one operand = target; no operand =
@@ -578,11 +594,20 @@ result is a directory). Then C's own `-C` / `--work-tree` / `--git-dir` / `GIT_W
 
 **Fallback (fail closed).** A parse error (unterminated quote, unbalanced `(`, `{`, `$(` or backtick, `fi` / `done` /
 `esac` / `}` without its opener, `case` without `esac`, a zsh short form such as `if … { }`), a commit inside a
-function body, or `DK_RE_COMMIT` and `DK_RE_COMMIT_CONT` finding more commits in the raw text than the parser found in the structure (a
-commit inside a string — `sh -c`, `bash -c`, `eval`, `xargs` — or behind `\;`) adds one record: báza `fb`, item `R`
-with the reason (`neuzavretá úvodzovka`, `neuzavretá zátvorka`, `neočakávané slovo <w>`, `commit v tele funkcie`,
-`commit mimo štruktúry`), kandidáti = every word after a word `cd`, `pushd` or `-C` anywhere in the text with quotes
-and backslashes removed that expands to an existing directory.
+function body, a hidden commit (Commands above), or — when there is no hidden commit — `DK_RE_COMMIT` and
+`DK_RE_COMMIT_CONT` finding more commits in the raw text than the parser found in the structure (e.g. behind `\;`)
+adds one record: báza `fb`, item `R` with the reason (`neuzavretá úvodzovka`, `neuzavretá zátvorka`, `neočakávané
+slovo <w>`, `commit v tele funkcie`, `commit cez premennú $<NAME>` / `commit cez <$(…) or quoted git as written>`,
+`commit v reťazci <cmd>` for a later `git` word (`<cmd>` = the command word without its path, e.g. `xargs`), `commit
+v reťazci <sh|bash|zsh|dash|ksh|su> -c`, `commit v reťazci eval`, `commit mimo štruktúry`), kandidáti = every word
+after a word `cd`, `pushd` or `-C` anywhere in the text with quotes and backslashes removed that expands to an
+existing directory.
+The files of such a commit cannot be known from the text (`-a`, a `git add` or a `cd` inside the string), so a record
+`R` with any reason but `commit mimo štruktúry` always denies when the repo of `fb` or of one of its kandidáti has a
+config with `commitGate` on (rule enabled, not in `disabledRules`): the deny is the `R` line plus the blocks of the
+checks, if any; such a deny without a block of its own logs `commitGate` `deny` with an empty content key. `commit
+mimo štruktúry` also comes from a commit in the quotes of another program (`node -e '…&& git commit…'`, `grep
+'; git commit'`), so it only adds its repos to the checks and denies on their findings.
 
 **Use in the hook.** Checked repos = the repo (`dk_set_project`) of every báza and every kandidát of all records, each
 once; repos without config are skipped (§4.4 no-op). The to-be-committed set is built in each repo from all commits
@@ -594,7 +619,9 @@ at most 60 chars, longer 59 + `…`):
 - `U` (text of §4.4 unchanged): ``[dev-kit] cieľ `cd`/`git -C` sa nedal určiť (<úryvky>) — použi doslovnú cestu``
 - `N`, only when one of the item's kandidáti lies in another repo than báza: ``[dev-kit] nie je isté, či `cd` pred
   commitom prebehne (<úryvky>) — kontrola zahŕňa aj jeho cieľ; spoj cd s commitom cez && alebo použi git -C <cesta>``
-- `R`: ``[dev-kit] príkaz s commitom sa nedal rozložiť (<dôvod>) — spusti git commit samostatným príkazom``
+- `R`: ``[dev-kit] príkaz s commitom sa nedal rozložiť (<dôvod>) — spusti git commit samostatným príkazom``; when one
+  of the reasons starts with `commit cez ` the text after the dash is `napíš git doslovne a spusti commit samostatným
+  príkazom`
 
 **Fixtures.** UTF-8, LF; lines starting with `#` (the first one names the columns) and empty lines are skipped;
 columns separated by exactly one TAB; `-` = empty. In `vstup` and `riadky`: `\n` = newline, `\t` = TAB, `\\` =

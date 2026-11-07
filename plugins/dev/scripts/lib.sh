@@ -38,6 +38,8 @@ DK_RE_COMMIT="$DK_RE_GITPFX[[:space:]]+commit([[:space:]]|\$)"
 # --continue týchto príkazov commitne staged súbory (gate a tajomstvá ako pri commit).
 DK_RE_COMMIT_CONT="$DK_RE_GITPFX[[:space:]]+(rebase|merge|cherry-pick|revert|am)([[:space:]]+[^;&|]*)?--continue"
 DK_RE_ADD="$DK_RE_GITPFX[[:space:]]+(add|stage)([[:space:]]|\$)"
+# Rýchla cesta pre-bash.sh: git, $… alebo ` a za nimi na riadku commit či --continue; o commite rozhodne parser.
+DK_RE_COMMIT_ANY='(git|[$]|`).*[[:space:]](commit|--continue)'
 
 # Najstaršia podporovaná verzia Claude Code (úvodná karta upozorní na staršiu); SPEC §0 predpoklad 8.
 DK_MIN_CC=2.1.314

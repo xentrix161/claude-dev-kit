@@ -3,6 +3,10 @@
 - Formát: `## <verzia> — <dátum>`, najnovšie hore; verzia = `version` v `plugins/dev/.claude-plugin/plugin.json`.
 - Posun pinu ECC (P3) zapíš ako odrážku: kusy + nový commit.
 
+## 0.5.1 — nevydané
+
+- Commit gate zachytí aj commit, ktorý parser príkazu v štruktúre nevidí: `git` z premennej, `$(…)` či v úvodzovkách (`G=/usr/bin/git; $G commit`, `${G} -C . commit`, `'git' commit`), `git commit` v reťazci za `sh|bash|zsh|dash|ksh|su -c` (aj `sudo sh -c`, `xargs sh -c`) a za `eval`, a `git` ako argument iného príkazu (`xargs git commit`, `sudo git commit`). Taký commit — rovnako ako commit v tele funkcie a príkaz, ktorý sa nedá rozložiť — gate zamietne vždy, keď repo má config a zapnutý `commitGate`, aj keď obsah prešiel `/dev:check`: súbory commitu sa z textu nedajú určiť. Claude dostane riadok `[dev-kit] príkaz s commitom sa nedal rozložiť (commit v reťazci bash -c) — spusti git commit samostatným príkazom`, pri premennej či `'git'` `… (commit cez premennú $G) — napíš git doslovne a spusti commit samostatným príkazom`. `git commit` v texte správy, v `echo "…"` či v `grep '…'` skrytý commit nie je; text v úvodzovkách iného programu (`node -e '…&& git commit…'`) gate ako doteraz len skontroluje a zamietne pri náleze.
+
 ## 0.5.0 — 2026-11-06
 
 - Vývoj kitu: `make release VERSION=x.y.z` má poistky — pred zmenou `plugin.json` odmietne (exit 2) špinavý strom, inú vetvu ako `main`, verziu nie vyššiu ako posledný tag `dev--v*` a chýbajúcu sekciu `## x.y.z — nevydané` v `CHANGELOG.md`, potom spustí `make check`. Nadpis `— nevydané` nahradí dnešným dátumom; keď `claude plugin validate --strict` alebo `tag --dry-run` zlyhá, `plugin.json` aj `CHANGELOG.md` vráti. Nový cieľ `make tag` spustí `claude plugin tag --push plugins/dev` až na čistom strome, keď je `HEAD` po `git fetch` zhodný s `origin/main` a CI preň skončilo `success` (`gh run list`); bežiace či zlyhané CI odmietne, bez `gh` poradí ručný tag. Postup v `docs/DEVELOPMENT.md`, sekcia Vydanie.

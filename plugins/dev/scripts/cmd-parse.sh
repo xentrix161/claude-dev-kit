@@ -6,7 +6,7 @@
 # Výstup (polia oddelené \x1f, jeden záznam na riadok, poradie V/K, R, potom D…C):
 #   V NAME value [E]    úvodné priradenie, jediné v príkaze (E = export)
 #   K NAME value        iné priradenie / slovo cyklu for → NAME nie je známe, value je kandidát
-#   R dôvod             záchrana (chyba rozkladu, commit v tele funkcie, commit mimo štruktúry)
+#   R dôvod             záchrana (chyba rozkladu, commit v tele funkcie, cez premennú, v reťazci, mimo štruktúry)
 #   D class cmd úryvok home cdpath op…   cd/pushd/popd/chdir pred nasledujúcim C; class C = isté, N = nie je isté
 #   C commit|add slovo…                 príkaz commitu (aj `rebase|merge|… --continue`) / add, slová ako sú napísané
 # read -d '' namiesto $(cat <<…): bash 3.2 v $(…) nezvláda nepárové zátvorky v heredocu.
@@ -17,7 +17,7 @@ END {
     RE_COMMIT = ENVIRON["DK_RE_COMMIT"]; RE_CONT = ENVIRON["DK_RE_COMMIT_CONT"]; RE_ADD = ENVIRON["DK_RE_ADD"]
     gsub(/\\\n/, "", txt)
     err = ""; ntok = 0; nev = 0; nrec = 0; depth = 0; inFunc = 0; subDepth = 0; leadOK = 1; lastLead = ""
-    ncommit = 0; nvar = 0
+    ncommit = 0; nvar = 0; nhid = 0
     lex()
     if (err == "") {
         pos = 1
@@ -34,7 +34,7 @@ END {
     while (match(s, RE_COMMIT)) { raw++; s = substr(s, RSTART + RLENGTH) }
     s = txt
     if (RE_CONT != "") while (match(s, RE_CONT)) { raw++; s = substr(s, RSTART + RLENGTH) }
-    if (raw > ncommit) print "R" US "commit mimo štruktúry"
+    if (raw > ncommit && nhid == 0) print "R" US "commit mimo štruktúry"
     for (k = 1; k <= nrec; k++) printf "%s%s", rec_d[k], rec_c[k]
 }
 
@@ -410,7 +410,7 @@ function emit_rec(kind, words, startpos, d,   k, vis, n, a, i, b) {
     for (i = 1; i <= n; i++) if (a[i] != "") { split(a[i], b, "/"); rec_d[k] = rec_d[k] dline(b[1], b[2]) }
     rec_c[k] = "C" US kind words "\n"
 }
-function parse_simple(d,   nw, i, j, startpos, endpos, lead, name, val, cmd, snip, ops, home, cdpath, m, words, id, plus, first, sm, sr, su) {
+function parse_simple(d,   nw, i, j, k, startpos, endpos, lead, name, val, cmd, snip, ops, home, cdpath, m, words, id, plus, first, sm, sr, su) {
     # Slová najprv do reťazcov: polia wm/wr/wu sú globálne a vnorený $(…) by ich prepísal.
     nw = 0; startpos = tp[pos]; endpos = te[pos]; home = ""; cdpath = 0; sm = ""; sr = ""; su = ""
     while (err == "") {
@@ -473,6 +473,38 @@ function parse_simple(d,   nw, i, j, startpos, endpos, lead, name, val, cmd, sni
     for (j = 1; j <= nw; j++) { m = m (j > 1 ? " " : "") wm[j]; words = words US wr[j] }
     if (match(m, RE_COMMIT) || (RE_CONT != "" && match(m, RE_CONT))) emit_rec("commit", words, startpos, d)
     else if (match(m, RE_ADD)) emit_rec("add", words, startpos, d)
+    else if ((m = hidden(i, nw)) != "") { k = ++nrec; rec_pos[k] = startpos; rec_d[k] = ""; rec_c[k] = "R" US m "\n"; nhid++ }
+}
+# Commit, ktorý štruktúra neukáže: príkaz git z premennej, $(…) či v úvodzovkách, git ako argument iného príkazu
+# (xargs, sudo, …), reťazec za sh|bash|zsh|dash|ksh|su -c a za eval. Vráti dôvod záznamu R alebo "".
+function hidden(i, nw,   k, j, c, s) {
+    while (i < nw && (wu[i] ~ /^(exec|env|nice|nohup)$/ || wm[i] ~ /^[A-Za-z_][A-Za-z0-9_]*=/)) i++
+    s = wu[i]; sub(/.*\//, "", s)
+    if (s == "git" && git_at(i, nw)) return "commit cez " wr[i]
+    if (wr[i] ~ /^"?([$]([{][^}]*[}]|[A-Za-z_][A-Za-z0-9_]*)|[$][(].*[)]|`.*`)"?$/ && git_at(i, nw)) {
+        s = wr[i]; gsub(/^"|"$/, "", s)
+        if (s ~ /^[$][{A-Za-z_]/) { match(s, /[A-Za-z_][A-Za-z0-9_]*/); s = "premennú $" substr(s, RSTART, RLENGTH) }
+        return "commit cez " s
+    }
+    c = (wu[i] ~ /^-/) ? wu[i - 1] : wu[i]; sub(/.*\//, "", c)
+    if (c == "echo" || c == "printf" || c == "print") return ""
+    if (c == "eval") { s = ""; for (j = i + 1; j <= nw; j++) s = s " " wu[j]; return in_str(s) ? "commit v reťazci eval" : "" }
+    for (k = i; k <= nw; k++) {
+        if (k > i && wm[k] ~ /^([^ ]*\/)?git$/ && git_at(k, nw)) return "commit v reťazci " c
+        s = wu[k]; sub(/.*\//, "", s)
+        if (s !~ /^(sh|bash|zsh|dash|ksh|su)$/) continue
+        for (j = k + 1; j < nw; j++)
+            if (wm[j] ~ /^-[A-Za-z]*c[A-Za-z]*$/) { if (in_str(wu[j + 1])) return "commit v reťazci " s " -c"; break }
+    }
+    return ""
+}
+function git_at(k, nw,   s, j) { # slová od k, s k ako git, sú commit
+    s = "git"; for (j = k + 1; j <= nw; j++) s = s " " wm[j]
+    return (match(s, RE_COMMIT) && RSTART == 1) || (RE_CONT != "" && match(s, RE_CONT) && RSTART == 1)
+}
+function in_str(s) { # text príkazov (obsah reťazca) obsahuje commit; úvodzovky v ňom sú maskované
+    gsub(/\n/, ";", s); gsub(/"[^"]*"/, "Q", s); gsub(/'[^']*'/, "Q", s)
+    return match(s, RE_COMMIT) || (RE_CONT != "" && match(s, RE_CONT))
 }
 AWK
 

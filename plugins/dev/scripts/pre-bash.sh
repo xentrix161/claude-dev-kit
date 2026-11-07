@@ -469,17 +469,17 @@ dk_main() {
     cmd=$(printf '%s' "$DK_INPUT" | jq -r '.tool_input.command // empty' 2>/dev/null)
     [ -n "$cmd" ] || return 0
     case "$cmd" in *'<<'*) cmd=$(printf '%s\n' "$cmd" | dk__no_heredoc) ;; esac
-    printf '%s\n' "$cmd" | grep -qE -e "$DK_RE_COMMIT" -e "$DK_RE_COMMIT_CONT" || return 0
+    printf '%s\n' "$cmd" | grep -qE -e "$DK_RE_COMMIT_ANY" || return 0
     t0=$(dk_ms)
     dk_init
     dk_tmpdir
 
     # Repo každého commitu: báza (isté cd pred ním, -C, --work-tree, --git-dir) a kandidáti (neisté cd, neznámy
     # cieľ) z parsera; kontroly bežia v každom repe s configom (SPEC §4.4.1).
-    local fb base line tag rest dl="" parsed
+    local fb base line tag rest dl="" parsed rdirs=""
     fb=${DK_CWD:-${CLAUDE_PROJECT_DIR:-$PWD}}
     DK_VARS="" DK_VARS_E="" DK_KANDS="" DK_HOME="" DK_HOME_UNKNOWN="" DK_RITEMS="" DK_SNIPS="" DK_RDIRS=""
-    DK_COMMIT_LINES="" DK_ADD_LINES="" DK_ADD_PEND="" DK_RESCUE=0 DK_CONT=""
+    DK_COMMIT_LINES="" DK_ADD_LINES="" DK_ADD_PEND="" DK_RESCUE=0 DK_RHARD=0 DK_CONT=""
     parsed=$(dk_cmd_parse "$cmd")
     while IFS= read -r line; do
         [ -n "$line" ] || continue
@@ -487,7 +487,7 @@ dk_main() {
         case "$tag" in
             V) dk__var "$rest" ;;
             K) dk__kand "$rest" ;;
-            R) dk__snip R "$rest"; DK_RESCUE=1 ;;
+            R) dk__snip R "$rest"; DK_RESCUE=1; [ "$rest" = 'commit mimo štruktúry' ] || DK_RHARD=1 ;;
             D) dl="$dl$rest$DK_NL" ;;
             C) dk__crec "$rest" "$dl"; dl="" ;;
         esac
@@ -495,13 +495,24 @@ dk_main() {
 $parsed
 EOF
     if [ "$DK_RESCUE" = 1 ]; then
-        DK_RDIRS="$DK_RDIRS$fb$DK_NL$(dk__rkands "$cmd")$DK_NL"
+        rdirs="$fb$DK_NL$(dk__rkands "$cmd")$DK_NL"
+        DK_RDIRS="$DK_RDIRS$rdirs"
     fi
+    # Rýchla cesta je hrubé sito: bez commitu a bez R (napr. len git add a text „git … commit“) nič nekontroluj.
+    [ -n "$DK_COMMIT_LINES" ] || [ "$DK_RESCUE" = 1 ] || return 0
     [ -n "$DK_COMMIT_LINES" ] || DK_COMMIT_LINES=$(printf '%s\n' "$cmd" | grep -E -e "$DK_RE_COMMIT" -e "$DK_RE_COMMIT_CONT")
 
-    # Repá s configom, každé raz; kontroly v každom, deny po blokoch.
-    local repos="" dir nden=0 hdr
+    # Repá s configom, každé raz; kontroly v každom, deny po blokoch. Záznam R (okrem „commit mimo štruktúry“, ten
+    # vzniká aj z textu v úvodzovkách iného programu) zamietne vždy, keď je niektoré z jeho repí s configom
+    # a zapnutým commitGate: súbory commitu sa z textu nedajú určiť.
+    local repos="" dir nden=0 hdr rproj="$DK_NL" rdeny=0
     DK_SEC_HINT=0
+    [ "$DK_RHARD" = 1 ] || rdirs=""
+    while IFS= read -r dir; do
+        [ -n "$dir" ] && rproj="$rproj$(dk__proj "$dir")$DK_NL"
+    done <<EOF
+$rdirs
+EOF
     while IFS= read -r dir; do
         [ -n "$dir" ] || continue
         dk_set_project "$dir" ""
@@ -516,8 +527,16 @@ EOF
         [ -n "$dir" ] || continue
         dk_set_project "$dir" ""
         [ -n "$DK_CFG" ] || continue
-        DK_EDENY="" DK_ERUN=""
+        DK_EDENY="" DK_ERUN="" DK_GATE_ON=0
         dk_eval_repo "$t0"
+        case "$rproj" in
+            *"$DK_NL$DK_PROJECT$DK_NL"*)
+                if [ "$DK_GATE_ON" = 1 ]; then
+                    rdeny=1
+                    [ -n "$DK_EDENY$DK_ERUN" ] || dk_log pre-bash commitGate deny "" $(( $(dk_ms) - t0 ))
+                fi
+                ;;
+        esac
         [ -n "$DK_EDENY$DK_ERUN" ] || continue
         nden=$((nden + 1))
         printf '%s\n%s\n' "$DK_PROJECT" "$DK_EDENY" > "$DK_TMP/deny.$nden"
@@ -525,13 +544,14 @@ EOF
     done <<EOF
 $repos
 EOF
-    [ "$nden" -gt 0 ] || return 0
-    local deny="" s i=0 per b run
+    [ "$nden" -gt 0 ] || [ "$rdeny" = 1 ] || return 0
+    local deny="" s i=0 per=0 b run fix="spusti git commit samostatným príkazom"
     s=$(dk__snips U); [ -z "$s" ] || deny="$deny[dev-kit] cieľ \`cd\`/\`git -C\` sa nedal určiť ($s) — použi doslovnú cestu$DK_NL"
     s=$(dk__snips N); [ -z "$s" ] || deny="$deny[dev-kit] nie je isté, či \`cd\` pred commitom prebehne ($s) — kontrola zahŕňa aj jeho cieľ; spoj cd s commitom cez && alebo použi git -C <cesta>$DK_NL"
-    s=$(dk__snips R); [ -z "$s" ] || deny="$deny[dev-kit] príkaz s commitom sa nedal rozložiť ($s) — spusti git commit samostatným príkazom$DK_NL"
+    case "$DK_NL$DK_SNIPS" in *"${DK_NL}R${DK_US}commit cez "*) fix="napíš git doslovne a spusti commit samostatným príkazom" ;; esac
+    s=$(dk__snips R); [ -z "$s" ] || deny="$deny[dev-kit] príkaz s commitom sa nedal rozložiť ($s) — $fix$DK_NL"
     # Blok repa ≤ 12 riadkov, pri viacerých repách menej, aby text ostal ≤ 20 riadkov; „Spusti kontrolu“ za orezom.
-    per=$(( (20 - $(printf '%s' "$deny" | grep -c .)) / nden ))
+    [ "$nden" = 0 ] || per=$(( (20 - $(printf '%s' "$deny" | grep -c .)) / nden ))
     while [ "$i" -lt "$nden" ]; do
         i=$((i + 1))
         hdr=""; [ "$nden" -le 1 ] || hdr="[dev-kit] repo $(sed -n 1p "$DK_TMP/deny.$i"):$DK_NL"
@@ -574,6 +594,7 @@ EOF
     [ -n "$gext" ] || gext=$DK_CODE_EXTS
     local gate_on=0 sec_on=0
     [ "$enabled" != false ] && dk_rule_on commitGate && gate_on=1
+    DK_GATE_ON=$gate_on
     dk_rule_on secrets && sec_on=1
     [ "$gate_on$sec_on" != 00 ] || return 0
 

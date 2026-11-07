@@ -1391,6 +1391,70 @@ EOF
     want_allow "$c" || return 1
   done
 }
+# Commit, ktorý parser v štruktúre nevidí (premenná, 'git', reťazec sh -c / eval, xargs, telo funkcie, chyba rozkladu):
+# riadok R zamietne aj po PASS (SPEC §4.4.1).
+t_bash_hidden_commit() {
+  new_case
+  add app/Foo.php '$f = 6;'
+  g add app/Foo.php
+  check --quick --project "$REPO"
+  want_rc 0 "check.sh --quick" || return 1
+  local why c fix got
+  while IFS='|' read -r why c; do
+    [ -n "$c" ] || continue
+    fix='spusti git commit samostatným príkazom'
+    case "$why" in 'commit cez '*) fix='napíš git doslovne a spusti commit samostatným príkazom' ;; esac
+    pre_bash "$c"
+    want_decision deny "$c" || return 1
+    got=$(printf '%s' "$OUT" | jq -r '.hookSpecificOutput.permissionDecisionReason')
+    [ "$got" = "[dev-kit] príkaz s commitom sa nedal rozložiť ($why) — $fix" ] ||
+      { fail "$c: dôvod '$(flat "$got")', čakal som len riadok R ($why)"; return 1; }
+  done <<'EOF'
+commit cez premennú $G|G=/usr/bin/git; $G add app/Foo.php && $G commit -q -m x
+commit cez premennú $G|$G commit -m x
+commit cez premennú $G|${G} -C . commit -m x
+commit cez 'git'|'git' commit -m x
+commit v reťazci bash -c|bash -c "git commit -m x"
+commit v reťazci sh -c|sh -c 'cd sub && git commit -m x'
+commit v reťazci eval|eval "git commit -m x"
+commit v reťazci xargs|printf x | xargs git commit -m
+commit v tele funkcie|f() { git commit -m x; }; f
+neuzavretá úvodzovka|git commit -m "x
+EOF
+  want_logged pre-bash commitGate deny || return 1
+  add app/Old.php '$o = 7;'
+  pre_bash 'bash -c "git commit -am x"'
+  want_decision deny "-a v reťazci bez PASS" && want_reason '(commit v reťazci bash -c)' "-a v reťazci bez PASS" || return 1
+  want_json '.hookSpecificOutput.permissionDecisionReason | startswith("[dev-kit] príkaz s commitom sa nedal rozložiť")' \
+    "riadok R je prvý"
+}
+t_bash_hidden_commit_negative() {
+  new_case
+  add app/Foo.php '$f = 6;'
+  g add app/Foo.php
+  check --quick --project "$REPO"
+  want_rc 0 "check.sh --quick" || return 1
+  local c
+  for c in 'git commit -m "docs: ako písať git commit"' 'echo "git commit"' "grep 'git commit' README.md" \
+    "git log --grep 'git commit'" "grep -n 'cd x && git commit -m y' README.md"; do
+    pre_bash "$c"
+    want_allow "$c" || return 1
+  done
+  add app/Foo.php '$f = 7;'
+  g add app/Foo.php
+  pre_bash 'git add app/Foo.php && echo "potom git commit"'
+  want_allow "git add bez commitu, text git commit" || return 1
+  pre_bash 'git commit -m "docs: ako písať git commit"'
+  want_decision deny "text v správe bez PASS" && want_out 'app/Foo.php' "text v správe bez PASS" &&
+    want_not 'nedal rozložiť' "text v správe bez PASS" || return 1
+  new_case
+  cfg '.commitGate.enabled = false'
+  pre_bash 'G=/usr/bin/git; $G commit -m x'
+  want_allow "commitGate vypnutý" || return 1
+  new_case nocfg
+  pre_bash 'bash -c "git commit -m x"'
+  want_allow "repo bez devkit.json"
+}
 t_bash_stage_alias() {
   new_case
   add app/Foo.php '$f = 6;'
@@ -3989,6 +4053,8 @@ t "check.sh: {files} po dávkach ≤ 64 KiB — 5 000 súborov v 2 dávkach, jed
 t "pre-bash: nerozriešený cieľ cd / -C → cwd session a riadok „sa nedal určiť“ s úryvkom" t_bash_cd_unresolved_note
 t "pre-bash: git -C / cd --, -P na iné repo bez devkit.json → allow" t_bash_cd_other_repo_allow
 t "pre-bash: globálne prepínače gitu, env priradenia a obaly pred commit → deny (D17)" t_bash_detect_global_opts
+t "pre-bash commit gate: commit cez premennú (\$G, \${G} -C .), 'git' v úvodzovkách a v reťazci (bash -c, sh -c, eval, xargs), telo funkcie, chyba rozkladu → riadok R zamietne aj po PASS, zapíše deny" t_bash_hidden_commit
+t "pre-bash commit gate: git commit v texte správy, echo, grep, git log --grep → bez riadku R; git add s textom git commit, „mimo štruktúry“ po PASS, vypnutý commitGate a repo bez configu → allow" t_bash_hidden_commit_negative
 t "pre-bash: rebase|merge|cherry-pick|revert|am --continue = commit staged súborov (tajomstvo, gate, git add pred ním) (D1)" t_bash_continue_gate
 t "test-lock.sh: blob testu pri lock; zmena cez Bash → check --stop/--auto/--quick FAIL s riadkom zámku, Stop blok, commit deny; opätovný lock blob nemení; po unlock PASS (D3)" t_test_lock_bash_change
 t "pre-bash: deny pri PARTIAL a 10 súboroch ≤ 13 riadkov, „Spusti kontrolu“ posledný (aj pri 2 repách, spolu ≤ 20); ≤ 8 súborov → --files, cudzí súbor kontrolu nezhodí (D5)" t_bash_gate_deny_tail
