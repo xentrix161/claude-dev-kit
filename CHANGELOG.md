@@ -6,6 +6,7 @@
 ## 0.5.1 — nevydané
 
 - Commit gate zachytí aj commit, ktorý parser príkazu v štruktúre nevidí: `git` z premennej, `$(…)` či v úvodzovkách (`G=/usr/bin/git; $G commit`, `${G} -C . commit`, `'git' commit`), `git commit` v reťazci za `sh|bash|zsh|dash|ksh|su -c` (aj `sudo sh -c`, `xargs sh -c`) a za `eval`, a `git` ako argument iného príkazu (`xargs git commit`, `sudo git commit`). Taký commit — rovnako ako commit v tele funkcie a príkaz, ktorý sa nedá rozložiť — gate zamietne vždy, keď repo má config a zapnutý `commitGate`, aj keď obsah prešiel `/dev:check`: súbory commitu sa z textu nedajú určiť. Claude dostane riadok `[dev-kit] príkaz s commitom sa nedal rozložiť (commit v reťazci bash -c) — spusti git commit samostatným príkazom`, pri premennej či `'git'` `… (commit cez premennú $G) — napíš git doslovne a spusti commit samostatným príkazom`. `git commit` v texte správy, v `echo "…"` či v `grep '…'` skrytý commit nie je; text v úvodzovkách iného programu (`node -e '…&& git commit…'`) gate ako doteraz len skontroluje a zamietne pri náleze.
+- Vývoj kitu: gradery evalu `deps-one-package` (`check.sh … --full` pred commitom, `git add … composer.lock`) znesú cestu v úvodzovkách. `input_match` sa testuje na vstupe nástroja ako JSON, kde je úvodzovka `\"`, a doterajšie `[^"]*` sa na nej zastavilo. Pasca sandboxu evalu na macOS s gitom z Xcode CLT a lacný beh na Haiku sú v `docs/DEVELOPMENT.md`.
 
 ## 0.5.0 — 2026-11-06
 

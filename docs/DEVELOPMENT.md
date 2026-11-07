@@ -52,6 +52,12 @@ Prípady (gradery podrobne v SPEC §9):
 - `EVAL_ARGS="--max-cost-usd 0"` len načíta a skontroluje súbory suite, nespustí ani jeden beh (0 USD).
 - Nový prípad: adresár `<prípad>/` s `prompt.md`, `case.yaml`, `scaffold.sh` a `graders/*.md` podľa SPEC §9; tvar súborov a varianty fixtúry stráži selftest `t_evals_suite`.
 
+Pasce:
+
+- Na macOS s gitom z Xcode CLT (`/usr/bin/git` je shim `xcrun`) sandbox evalu nepovolí zápis cache `xcrun` do `/var/folders/…/T`, `git` v Bash tool padá a model si hľadá inú binárku (`G=/Library/Developer/CommandLineTools/usr/bin/git; $G commit …`). Od 0.5.1 takýto commit commit gate zamietne (`commit cez premennú $G`), takže prípad s commitom na takom stroji padne pre prostredie, nie pre kit.
+- Lacný dymový beh na Haiku (napr. na overenie tejto pasce, verdikt ber z behu na Sonnete): `make eval EVAL_MODEL=haiku EVAL_JUDGE=haiku EVAL_ARGS="--runs 1"`, zhruba 0,20 USD a 6 min.
+- `input_match` graderov `tool_used` a `tool_order` sa testuje na vstupe nástroja ako JSON, úvodzovka v príkaze je tam `\"`: „v tom istom príkaze“ píš `([^"\\;&|]|\\")*`, nie `[^"]*`, ktoré sa zastaví na ceste v úvodzovkách.
+
 ## Vydanie
 
 ```bash
