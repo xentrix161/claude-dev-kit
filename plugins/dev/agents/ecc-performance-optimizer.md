@@ -19,7 +19,8 @@ Hľadáš, čo spomalí request, CLI dávku alebo databázu pri reálnom objeme 
 - **Len čítaš.** Súbory projektu neupravuješ; opravu len navrhneš, rozhoduje hlavný agent.
 - Bash iba na čítanie: `git diff|log|show|blame|status|grep`, `ls`, `grep`, `sed -n`, `head`, `wc`.
 - Zakázané: zápis do súborov (`>`, `>>`, `tee`, `sed -i`), `rm`/`mv`, git meniaci stav, `composer`, migrácie, `docker` start/stop/restart, sieť.
-- PHPStan len príkazom kroku `phpstan` z `.claude/devkit.json` (`runFiles` s `{files}` — nesie konfig projektu): `docker exec -i -w <workdir> <container> sh -c "<príkaz>"`; `<workdir>` = `appRoot`, vo worktree `appRoot/<cesta od koreňa hlavného repa>`; bez `container` na hostiteľovi.
+- Pri povinnom PHPStan použi výsledok celého projektového príkazu pre posudzovanú zmenu. Ak chýba, oznám to hlavnému agentovi.
+- Voliteľný PHPStan len príkazom kroku `phpstan` z `.claude/devkit.json` (`runFiles` s `{files}` — nesie konfig projektu): `docker exec -i -w <workdir> <container> sh -c "<príkaz>"`; `<workdir>` = `appRoot`, vo worktree `appRoot/<cesta od koreňa hlavného repa>`; bez `container` na hostiteľovi.
 - `EXPLAIN` spúšťaj, len keď ti volajúci dal príkaz na pripojenie k DB, a len `EXPLAIN SELECT …` — nikdy DML ani DDL. Inak uveď `EXPLAIN` dotaz ako krok overenia.
 - Čísla si nevymýšľaj: žiadne odhady v ms; dopad opíš počtom dotazov (`1 + N → 2`) alebo zložitosťou (`O(n²) → O(n)`).
 - Nečítaj `config.local.neon`, `.env*`, `.test-credentials`; heslá ani tokeny nevypisuj.

@@ -55,7 +55,8 @@ DK_SECRET_PLACEHOLDER='^(%env\([^)]*\)%|%[A-Za-z0-9_.]+%|\$\{[^}]*\}?|\$[A-Za-z_
 
 # Zlyhanie nástroja samotného (nie nález v kóde) — taký výstup kontrolu preskočí, neblokuje.
 # Sieť: composer (curl, „could not be downloaded“) a pip-audit (urllib3, rada pri chybe spojenia).
-DK_RE_INFRA='Could not open input file|command not found|No such file or directory|Error response from daemon|OCI runtime|is not running|Cannot connect to the Docker daemon|executable file not found|No files were checked|curl error [0-9]+ while downloading|could not be downloaded|Max retries exceeded|network may be blocking this service'
+DK_RE_NO_FILES='^(ERROR: )?No files were checked[.]?$'
+DK_RE_INFRA='Could not open input file|command not found|No such file or directory|Error response from daemon|OCI runtime|is not running|Cannot connect to the Docker daemon|executable file not found|'"$DK_RE_NO_FILES"'|curl error [0-9]+ while downloading|could not be downloaded|Max retries exceeded|network may be blocking this service'
 
 dk_now() { date +%s; }
 
@@ -149,6 +150,35 @@ dk_tmpdir() {
 
 dk_git() { git -C "$DK_PROJECT" -c core.quotepath=off "$@"; }
 
+# 0 = krok vykoná Git, 1 = treba výsledok kitu, 2 = chýba povinný náhradný krok.
+dk_native_pre_commit() (
+    cd -- "$DK_PROJECT" || exit 1
+    local rel=$1 active tracked ttl policy
+    case "/$rel/" in *[!a-zA-Z0-9._/-]*|*//*|*/../*|*/./*) exit 2 ;; esac
+    [ "${rel##*/}" = pre-commit ] || exit 2
+    policy=$(jq -er --arg p "$rel" '
+        . as $cfg | [.check.steps[]? | select(any((.modes // ["quick","full"])[]; . == "quick" or . == "full"))] as $steps
+        | [$steps[] | select(.required == true and .runtime == "host" and .run == ("./" + $p)
+            and (.id | type == "string" and length > 0)
+            and ((.modes // ["quick","full"]) | contains(["quick","full"]))
+            and (.phase // "staged") == "staged")] as $fallback
+        | if ($fallback | length) != 1 then "invalid"
+          elif ($steps | length) == 1 and ($fallback[0] | (.output // "log") == "log" and (.requires == null or .requires == $p))
+              and (($cfg.disabledRules // []) | index("step:" + $fallback[0].id) | not) then "git"
+          else "kit" end' "$DK_CFG") || exit 2
+    case "$policy" in invalid) exit 2 ;; git) ;; *) exit 1 ;; esac
+    [ -f "$rel" ] && [ -x "$rel" ] && [ ! -L "$rel" ] || exit 1
+    active=$(git rev-parse --git-path hooks/pre-commit) && [ "$active" -ef "$rel" ] || exit 1
+    tracked=$(git ls-tree HEAD -- "$rel") || exit 1
+    case "$tracked" in "100755 blob "*) ;; *) exit 1 ;; esac
+    [ "$(git hash-object --no-filters -- "$rel")" = "$(git rev-parse "HEAD:$rel")" ] &&
+        git diff --cached --quiet HEAD -- "$rel" || exit 1
+    if [ -f "$DK_PDATA/test-lock.json" ]; then
+        ttl=$(jq -r '.testLock.ttlHours // 6' "$DK_CFG") || exit 1
+        if dk_lock_read "$ttl"; then exit 1; fi
+    fi
+)
+
 # Koreň hlavného checkoutu (pre worktree = repo, z ktorého vznikol).
 dk_main_root() {
     local p="${1:-$DK_PROJECT}" c
@@ -192,7 +222,7 @@ dk_set_project() {
     [ -n "$t" ] || t=$(printf '%s' "$p" | cksum | cut -d' ' -f1)
     DK_PHASH=${t:0:12}
     DK_PDATA="$DK_DATA/projects/$DK_PHASH"
-    if [ -n "$DK_CFG" ]; then
+    if [ -n "$DK_CFG" ] && [ "${3:-}" != read-only ]; then
         [ -d "$DK_PDATA/sessions" ] || mkdir -p "$DK_PDATA/sessions" "$DK_PDATA/logs" 2>/dev/null
         # Cesta projektu pre údržbu karty: dáta zmazaného worktree sa podľa nej uprace (SPEC §2).
         if [ ! -f "$DK_PDATA/project.json" ] && [ -d "$DK_PDATA" ]; then
@@ -665,6 +695,42 @@ dk_blobs() {
 dk_hash_files() {
     dk_blobs "$@" | git hash-object --stdin 2>/dev/null
 }
+
+# Odtlačok Git vstupov povinného kroku. HEAD aj normalizovaný diff sú súčasťou dôkazu.
+dk_project_proof() (
+    set -o pipefail
+    local view=$1 dir=$2 head tree index
+    shift 2
+    cd -- "$dir" || exit 1
+    head=$(git rev-parse --verify -q HEAD) || head=""
+    tree=$head
+    [ -n "$tree" ] || tree=$(git hash-object -t tree --stdin </dev/null) || exit 1
+    case "$view" in
+        worktree)
+            index=$(git rev-parse --git-path index) || exit 1
+            export GIT_INDEX_FILE="$DK_TMP/proof.index"
+            rm -f "$GIT_INDEX_FILE" || exit 1
+            if [ -f "$index" ]; then cp "$index" "$GIT_INDEX_FILE" || exit 1; fi
+            # Intent-to-add zahrnie nové súbory do diffu bez uloženia ich obsahu do indexu.
+            git -c core.hooksPath=/dev/null -c core.splitIndex=false add -N -- . >/dev/null || exit 1
+            if [ "$#" -gt 0 ]; then
+                git diff --no-renames --no-relative --name-only --diff-filter=A -z "$tree" -- > "$1" || exit 1
+            fi
+            set -- "$tree" -- ;;
+        committed)
+            # Volajúci overil, že základ je HEAD alebo jeho priamy rodič.
+            tree=$2
+            head=$1
+            set -- "$head" "$tree" -- ;;
+        base) set -- "$tree" "$tree" -- ;;
+        index) set -- --cached "$tree" -- ;;
+        tracked) set -- "$tree" -- ;;
+        paths) set -- "$tree" -- "$@" ;;
+        *) exit 1 ;;
+    esac
+    { printf '%s\n' "$head" && git -c color.ui=false diff --no-ext-diff --no-textconv --no-renames \
+        --full-index --binary --ignore-submodules=none --no-relative --src-prefix=a/ --dst-prefix=b/ "$@"; } | git hash-object --stdin
+)
 
 # Zmenené súbory voči HEAD + staged + nesledované (aj zmazané; volajúci ich rozlíši).
 # Položky s koncovým '/' sú vnorené repozitáre a worktree (nedajú sa hashovať).

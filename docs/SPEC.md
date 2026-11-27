@@ -112,7 +112,7 @@ $DK_DATA/projects/<phash>/sessions/<session_id>.stop.json   # last stop-check st
 $DK_DATA/projects/<phash>/sessions/<session_id>.cfgnote     # on-edit or pre-bash reported a devkit.json change in that session
 $DK_DATA/projects/<phash>/sessions/<session_id>.tplnote     # the card compared the template headers in that session (§4.7 item 10)
 $DK_DATA/projects/<phash>/pairs-<session_id>.done # Stop reminders already given (pairs, testRemoved)
-$DK_DATA/projects/<phash>/logs/check-<mode>-<epoch>.log  # full check output (keep last 20)
+$DK_DATA/projects/<phash>/logs/check-<mode>-<epoch>-<pid>.log  # full check output (keep last 20)
 $DK_DATA/projects/<phash>/card-hint.<YYYYMMDD>    # "no devkit.json" hint shown today
 $DK_DATA/projects/<phash>/last-handoff.json       # {"time":…, "title":"…", "path":"…"}
 $DK_DATA/cc-version.<YYYYMMDD>                    # `claude --version` cached for the day (§4.7)
@@ -213,7 +213,10 @@ Semantics:
   commands execute as `docker exec -i -w <workdir> <container> sh -c "<cmd>"`; `{file}`/`{files}` are paths
   relative to P (shell-quoted). If P is not under MAIN ⇒ step SKIP with message
   `worktree mimo mountu kontajnera`.
-- `requires`: path relative to P checked on the HOST (in both runtimes); missing ⇒ step SKIP `chýba <path>`.
+- `required` (default false): in the selected modes run the complete `run` without file filters or known-failure exemptions. Missing prerequisites, a disabled required step or a missing whole-project command block verification. When any required step is configured, the commit gate accepts a PASS only for the same configuration and project proof. The proof hashes HEAD plus the full binary Git diff of tracked and non-ignored new files. The runner snapshots both the working tree and the Git index before and after execution. The commit hook compares the checked working tree with the prospective staged, tracked (-a) or path-limited commit. A required PASS is reusable only if the checked index, checked working tree and prospective commit match. Run any project-declared pre-staging steps first, then stage the intended content before the final check, including when the native harness selects staged paths. Other compound or ambiguous commands require separate staging and a plain commit. Ignored runtime state remains the responsibility of the native harness. Old markers without this proof require a fresh check. Non-PASS quick/full runs with the active configuration invalidate the previous PASS. Stop and alternate configurations do not invalidate it.
+- `phase` on required steps defaults to `staged`. With `before-stage`, run the same mode with `--before-stage` against an unstaged worktree and empty index. This run certifies its mode, successful step IDs and project proof separately. Only a full-mode receipt can certify a full-only step. After staging, the normal check reuses only a matching proof and executes staged checks. Full includes required quick steps once. The gate checks all applicable successful IDs and the current before-stage receipt. Type-only changes participate in this gate. For paths added relative to HEAD, each before-stage step must account for every added path via its project-owned, worktree-relative `newPathsReport`. The JSON contains the current step’s `DEVKIT_SCOPE_RUN` as `run`, the actual repository-relative `checked` paths and optional `excluded` path-to-reason entries. Missing, stale or incomplete coverage yields PARTIAL. Reuse and the gate require a receipt with `newPathsVerified: true`.
+- Each normal or before-stage check selects a fresh result directory atomically before running steps. Public marker paths resolve to the selected run. A late completion cannot overwrite a newer failure. Stop and alternate configs do not select a generation. A superseded command reports its own verdict and that a newer run decides the gate. A superseded success exits 4 (PARTIAL). Log rotation retains the selected run’s log.
+- `requires`: path relative to P checked on the HOST (in both runtimes); missing ⇒ optional step SKIP or required step PARTIAL `chýba <path>`.
 - `timeoutSec` (per step, optional): limit of one run of the step in seconds, default 300, `0` = no limit; any
   value other than an integer ≥ 0 ⇒ the step is blocked `! <id>: neplatný timeoutSec "<x>" (celé číslo ≥ 0)`.
   Over the limit ⇒ blocked with the line `! krok <id> prekročil <N> s` (§4.5). Lint commands have no limit
@@ -281,7 +284,7 @@ slowest hook says what Claude Code waits for. `{hooks}` of `hooks.json` equals t
 Known limitation: Claude Code cancels a hook that runs past its `timeout`, and the tool call then goes on as if the
 hook had allowed it. The Bash handler (commit gate and secrets check, §4.4) therefore gets 60 s and handles file sets in
 linear time (§4.4; selftest: 3 000 files well under 10 s). `onFailure: "block"` is deliberately not set: a slow
-hook, a stopped container or a missing tool never blocks (§0 hook discipline, kit `CLAUDE.md` rule 6); the gate
+hook, a stopped container or a missing tool never blocks (§0 hook discipline, kit `AGENTS.md` rule 6); the gate
 blocks only by its own verdict.
 Verify tool names and matcher syntax against `hooks.md` (current tool names for file edits). Hook input
 fields used: `session_id`, `cwd`, `hook_event_name`, `tool_name`, `tool_input.file_path` (NotebookEdit:
@@ -445,7 +448,7 @@ Code applies to every Bash command (docs: tools reference, Bash tool behavior), 
 `cd` or `git`; `CDPATH` from the environment, zsh `AUTO_CD` / `CDABLE_VARS`, bash `cdable_vars`; `GIT_INDEX_FILE`;
 `$(…)` inside an unquoted here-doc body; functions defined by an earlier Bash call; a `git commit` that git or
 an editor runs on its own (`GIT_EDITOR` / `GIT_SEQUENCE_EDITOR` script, `exec` line of `rebase -i`, `rebase -x`).
-Determine TO-BE-COMMITTED files: staged (`git diff --cached --name-only --diff-filter=ACMRD`) ∪ (when
+Determine TO-BE-COMMITTED files: staged (`git diff --cached --name-only --diff-filter=ACMRDT`) ∪ (when
 `-a`/`--all`/combined short flags containing `a`: tracked modified files) ∪ (explicit pathspecs after
 `--` or existing paths among trailing args: best effort) ∪ (`git add`/`git stage` earlier in the same
 command: `-A`/`.`/`-u` widen like `-a`, paths count as pathspecs, `-f` includes ignored files). Denied
@@ -468,9 +471,9 @@ must not see the secrets diff of the previous one).
    `secrets.allow` for a false positive. Never print the full secret.
 2. Gate (rule `commitGate`, enabled default true when config exists): code files = to-be-committed
    files with extension in `commitGate.ext`, or, when it is absent, in the `lint` keys ∪
-   `check.steps[].ext`. None ⇒ allow (docs-only commit). Else require `pass.json` whose `blobs[rel]`
+   `check.steps[].ext`. With no code files, a project without required commit checks allows a docs-only commit. Required commit checks still verify the project proof (§4.1). For code files, require `pass.json` whose `blobs[rel]`
    equals the to-be-committed blob for EVERY code file (deleted files must be recorded as `"-"`). Also if
-   any code file matches `check.fullWhen` and `pass.json.mode` ≠ `full` ⇒ deny `zmena v <glob> vyžaduje
+   any code file (any changed commit path when required commit steps are configured) matches `check.fullWhen` and `pass.json.mode` ≠ `full` ⇒ deny `zmena v <glob> vyžaduje
    /dev:check --full`. Deny reason lists up to 8 files and ends with `Spusti kontrolu: bash "<scripts>/check.sh"
    --auto|--full --project "<P>"[ --files <f>…] (to isté robí /dev:check), pri PASS commit zopakuj.` — command
    skills have `disable-model-invocation`, so Claude must get a command it can run itself. `--files` lists the
@@ -508,6 +511,10 @@ must not see the secrets diff of the previous one).
    (no decision, the normal permission flow continues); the gate and the secrets check are unchanged. Log;
    `commitGate` entries carry a content key (hash of the to-be-committed code blobs) so `/dev:stats` can
    group attempts on the same content (§4.9).
+With required checks the gate also verifies an empty commit or message-only amend. Equivalent spacing and grouped short flags retain the same prospective content.
+
+An optional `commitGate.nativeHook` delegates an ordinary standalone Git commit to the active, tracked executable pre-commit file in this checkout. The only quick/full step must cover both modes, be required, staged, run on the host and run exactly `./<nativeHook>`. Verify file identity, executable mode and unchanged tracked content. Delegate only a direct commit of the index matching the whole working tree, including non-ignored new paths. An active test lock, additional steps, restricted output or a nonmatching hook retains the ordinary kit gate. Native delegation preserves secret checks. Git supplies the result for the commit. This creates no kit PASS for an MR. A fresh clone without hook setup uses the same script via the normal staged check. The init inventory reports which one applies without running the hook.
+
 Never block `git commit --amend --no-edit` differently — same rules apply. Do not attempt to
 intercept `--no-verify` (irrelevant to Claude hooks).
 
@@ -668,7 +675,7 @@ flags in any order; `--files` consumes paths until the next `--` flag.
   Stop mode files = session files list ∪ `dk_session_newer` (§4.1; code changed outside on-edit since the session
   started), existing only.
 - `--files` narrows the file set in every mode (quick/full/auto/stop); `pass.json` then records exactly
-  those blobs, so `/dev:commit` can check only its group. In quick/full/auto a step with `runFiles` then runs
+  those blobs for optional scoped steps. With required commit checks the marker also holds the whole-project proof (§3). In quick/full/auto an optional step with `runFiles` then runs
   `runFiles` over that set even when it has `run` (command choice below).
 - Steps = config steps whose `modes` contain the mode (stop/quick/full; auto resolves first), and whose
   rule `step:<id>` is enabled. For each: `requires` (on the host), unknown `runtime` (blocked), then for a
@@ -692,7 +699,7 @@ flags in any order; `--files` consumes paths until the next `--` flag.
   <s> s` followed by its `$ <command>` and output; a single batch keeps `=== <id> · exit <rc> · <s> s`. `pass.json`
   is the same as with one batch. Files are filtered by extension with awk (`dk_ext_filter`, `DK_AWK_FN` in lib.sh).
 - Two kinds of skipped step. **Not applicable** (line `– <id>: <reason>`, verdict unaffected): missing
-  `requires`, no changed files for its `ext`, tool output `No files were checked` without any finding
+  `requires`, no changed files for its `ext`, PHPCS exit 16 with a standalone `ERROR: No files were checked.` diagnostic (the prefix and final period are optional) and no finding
   line (`nástroj nič neskontroloval (No files were checked)`). **Blocked** — the step should run but could
   not (line `! <id>: <reason>`, verdict at most PARTIAL): container not running or worktree outside its
   mount, unknown `runtime`, invalid `timeoutSec`, no `run`/`runFiles`, the run over `timeoutSec` (§3; line
@@ -725,7 +732,8 @@ flags in any order; `--files` consumes paths until the next `--` flag.
 - Verdict and exit: some FAIL or changed locked test ⇒ FAIL, 1; else some blocked step ⇒ PARTIAL, 4; else ≥1 `ok` or `známe`
   ⇒ PASS, 0; else (nothing ran) ⇒ SKIP, 4. 3 = config error. Exit 4 = incomplete verification — never
   report it as PASS. CI treats every exit other than 0 as a failed job.
-- On exit 0 in quick/full: write `pass.json` = `{"time":…,"mode":"quick|full","head":"<sha>","blobs":{"<rel>":"<blob sha or ->"}}`
+- Per-step `output` defaults to `log`. With `status`, discard stdout and stderr at execution in every mode, omit the command and excerpts from the check log, retain run metadata, file lists, duration and exit code. Content filters do not change a failed exit in this mode. A project forbidding kit metadata uses its own approved evidence outside the runner.
+- On exit 0 in quick/full: write `pass.json` with `time`, `mode`, `head`, `configHash`, `projectProof`, `indexProof`, `requiredSteps`, `beforeRun`, `log`, `unfilteredRun` and `blobs` (relative path to blob hash or `-`)
   for the checked file set (CHANGED files, or exactly the `--files` set); PARTIAL never writes it.
   On PARTIAL in quick/full write `partial.json` = `{"time":…,"mode":"quick|full","ok":<n>,"steps":["<id>",…],"lines":["! <id>: <reason>",…]}`
   for the commit gate (§4.4): `ok` = steps `ok` + `známe` (what would still PASS with the blocked steps
@@ -734,6 +742,8 @@ flags in any order; `--files` consumes paths until the next `--` flag.
   <dk_hash_files of the session code files, §4.6 step 3>, "time":…, "fails":0, "result":"PASS|PARTIAL"}`); the FAIL shape is
   written by `stop-check.sh` (§4.6 step 5). Markers are written
   via a per-process temp file and `mv`; an override run (`--config`/`DEVKIT_CONFIG`) neither writes nor removes them.
+- `unfilteredRun` describes the kit invocation. It requires an unfiltered full run of configured commands, a stable Git proof before and after, and no omitted steps, changed-line filters, file-only commands, skips or known failures. The proof includes the base HEAD and normalized binary Git diff. A narrower result may still serve the commit gate according to its own scope.
+- `mr-evidence.sh <project>` only reads state. It checks the current configuration hash, the marked log and the exact committed content at HEAD against the checked base (HEAD or first parent). The selected generation owns the marker and names the expected log. Ignore unrelated log timestamps (including alternate configs and late, superseded runs). A generation change while reading, PARTIAL, a legacy marker without a generation, or missing evidence yields `neoverené`. A matching marker certifies only `check full: PASS`. Coverage of the base-to-tip diff stays unverified until the native harness or CI provides evidence of its actual scope. A successful command that selected zero relevant paths cannot establish MR coverage.
 - Prune logs to the newest 20 per project.
 
 ### 4.6 `stop-check.sh` — Stop
@@ -880,6 +890,12 @@ hook. Exit 0.
 
 ## 5. Skills (`ROOT/skills/<name>/SKILL.md`)
 
+Codex exposes the shared project inventory through its skill picker (search for `project-init`, which may appear as `dev:project-init`). The explicit `$dev-kit <command> [arguments]` skill reads one existing Claude command skill from this checkout. Its loader lists the manual commands with `--list`, maps `init` to `project-init` and `audit` to `ecc-production-audit`, and exits 2 on invalid input. The loader only prints instructions. The caller keeps the project's current worktree, harness, permissions and approval boundaries.
+
+For local Codex, `bash tools/install-codex-hook.sh` registers §4.4 directly as a user `PreToolUse` command hook matching `^Bash$`, timeout 60 s. Codex supplies the command and working directory and accepts the same explicit denial. Multiple matching registrations are reported as a conflict before writing. The installer targets `${CODEX_HOME:-$HOME/.codex}/hooks.json`, preserves other registrations, backs up an existing file before atomic replacement and is idempotent. Trust is granted through Codex after review. The hook reads the same configured project checks and saved evidence as Claude. It never launches the harness itself. Without project kit configuration the hook passes control to the normal project workflow, including Git hooks. This only covers shell tool calls observed by local Codex.
+
+`dev-kit-workflow` supplies the shared lifecycle for Claude and Codex. Its inventory is read-only, supports repositories of any stack and lists instruction, manifest and harness paths from the selected directory to the Git root. The caller selects the documented native checks. Claude hooks and kit markers apply only to opted-in projects. Worktree templates do not distribute credentials or private environment files.
+
 Frontmatter: `name`, `description` (≤ 250 chars, key use first), optional `when_to_use`,
 `argument-hint`, `disable-model-invocation`, `paths`, `allowed-tools`, `disallowed-tools`. Verify key names in `skills.md`.
 `disallowed-tools: Edit, Write, NotebookEdit` only on skills that read and report (`explain`, `stats`, `mr`): the tools
@@ -898,23 +914,25 @@ composer.json (nette/symfony) / pyproject.toml.
 Command skills — all `disable-model-invocation: true` (0 always-on tokens):
 | name | source material | essence |
 |---|---|---|
-| `check` | plan §15.3 D, ECC `skills/verification-loop` | run `check.sh $ARGUMENTS` (only known flags pass through; default quick), report stručne, ale úplne (§0); exit 4 ⇒ PARTIAL or SKIP, not PASS (list `!`/`–` reasons); FAIL ⇒ list failures with file:line and propose fix order; never claim PASS without the script output |
-| `commit` | the user's original command `commit` (keep ALL its rules: one-line message, one confirmation, explicit `git add <files>`, never push, never `--no-verify`, never amend unless asked, NO Co-Authored-By / AI attribution) | step 0: `check.sh --auto` must PASS (the hook gate enforces it anyway); show grouping+message+check result in ONE message; secrets reminder. Message format = the project's commit rule (the `Commit:` line project-init writes from `{{commitStyle}}` into `CLAUDE.md`, else `CLAUDE.local.md`/`AGENTS.md`): `[#123] typ: výstih`, Jira `ABC-123 výstih`, conventional `typ(scope): výstih`; what the rule leaves open (language, types, scope) from `git log --format=%s`; no rule ⇒ `[#XX] type: výstih` in Slovak. Task id from the argument or the branch (`fix/85-…` → `[#85]`, `feature/ABC-123-…` → `ABC-123`); a style without a task id asks for none |
+| `check` | plan §15.3 D, ECC `skills/verification-loop` | run the project harness regardless of kit configuration, then run enabled kit checks via `check.sh $ARGUMENTS` (only known flags pass through; default quick), report stručne, ale úplne (§0); exit 4 ⇒ PARTIAL or SKIP, not PASS (list `!`/`–` reasons); FAIL ⇒ list failures with file:line and propose fix order; report native and kit results with their scope; a supplementary PASS cannot override a mandatory failure |
+| `commit` | the user's original command `commit` (use project commit and attribution conventions; default one-line message, one confirmation, explicit paths, no push, no bypass or unsolicited amend) | verify the intended staged content: a pending index-dependent check runs after the approved staging and before commit; the configured check must PASS or the verified native pre-commit must succeed in Git; show grouping+message+check result in ONE message; secrets reminder. Message format = the project's commit rule (the team rule in `AGENTS.md`, or applicable existing project instructions in a legacy Claude setup): `[#123] typ: výstih`, Jira `ABC-123 výstih`, conventional `typ(scope): výstih`; what the rule leaves open (language, types, scope) from `git log --format=%s`; no rule ⇒ `[#XX] type: výstih` in Slovak. Task id from the argument or the branch (`fix/85-…` → `[#85]`, `feature/ABC-123-…` → `ABC-123`); a style without a task id asks for none |
 | `review` | the user's original commands `review` (format with 🔴🟡🔵, numbering, verification, `.review-notes.md` only on request) and `security` (as `--security` pass) + ECC `agents/code-reviewer.md`, `skills/security-review` | scopes: none = uncommitted, `branch [base]`; passes Bugs · Security · Súlad s `docs/plans/*.md` (V1) · stale CLAUDE.md/rules (V9); read project `REVIEW.md` if present (V2: Important vs Nit, max 5 nits, do-not-report list); confidence > 80 %, merge similar, security first; Nette/Symfony/Python checklists; optional delegation to agents `dev:ecc-silent-failure-hunter`, `dev:ecc-performance-optimizer` for large diffs |
-| `test` | the user's original command `test` + ECC `skills/tdd-workflow` | RED→GREEN→REFACTOR with evidence, AAA, naming, mirror structure, run via `check.sh`-configured command or `dk`-style docker exec from devkit.json; PHPUnit + pytest branches |
+| `test` | the user's original command `test` + ECC `skills/tdd-workflow` | RED→GREEN→REFACTOR with evidence, AAA, naming, mirror structure, use the native project test command and supported filters, then the project verification route (supplementary kit mode `--quick`); PHPUnit + pytest branches |
 | `debug` | plan §5 Debugging row | Nette: Tracy `log/exception*.html`, `log/*.log`, docker logs, mail catcher (e.g. Mailpit) and search server (e.g. Typesense) health when compose has them, login via the project's gitignored test login file when it has one (named in its `CLAUDE.md`), `EXPLAIN`; Symfony: `var/log`, profiler, `bin/console debug:*`; Python: traceback/pytest -x; hypothesis → minimal repro → fix suggestion; never guess |
-| `fix` | ECC `commands/orch-fix-defect.md` | facts first (where, who calls, data); write failing repro test; run, confirm it fails for the expected reason; `test-lock.sh lock <test>`; fix code without touching the test; `check.sh --auto`; on PASS `test-lock.sh unlock`; offer `/dev:review` and `/dev:commit`. `--unlock` argument ⇒ only unlock and report |
-| `plan` | plan §18 V1 | write `docs/plans/<task>-<slug>.md` (no `#`) (Úloha+zdroj, Súbory, Poradie, Riziká, Dôkaz, Mimo rozsahu) from the agreed plan; task number from branch; small tasks (≤ 3 files, no risky paths) ⇒ tell the user it is not needed; local mode (`docs/plans/` ignored) ⇒ the plan stays on disk, never committed; team mode ⇒ committed with the first change, deviations in the same commit |
+| `fix` | ECC `commands/orch-fix-defect.md` | facts first (where, who calls, data); write failing repro test; run, confirm it fails for the expected reason; `test-lock.sh lock <test>` when configured; fix code without touching the test; run the mandatory project harness, plus configured supplementary `--auto` checks; unlock an existing test lock only after both succeed; offer `/dev:review` and `/dev:commit`. `--unlock` argument ⇒ only unlock and report |
+| `plan` | plan §18 V1 | use the existing project task or plan; fallback to `docs/plans/<task>-<slug>.md` (no `#`) (Úloha+zdroj, Súbory, Poradie, Riziká, Dôkaz, Mimo rozsahu) from the agreed plan; task number from branch; small tasks (≤ 3 files, no risky paths) ⇒ tell the user it is not needed; local mode (`docs/plans/` ignored) ⇒ the plan stays on disk, never committed; team mode ⇒ committed with the first change, deviations in the same commit |
 | `learn` | ECC `commands/learn.md` + `learn-eval.md`, plan §13 | scan session for user corrections, resolved errors, discovered conventions ⇒ propose each as: native memory entry (feedback/project), project `.claude/rules/*.md` line, or new `guards`/`pairs` entry in devkit.json; user approves one by one; write only approved |
 | `handoff` | plan §14 Kontext row | write state (hotové, rozpracované, ďalší krok, rozhodnutia, zmenené súbory, príkazy na overenie) to `handoffDoc` from devkit.json (append dated section) or `docs/handoff.md`; record it with `session-card.sh --record-handoff <path> <title> --project "${CLAUDE_PROJECT_DIR}"` (§4.7); then suggest `/clear` |
 | `explain` | the user's original command `explain` | same structure (Čo to robí / Ako to funguje / Závislosti / Riziká pri zmene), Slovak, depth by request; `disallowed-tools` |
 | `stats` | §4.9 | `stats.sh` output for the project (30 days) injected on load; `--days N`/`--all` ⇒ run `stats.sh` again with only those flags; interpret: which rules are noisy, propose `disabledRules`/pattern tweaks, never change config without approval (`disallowed-tools`; edits after approval in the next turn) |
-| `mr` | plan 0.5.0 E10 | PR/MR description of the branch. Base = argument, else `git symbolic-ref --short refs/remotes/origin/HEAD`, else the first existing of `main`, `master`, `develop` (compared as `origin/<base>` when it exists; no `git fetch`). Sources: `git log <base>..HEAD`, `git diff <base>...HEAD` (over ~400 lines or 15 files: stat + selected files), task id as in `commit`, plan `docs/plans/<task>-*.md`, the project's commit rule (title form, language), the last `/dev:check` verdict from `partial.json`/`pass.json` and the newest quick/full log name (§2, §4.5) by one read-only command (`partial.json` ⇒ PARTIAL; a log newer than `pass.json` `time` ⇒ `neoverené`; `head` = HEAD or `HEAD~1` ⇒ PASS for HEAD; nothing ⇒ `neoverené`; anything but a full PASS for HEAD ⇒ propose `/dev:check --full`), migrations by `migrations.paths`, post-deploy steps (migrations, env names, cache, cron) only from the diff. Agents `dev:ecc-pr-test-analyzer` and `dev:ecc-silent-failure-hunter` in parallel over the diff (docs-only diff ⇒ none), verified 🔴/🟡 ⇒ Riziká. Output: title + a `markdown` block `## Čo`, `## Prečo`, `## Ako overiť`, `## Riziká`, `## Po nasadení` (English headings with an English commit rule). `gh pr create` / `glab mr create` (by the `origin` host, tool checked by `command -v`) only when the branch is on origin and equals HEAD, and only after the user's explicit answer to a question with options (create, draft, fix findings first, text only); otherwise the text to copy and stop. Never push. `allowed-tools`: read-only git only; `disallowed-tools` |
-| `deps` | plan 0.5.0 E11 | One direct dependency per run. Manager by `stack` (`php-*` Composer) or files (`composer.json`; `uv.lock`, `poetry.lock`, `requirements*.txt`/`.in`); unclear ⇒ ask. Commands as `CLAUDE.md` names them (a wrapper such as `bin/composer`), else like step `audit` (`docker exec -i -w <workdir> <container>` unless `runtime: host`), else on the host; container down ⇒ stop. Dependency files already dirty ⇒ stop. List: `composer outdated --direct --format=json` / `pip list --outdated --format=json` (direct only) / `poetry show --outdated --top-level` / `uv pip list --outdated`; vulnerabilities only when `devkit.json` has step `audit` (init's consent), its command with JSON output. Table ≤ 15 rows; the argument skips the question, else one question with options. One confirmation (an approval in the argument counts) for: target version (highest in the constraint; for an advisory the lowest fixing one; major ⇒ the choice of `composer require …:^<major>`), command, files, message. Update `composer update <pkg> --with-dependencies` (pip pin edit + `pip install -r`, `pip-compile --upgrade-package`, `poetry update <pkg>`, `uv lock --upgrade-package`); `permissions.ask` still prompts. Changelog of the new version from `vendor/<pkg>/` (`UPGRADE*`, `CHANGELOG*`, `CHANGES*`, `RELEASE*`) or `dist-info/METADATA` after the update (before it the vendor copy is the old one); WebFetch only with consent; changed/deprecated API searched in the project ⇒ `file:line`. `check.sh --full`: not PASS or a breaking change in project code ⇒ no fix, no revert by itself, propose `git checkout -- <files>` + reinstall. Commit only the dependency files (`composer.json`, `composer.lock`, `symfony.lock`; `requirements*`, `pyproject.toml`, `poetry.lock`, `uv.lock`) by the project's commit rule, `chore: aktualizácia <pkg> <from> → <to>`, `git add <files>`, never push. Never a bulk `composer update`/`poetry update`/`uv lock --upgrade`. `allowed-tools`: `check.sh` and read-only git |
+| `mr` | plan 0.5.0 E10 | PR/MR description of the branch. Base = argument, else `git symbolic-ref --short refs/remotes/origin/HEAD`, else the first existing of `main`, `master`, `develop` (compared as `origin/<base>` when it exists; no `git fetch`). Sources: `git log <base>..HEAD`, `git diff <base>...HEAD` (over ~400 lines or 15 files: stat + selected files), task id as in `commit`, plan `docs/plans/<task>-*.md`, the project's commit rule (title form, language), the native or CI scope for base...HEAD plus the separate read-only `mr-evidence.sh` kit result for the exact committed tree (§4.5), migrations by `migrations.paths`, post-deploy steps (migrations, env names, cache, cron) only from the diff. Agents `dev:ecc-pr-test-analyzer` and `dev:ecc-silent-failure-hunter` in parallel over the diff (review requirements for documentation follow project ownership and branch policy), verified 🔴/🟡 ⇒ Riziká. Output: title + a `markdown` block `## Čo`, `## Prečo`, `## Ako overiť`, `## Riziká`, `## Po nasadení` (English headings with an English commit rule). `gh pr create` / `glab mr create` (by the `origin` host, tool checked by `command -v`) only when the branch is on origin and equals HEAD, and only after the user's explicit answer to a question with options (create, draft, fix findings first, text only); otherwise the text to copy and stop. Never push. `allowed-tools`: read-only git and the evidence script; `disallowed-tools` |
+| `deps` | plan 0.5.0 E11 | One direct dependency per run. Manager by project rules and active lockfile, falling back to `stack` (`php-*` Composer) or files (`composer.json`; `uv.lock`, `poetry.lock`, `requirements*.txt`/`.in`); unclear ⇒ ask. Commands from project instructions, harness or CI (a wrapper such as `bin/composer`), else like step `audit` (`docker exec -i -w <workdir> <container>` unless `runtime: host`), else on the host; container down ⇒ stop. Dependency files already dirty ⇒ stop. List: `composer outdated --direct --format=json` / `pip list --outdated --format=json` (direct only) / `poetry show --outdated --top-level` / `uv pip list --outdated`; use the project-approved audit/provider even without kit configuration; fall back to an explicitly approved kit audit. Table ≤ 15 rows; the argument skips the question, else one question with options. One confirmation (an approval in the argument counts) for: target version (highest in the constraint; for an advisory the lowest fixing one; major ⇒ the choice of `composer require …:^<major>`), command, files, message. Update `composer update <pkg> --with-dependencies` (pip pin edit + `pip install -r`, `pip-compile --upgrade-package`, `poetry update <pkg>`, `uv lock --upgrade-package`); `permissions.ask` still prompts. Changelog of the new version from `vendor/<pkg>/` (`UPGRADE*`, `CHANGELOG*`, `CHANGES*`, `RELEASE*`) or `dist-info/METADATA` after the update (before it the vendor copy is the old one); WebFetch only with consent; changed/deprecated API searched in the project ⇒ `file:line`. Stage the approved dependency files before running mandatory native verification and the audit for the new lockfile, plus configured supplementary `--full` checks: incomplete, failed or a breaking change in project code ⇒ no fix, no revert by itself, propose `git checkout -- <files>` + reinstall. Commit only the dependency files (`composer.json`, `composer.lock`, `symfony.lock`; `requirements*`, `pyproject.toml`, `poetry.lock`, `uv.lock`) by the project's commit rule, `chore: aktualizácia <pkg> <from> → <to>`, using the verified index, never push. Never a bulk `composer update`/`poetry update`/`uv lock --upgrade`. `allowed-tools`: `check.sh` and read-only git |
 | `project-init` | ECC `skills/codebase-onboarding`, `commands/project-init.md`, plan §4.4, §14 PHP prax (infer-conventions), §16 P5, §17, §18 V2/V4/V6/V9 | see §6 |
 
+The project-init entry point routes installation, synchronization and symbol lookup to separate files. The default on-invoke budget for this entry point is 1500 estimated tokens. Missing or unreadable metrics fail the budget check. The shared workflow opens PHP, JS and operations guidance by task. The inventory reports instruction-file byte sizes and relevant heading line numbers without printing their contents.
+
 Reference skills — model-invocable, short descriptions (always-on budget for the whole plugin ≤ 3k
-tokens, measured by `tools/details.sh` by the docs rule: `disable-model-invocation` skills count 0;
+tokens, measured by `tools/details.sh` against every on-disk skill and agent. Missing, duplicate or malformed rows fail measurement. `disable-model-invocation` skills count 0;
 the `claude plugin details` estimate depends on login and model, so the budget is checked logged in):
 | name | from ECC | `paths` | notes |
 |---|---|---|---|
@@ -922,7 +940,7 @@ the `claude plugin details` estimate depends on login and model, so the budget i
 | `ecc-e2e-testing` | `skills/e2e-testing` | `tests/e2e/**`, `**/*.spec.js`, `**/*.spec.ts`, `playwright.config.*` | Playwright POM, flaky handling; drop Vercel/npm-specific bits |
 | `ecc-change-impact` | `skills/change-impact` | — | before risky changes in core (validators, triggers, public API) |
 | `ecc-accessibility` | `skills/accessibility` | `**/*.latte`, `**/*.twig`, `www/css/**`, `assets/**/*.css`, `templates/**` | WCAG 2.2, server-rendered templates (no React) |
-| `ecc-production-audit` | `skills/production-audit` | — | `disable-model-invocation: true` (user runs before deploy) |
+| `ecc-production-audit` | `skills/production-audit` | — | `disable-model-invocation: true` (user runs before deploy). Mandatory native release gates apply with or without kit configuration. Use the project verdict, bands and approved exceptions. With the default scale a missing or unsuccessful mandatory result caps readiness at 49. Optional checks are reported separately. |
 | `ecc-python-patterns` | `skills/python-patterns` | `**/*.py` | F7 |
 | `ecc-python-testing` | `skills/python-testing` | `tests/**/*.py`, `**/test_*.py`, `**/*_test.py` | F7, pytest |
 | `task-tldr` | the user's original skill `task-tldr`, example rewritten to a generic domain (e-shop) | — | user's own skill; its 399-char description is accepted; the installer moves the original to a backup |
@@ -934,11 +952,13 @@ a first line comment `<!-- prevzaté z ECC <path> @ b92f181, upravené -->` afte
 ## 6. `project-init` skill (most complex)
 
 Arguments: none | `--sync` | `--dry-run`.
-Consent is asked in four named phases only, each with one message: (1) plan — the dry-run incl. the exact
+A bare init uses the read-only `scripts/init-commit-hook.sh [directory]` inventory to find effective Git pre-commit hooks and the kit configuration, including the main checkout fallback. For an unconfigured repository, present one setup plan with local and team variants. Include the commit gate and the exact native checks by default. If a Git hook already enforces all required checks, propose keeping that enforcement in Git. Approval of the selected variant covers the displayed gate configuration. Declining writes nothing. Codex user-hook registration and trust are separate from project setup. A previous local preference about displaying the old hook question does not affect the plan and is left untouched. Bare init on an already configured project reports its state and offers sync. Dry-run previews the same plan and stops before approval. An explicit inventory request only reports the findings.
+
+For template installation consent is asked in four named phases only, each with one message: (1) plan — the dry-run incl. the exact
 `permissions` block and other settings keys before → after and the local/team choice with its exact `info/exclude` and
 `.worktreeinclude` lines or `.gitignore` diff; (2) write + `check.sh --quick` — nothing new, consent only to
 resolve check findings (`knownFailures`, baseline, `changedLinesOnly`, dropping a step, `--full`);
-(3) conventions, one by one; (4) `CLAUDE.md`/`AGENTS.md`/`CLAUDE.local.md` diff with the move map. At most
+(3) conventions, one by one; (4) an incremental team AGENTS.md diff. At most
 4 questions per init, all in the plan message (an unclear stack is asked first and counts).
 1. Detect: stack (composer.json → nette/symfony; pyproject/requirements → python); for php-nette the DB layer
    from `require` only (`dibi/dibi` → dibi, `doctrine/orm`/`nettrine/orm` → doctrine; several ⇒ show evidence and
@@ -949,10 +969,10 @@ resolve check findings (`knownFailures`, baseline, `changedLinesOnly`, dropping 
    the gitignored test login file (`{{testCredentialsFile}}`; content never read, none ⇒ its template line is deleted).
    No compose (or a mount of a subdirectory only) ⇒ `container: ""`, `appRoot: ""`; the plan says that lint
    and steps run on the host and `appRoot` is unused, and shows each tool checked on the host
-   (`command -v`, `vendor/bin/<tool>`, `.venv/bin/<tool>`); a missing tool drops its step. Question 1 also
+   (`command -v`, `vendor/bin/<tool>`, `.venv/bin/<tool>`); a missing optional tool drops its step. A missing mandatory prerequisite blocks it. Question 1 also
    covers compose that mounts only a subdirectory (the kit cannot run steps there from the repo root: host, or
    the user changes the mount to the repo root).
-   No step with `run` and mode `quick` whose tool init found ⇒ `/dev:check` ends SKIP (exit 4, neither
+   For optional-only configurations, no step with `run` and mode `quick` whose tool init found ⇒ `/dev:check` ends SKIP (exit 4, neither
    `pass.json` nor `partial.json`) and the commit gate blocks such a commit with no escape — every commit with
    no steps; with `runFiles`-only steps every commit without an existing file of their extensions, a commit
    that only deletes files included (steps get existing files only, the gate counts deleted ones too). The plan
@@ -964,32 +984,30 @@ resolve check findings (`knownFailures`, baseline, `changedLinesOnly`, dropping 
    otherwise both are dropped without a question (a missing `node_modules` only keeps the step, `requires`
    skips it until the user installs the dependencies; init never runs `npm install`).
    php-symfony: `require` with `symfony/asset-mapper` / `symfony/webpack-encore-bundle` selects the lines marked
-   `<!-- fe:assetmapper -->` / `<!-- fe:encore -->` in `CLAUDE.md.tmpl` and `rules/twig-frontend.md` (both found ⇒ both
+   `<!-- fe:assetmapper -->` / `<!-- fe:encore -->` in `AGENTS.md.tmpl` and `rules/twig-frontend.md` (both found ⇒ both
    kept, none ⇒ both deleted; the kept lines lose the marker); a package `api-platform/*` ⇒ `rules/api-platform.md` and
    the `<!-- api-platform -->` lines, otherwise neither.
-   Dependency audit: step `audit` (full only) for php when `composer` exists in the container (`docker exec <c>
-   sh -c 'command -v composer'`, the only `docker exec` of point 1) — no `runtime` — or only on the host
-   (`command -v composer`) — `runtime: host`; for python when `pip-audit` is in the project's tool directory
-   (`{{bin}}`; `--aliases` needs 2.7+). No tool ⇒ the step is dropped and listed.
+   Preserve the project's non-interactive entry points verbatim, including Make targets, prerequisites and runtime.
+   Dependency audit: the PHP templates attach the native lockfile audit and PHPStan to quick and full. Use an approved source and the complete project wrapper, deduplicating identical gates. Where the project has no wrapper, use locked Composer audit in its verified runtime. A missing prerequisite blocks a mandatory audit. If the invocation or authorized source is unknown, defer activation. Python audit remains full only (pip-audit 2.7+ when selected).
    Nette Tester (php-nette): executable `vendor/bin/tester` and `*.phpt` files under `tests/` ⇒ step `tester`
    (`php vendor/bin/tester tests -s -C`) instead of `unit`/`integration` when the project has no PHPUnit;
    with PHPUnit both, `tester` only over the directory of the `.phpt` tests (Tester runs `*Test.php` too);
    without Tester the step and the `.phpt` lint key are dropped.
    Local config (php-nette, `{{localConfig}}`): the first existing of `app/config/config.local.neon`,
    `app/config/local.neon`, `config/local.neon` (else a `*local*.neon` from `addConfig()` in `Bootstrap.php`); it fills
-   `secrets.forbidFiles`, `.worktreeinclude`, `CLAUDE.md.tmpl` and `rules/nette.md`; none ⇒ question 4, a project
+   `secrets.forbidFiles`, `AGENTS.md.tmpl` and `rules/nette.md`; none ⇒ question 4, a project
    without a local config loses those lines and the `forbidFiles` entry. The `.neon` lint key stays only with an
    executable `vendor/bin/neon-lint` (nette/neon 3.3.1+).
    Migration tests (php-nette, php-symfony): step `migration` (`--testsuite migration`, full only) only when `phpunit.xml*`
    defines that suite (exact name, like `unit`/`integration`); otherwise it is dropped without a question, together with its
-   lines in `CLAUDE.md`. The fast step must not run that suite (`--testsuite <fast>`, not only `--exclude-group`).
+   lines in the team `AGENTS.md`. The fast step must not run that suite (`--testsuite <fast>`, not only `--exclude-group`).
    Phinx (php-nette): executable `vendor/bin/phinx` and a config in the root, in Phinx's lookup order
    `phinx.php`, `phinx.json`, `phinx.yaml`, `phinx.yml` (another file only from `-c`/`--configuration` in the
    `Makefile` or composer scripts) ⇒ `migrations.paths` = `<path>/**` for every path of `paths.migrations` (a
    string, a list, or a namespace ⇒ path map; `%%PHINX_CONFIG_DIR%%` and `__DIR__` = the config's directory,
    other relative paths are from the directory phinx runs in, the repo root; a Phinx `*` stays, `{a,b}` becomes
    several entries), a path outside `db/` and `migrations/` also goes to `fullWhen`, `{{migrationsDir}}` = the
-   first path, and a config outside the root adds `-c <config>` to the migrate command in `CLAUDE.md`.
+   first path, and a config outside the root adds `-c <config>` to the migrate command in the team `AGENTS.md`.
    `phinx.php` is read as text (grep), never executed — neither `php phinx.php` nor any `phinx` command
    (Phinx loads it with `include`: project autoload, possibly a DB connection); a value built from a
    variable, function, constant or `getenv` is undetected ⇒ question 4 with a candidate (the directory of
@@ -1005,26 +1023,23 @@ resolve check findings (`knownFailures`, baseline, `changedLinesOnly`, dropping 
    Placeholders: the skill's table „Zástupné symboly“ lists every `{{name}}` of the stack templates with
    its detection source and what to do when undetected; undetected ⇒ deleted without a question (the line,
    or the smallest part of it that needs the symbol; a version keeps the name; a `devkit.json` step or pair
-   that needs it is dropped and listed). A tool whose step or lint init dropped loses its lines and mentions in
-   `CLAUDE.md.tmpl` the same way, placeholder or not (Príkazy row, Kvalita/Stack, Overovanie práce sentence).
+   that needs it is dropped and listed only when optional). An unresolved mandatory command blocks activation. A tool whose optional step or lint init dropped loses its lines and mentions in
+   `AGENTS.md.tmpl` the same way, placeholder or not (Príkazy row, Kvalita/Stack, Overovanie práce sentence).
    Questions only for `{{projectDescription}}`, `{{commitStyle}}`
    (no usable git history), `{{container}}` (no compose), `{{localConfig}}` (php-nette, no candidate) and `{{migrationsDir}}` when a Phinx config exists
-   but `paths.migrations` cannot be read without running it. `{{dbContainer}}` is text in `CLAUDE.md`, not
+   but `paths.migrations` cannot be read without running it. `{{dbContainer}}` is text in the team `AGENTS.md`, not
    a `devkit.json` field. Selftest `t_templates_symbols` keeps the table complete.
 2. Dry-run plan shown to the user BEFORE writing anything: files to create/modify, devkit.json draft,
    which template rules, `permissions` block and other settings keys before → after, local-only vs team (commit)
    choice with its exact lines, layer-B skills offered (`templates/skills/*`). Question 2 (local or team) also asks
-   whether to hide Claude's commit and PR attribution (default no: the key is not added). The plan says next to step `audit` that
-   `/dev:check --full` sends the project's package list (names and versions) to Packagist (`composer audit`) or
-   PyPI (`pip-audit`); approving the plan is the consent to it (no separate question), an answer that declines
-   it drops the step. Approving the plan covers new files and the changes it showed exactly; any other
+   whether to hide Claude's commit and PR attribution (default no: the key is not added). The plan identifies the actual advisory source, transmitted package data and modes. Plan approval grants access only as described. If declined, use an approved source, keep a mandatory audit blocked, or drop an optional audit. Approving the plan covers new files and the changes it showed exactly; any other
    existing file is never overwritten without explicit consent (diff).
    Project rules win over the template: conflicts are listed as `template:line ↔ file:line`, a conflicting
    template rule is not copied without consent, and baseline/`changedLinesOnly` are not offered when the
    project rules exclude them.
 3. Verify every check step by running it once (via the same exec logic as check.sh — call
    `bash "${CLAUDE_PLUGIN_ROOT}/scripts/check.sh" --quick --project "${CLAUDE_PROJECT_DIR}"` after writing devkit.json) and
-   record baseline failures as `knownFailures` only with user consent. SKIP with the commit gate on and no
+   record optional baseline failures as `knownFailures` only with user consent. In optional-only configurations, SKIP with the commit gate on and no
    `quick` step with `run` that runs ⇒ the same proposal as in point 1 (`commitGate.enabled: false`, also with
    `runFiles`-only steps), consent of phase 2.
 4. Copy template files with a header: markdown → `<!-- dev-kit: <template>/<file> @ <plugin version> -->`
@@ -1035,20 +1050,10 @@ resolve check findings (`knownFailures`, baseline, `changedLinesOnly`, dropping 
 5. infer-conventions: list well-evidenced, non-default conventions found in code (with evidence
    file:line), skip what phpcs/PHPStan/rector enforce; user approves each; write approved into
    `.claude/rules/conventions.md`.
-6. AGENTS.md present ⇒ project content goes to `AGENTS.md` (diff, consent; never split into rules) and
-   `CLAUDE.md` = `@AGENTS.md` import + Claude-only parts; a textual mention is replaced by the import; never
-   create `CLAUDE.md` without the import (Claude Code reads `AGENTS.md` itself only when no `CLAUDE.md`
-   or `CLAUDE.local.md` exists); local mode ⇒ import and Claude-only parts go to `CLAUDE.local.md`.
-   CLAUDE.md: propose a skeleton ≤ 120 lines (Projekt, Stack, Príkazy with healthy-output examples
-   (V9), Architektúra, Pravidlá, Pasce, `## Compact instructions`) built from the existing CLAUDE.md, moving
-   topic sections into `rules/*.md` with `paths:`. Large rewrite only with consent; preserve every
-   rule that would cause a regression if lost (list what moved where).
-7. Team vs local (decided in the plan, phase 1): local ⇒ add `.claude/rules/`, `.claude/devkit.json` etc., `CLAUDE.local.md`, `.claude/worktrees/`, an
-   untracked `handoffDoc` and `docs/plans/` to `.git/info/exclude` (local mode puts nothing from the kit into git), and `.claude/rules/`, `CLAUDE.local.md`, `REVIEW.md`, `docs/plans/` to `.worktreeinclude` (so
-   new worktrees get the untracked files); local mode never creates a new `CLAUDE.md` — the filled skeleton
-   goes to `CLAUDE.local.md`; team ⇒ leave for commit (do not commit yourself), propose
+6. Team instructions live in AGENTS.md. Show an incremental diff. Personal installation creates no instruction file. Preserve existing aliases and private files. Inventory-only requests stop after reporting the native harness. For bare init and dry-run, the native harness is the basis of the local/team proposal at the start of this section. Template copies are optional. Unknown stacks use the same discovery path.
+7. Keep personal installation files local. In team mode propose
    `.claude/worktrees/` for `.gitignore` and add an untracked `handoffDoc` (one person's work state) to
-   `.git/info/exclude` — the only exclude line of team mode; a tracked one is only named.
+   `.git/info/exclude` — the only exclude line of team mode; a tracked one is only named. Inspect ignore rules for proposed untracked team files, propose narrow exceptions for each approved path and its parents, then verify team files are visible to Git and private files remain ignored.
    Settings: the merge only adds and keeps the project's values (`permissions.ask`/`deny` items, existing keys,
    `"dev@dev-kit": false` included). `plansDirectory: "docs/plans"` goes to the target of either mode
    (`.claude/settings.json` in team mode, `.claude/settings.local.json` locally); `extraKnownMarketplaces`
@@ -1086,7 +1091,7 @@ resolve check findings (`knownFailures`, baseline, `changedLinesOnly`, dropping 
 ```
 common/REVIEW.md                 # V2: passes Bugs · Security · Súlad s plan.md; Important vs Nit; max 5 nits; do-not-report placeholders
 common/plan.md                   # V1 template
-php-nette/CLAUDE.md.tmpl         # skeleton with {{placeholders}}, ≤ 120 lines incl. verification block (V9) and `## Compact instructions`;
+php-nette/AGENTS.md.tmpl         # skeleton with {{placeholders}}, ≤ 120 lines incl. verification block (V9) and `## Compact instructions`;
                                  # commands use `{{run}}` like php-symfony (`docker exec <c> ` or empty for `container: ""`);
                                  # DB-dependent lines end with `<!-- db:dibi -->` / `<!-- db:doctrine -->`, table rows carry it before the
                                  # last `|` (init keeps one variant, strips the marker with the space before it)
@@ -1101,33 +1106,32 @@ php-nette/devkit.json            # like §3 example with {{container}}, {{appRoo
                                  # not in the Stop code files (a .js/.css-only turn does not start Stop, §4.6 step 3)
                                  # and init keeps both only with the tool (§6); guards `console-log` (`console.(log|debug)(`) and
                                  # `inner-html` (assignment incl. `+=`, not `==`/`===`) on .js/.ts are kept always;
-                                 # optional step `tester` (Nette Tester, `php vendor/bin/tester tests -s -C`, `requires:
-                                 # vendor/bin/tester`, stop/quick/full) instead of `unit`/`integration` without PHPUnit; `.phpt` has
+                                 # unit, integration, migration and Tester steps use complete project commands on the host,
+                                 # including any project-owned container wrapper. Tester replaces PHPUnit steps when appropriate; `.phpt` has
                                  # lint `php -l` (a Stop code extension) and is in `commitGate.ext`; guards `debug-php` and `test-skip`
                                  # (also `Environment::skip(`) cover `.phpt`;
-                                 # step `audit` (`composer audit --no-interaction --format=plain`, `requires: composer.json`, full only,
-                                 # no changedLinesOnly — no line numbers; `runtime: host` when only the host has composer); init adds it
-                                 # only with the plan's consent to sending the package list to Packagist (§6);
+                                 # step audit runs {{composerAuditCommand}} on the host (including any native container wrapper), requires composer.lock, quick/full, required;
+                                 # no changed-line filter; fallback composer audit --locked --no-interaction --format=plain in the verified runtime, with approved source (§6);
                                  # `.neon` lint `php vendor/bin/neon-lint {file} >/dev/null` (nette/neon 3.3.1+, a Stop code extension;
                                  # stdout holds only the banner and `\r` progress, `[ERROR] <file> <msg> on line N` goes to stderr and is
                                  # always kept, §4.2; a missing tool is skipped, never blocks); `secrets.forbidFiles` starts with `{{localConfig}}`
 php-nette/settings.json          # permissions.ask (V4: make db-import*, docker stop/restart/rm * (any container), git push*, git checkout*/git switch*, destructive git and docker commands (`git reset --hard*`, `git clean *`, `git stash drop*`/`clear*`, `git branch -D *`, `docker volume rm *`/`prune*`, `docker system prune*`; `git restore` stays free — `/dev:commit` unstages with `--staged`), dependency changes (`*composer require *`, `*composer update*`, `*composer remove *`; leading `*` like the Doctrine rules, composer runs through `docker exec`), Doctrine commands that change the DB, migration history or files (`*migrations:migrate*` incl. `--dry-run`, `*migrations:diff*`, `*schema:update*`, `*schema-tool:*`, `*dbal:run-sql*`, …; inert in Dibi projects), Phinx commands that change the DB (`*phinx migrate*`, `*phinx rollback*`, `*phinx seed:run*`, `*phinx breakpoint*`, right after the Doctrine rules; `phinx status`, `create`, `seed:create` stay free; inert in Doctrine projects); project-init adds existing Makefile targets that stop/rebuild containers or change the DB/index) + permissions.deny (O: Edit(/vendor/**), Edit(/node_modules/**) …, anchored to the project root)
-php-nette/.worktreeinclude       # V6: vendor/, {{localConfig}}, .test-credentials
+php-nette/.worktreeinclude       # V6: vendor/; keep local configs and credentials out of worktree templates
 php-nette/rules/php-core.md      # paths: **/*.php — PHP 8.x, PSR-12, strict types where project uses them, no die(), no @
 php-nette/rules/nette.md         # paths: app/**, libs/** — presenters, DI ({{localConfig}} never committed), forms CSRF, ACL isAllowed
 php-nette/rules/latte-frontend.md# paths: **/*.latte, www/css/**, www/js/** — escaping, {!$} policy, data-bs-*, JS anchors, frontend guards and steps
 php-nette/rules/db-dibi.md       # paths: db/**, **/*Model.php, phinx.{php,json,yaml,yml} — Dibi 4+ fetch null, params, no begin/commit in models, Phinx (directory from `paths.migrations`)
 php-nette/rules/db-doctrine.md   # paths: **/Entity/**, **/Repository/**, **/migrations/**, app/config/*doctrine*.neon — Doctrine ORM + Migrations in Nette; copied instead of db-dibi.md
 php-nette/rules/tests.md         # paths: tests/** — suites, rollback tests, credentials, verification output (PHPUnit and Nette Tester)
-php-symfony/…                    # same shape: CLAUDE.md.tmpl, devkit.json, settings.json, .worktreeinclude, rules/{php-core,symfony,twig-frontend,doctrine,api-platform,tests}.md;
+php-symfony/…                    # same shape: AGENTS.md.tmpl, devkit.json, settings.json, .worktreeinclude, rules/{php-core,symfony,twig-frontend,doctrine,api-platform,tests}.md;
                                  # devkit.json has the same frontend steps, guards, `commitGate.ext` extensions and `audit` step as php-nette
-                                 # CLAUDE.md.tmpl has the sections, their order and the generic placeholders of php-nette ({{commitStyle}}
+                                 # AGENTS.md.tmpl has the sections, their order and the generic placeholders of php-nette ({{commitStyle}}
                                  # with the `git push` rule, {{handoffDoc}}, Overovanie práce, {{appUrl}}, {{startCommand}} …); only framework
                                  # symbols differ (`t_templates_php_parity`); lines marked `<!-- api-platform -->`, `<!-- fe:assetmapper -->`,
                                  # `<!-- fe:encore -->` (the `fe:` ones also in rules/twig-frontend.md) are kept per composer.json (§6);
                                  # rules/api-platform.md only with `api-platform/*`; settings.json deny also `Edit(/public/build/**)`
                                  # (Encore build output) in every project — settings.json has no conditions, without Encore the rule is inert
-python/…                         # CLAUDE.md.tmpl, devkit.json (pytest, ruff, mypy; host or container; {{bin}} placeholder, _init note key), settings.json, .worktreeinclude, rules/{python-core,tests}.md;
+python/…                         # AGENTS.md.tmpl, devkit.json (pytest, ruff, mypy; host or container; {{bin}} placeholder, _init note key), settings.json, .worktreeinclude, rules/{python-core,tests}.md;
                                  # settings.json ask: git push/checkout/switch, docker stop/restart, compose down, the destructive git and docker
                                  # commands of php-nette, `*alembic upgrade *`/`downgrade *`, `*manage.py migrate*`/`flush*`;
                                  # guards also cover `.ipynb` (cell source lines in the notebook JSON, NotebookEdit); no `.ipynb` lint —
@@ -1148,7 +1152,7 @@ for the step field. Every placeholder has a row in the project-init table (§6),
 All three `settings.json` carry `plansDirectory: "docs/plans"`, `extraKnownMarketplaces` (`dev-kit` → GitHub
 `xentrix161/claude-dev-kit`) and `enabledPlugins` (`dev@dev-kit: true`); init writes the last two only to the shared
 `.claude/settings.json` in team mode (§6); no template has `attribution` (an init question). Deny rules in `settings.json` start with `/`
-(relative to the settings source = project root, permissions.md). `changedLinesOnly: "stop"` on phpstan
+(relative to the settings source = project root, permissions.md). `changedLinesOnly: "stop"` on the optional file-scoped `phpstan-stop` when the native project permits it
 (php-nette, php-symfony) and mypy (python). Stop mode runs only fast steps: tests without the slow ones
 (php-nette `--testsuite unit`, php-symfony `--exclude-group integration` or the fast `<testsuite>` that
 init picks from `phpunit.xml`, python `-m 'not slow and not integration'`); slow tests are a separate

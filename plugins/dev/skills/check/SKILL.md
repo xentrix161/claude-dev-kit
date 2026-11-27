@@ -1,21 +1,21 @@
 ---
 name: check
-description: "Overí zmeny projektu jedným príkazom (PHPStan, testy, phpcs, latte… podľa .claude/devkit.json) a vráti PASS/FAIL s nálezmi. Zelený beh odomkne commit gate pre aktuálny obsah."
-argument-hint: "[--quick|--full|--auto] [--files <súbor>…]"
+description: "Spustí projektový harness a pripojené kontroly kitu. Uvedie výsledok, rozsah a dôvody neúplného overenia."
+argument-hint: "[--quick|--full|--auto] [--before-stage] [--files <súbor>…]"
 disable-model-invocation: true
 allowed-tools:
   - 'Bash(bash "${CLAUDE_PLUGIN_ROOT}/scripts/check.sh" *)'
 ---
-<!-- postup overovania z ECC skills/verification-loop @ b92f181, výsledok výhradne zo scripts/check.sh -->
+<!-- postup overovania z ECC skills/verification-loop @ b92f181, doplnkové kroky cez scripts/check.sh -->
 
 # /dev:check — overenie zmien
 
-Jediný zdroj pravdy je `check.sh`. PASS tvrď len podľa jeho výstupu a exit kódu z tohto ťahu. Komunikuj po slovensky.
+Začni spoločným `dev-kit-workflow`. Vykonaj povinný natívny harness v prostredí, rozsahu a s argumentmi projektu aj bez konfigurácie kitu. Zaznamenaj jeho výsledok. Ak v zvolenom režime kitu beží totožný príkaz s rovnakým runtime a argumentmi ako `required`, stačí jeden beh cez kit. Ak projekt povoľuje iba stav kontroly, použi jeho schválený report alebo `output: status`. Ak obmedzuje aj ukladanie metadát kitu, vykonaj príkaz priamo podľa jeho pravidiel. Krok kopírujúci zakázaný výstup nespúšťaj a kitový marker nevyhlasuj za splnený. Pri samostatnom zlyhaní alebo neúplnom výsledku povinného harnessu zastav odovzdanie aj commit. Doplňujúci kitový PASS ho nemôže zmeniť.
 
 ## 1. Spustenie
 
 - Argumenty: `$ARGUMENTS` (prázdne = `--quick`).
-- Skriptu odovzdaj len `--quick`, `--full`, `--auto` a `--files <rel>…` (cesty relatívne ku koreňu projektu). Slová bez pomlčky prelož (`full` → `--full`). Ostatný text ber ako pokyn používateľa, nie ako argument skriptu.
+- Skriptu odovzdaj len `--quick`, `--full`, `--auto`, `--before-stage` a `--files <rel>…` (cesty relatívne ku koreňu projektu). Slová bez pomlčky prelož (`full` → `--full`). Ostatný text ber ako pokyn používateľa, nie ako argument skriptu.
 - Režimy: `--quick` = rýchle kroky nad zmenenými súbormi · `--full` = aj pomalé sady (integračné testy) · `--auto` = `--full`, keď zmena zasahuje `check.fullWhen`, inak `--quick`.
 - Spusti presne takto, bez `cd`, bez `| tail` (exit kód musí ostať skriptu); `--project` vždy pred prepínačmi, `--files <rel>…` na koniec:
 
@@ -23,16 +23,17 @@ Jediný zdroj pravdy je `check.sh`. PASS tvrď len podľa jeho výstupu a exit k
 bash "${CLAUDE_PLUGIN_ROOT}/scripts/check.sh" --project "${CLAUDE_PROJECT_DIR}" <prepínače>
 ```
 
+- Pri `phase: before-stage` spusti zvolený režim s `--before-stage` pred `git add` nad nepripraveným diffom. Pri nových cestách vyžaduje každý taký krok aktuálny `newPathsReport` z vykonanej kontroly. Po stagingu rovnakého obsahu spusti bežný režim pre zvyšok projektu. `--full` zahŕňa aj povinné kroky z `quick`.
 - Bash timeout: `--quick` 300000 ms, `--full` a `--auto` 600000 ms.
 
 ## 2. Exit kód
 
 | kód | význam | čo urobiť |
 |---|---|---|
-| 0 | PASS | výstup podľa §5; commit gate je odomknutý pre aktuálny obsah súborov |
+| 0 | PASS | výstup podľa §5; pri povinných krokoch musí index skontrolovaný pri behu zodpovedať obsahu commitu |
 | 1 | FAIL | rozbor podľa §3 |
 | 3 | chýba alebo je chybný `.claude/devkit.json` | §4 |
-| 4 | neúplné overenie: `PARTIAL` (krok sa nedal spustiť) alebo `SKIP` (nič nebežalo) | vypíš dôvody z riadkov `!` a `–`; nikdy netvrď PASS; commit gate ostáva zamknutý |
+| 4 | neúplné overenie: `PARTIAL` (krok sa nedal spustiť) alebo `SKIP` (nič nebežalo) | vypíš dôvody z riadkov `!` a `–`; pri súbehu urči stav commitu z novšieho behu, inak commit čaká na úplné overenie |
 | iný | chyba skriptu | ukáž výstup, nehádaj; detail v `${DEVKIT_DATA:-$HOME/.claude/dev-kit}/errors.log` |
 
 Pri kóde 4:
@@ -58,23 +59,19 @@ Pri kóde 4:
 - Každý nález over v kóde (prečítaj okolie riadku) ešte pred nahlásením.
 - Zlyhanie v súbore, ktorý táto úloha nemenila, označ `mimo tvojich zmien` (legacy alebo rozrobená práca inej session).
 - Poradie opráv: syntax/parse → statická analýza (typy) → unit testy → integračné → štýl (phpcs). Príčina pred následkom: jedna chyba často zhodí ďalšie kroky.
-- Opakované zlyhanie mimo tvojich zmien navrhni do `check.knownFailures` — zapísať len so súhlasom. Neoveruj ho cez `git stash` ani prepnutím vetvy (v repe môžu pracovať iné sessions).
+- Pri voliteľnom kitovom kroku môžeš opakované známe zlyhanie navrhnúť do `check.knownFailures` — zapísať len so súhlasom. Neoveruj ho cez `git stash` ani prepnutím vetvy (v repe môžu pracovať iné sessions).
 - Bez pokynu neopravuj. Keď používateľ opravu žiada, oprav v navrhnutom poradí a spusti rovnaký príkaz znova (max 2 kolá, potom nahlás stav a navrhni /clear s presnejším zadaním).
 - Stop hook môže po FAIL zablokovať koniec ťahu: rovnaké zlyhanie najviac 2×, pri treťom (strop 3×) už len upozorní; keď čakáš na súhlas používateľa s opravou, ukonči ťah jednou vetou so stavom.
 
 ## 4. Bez `.claude/devkit.json`
 
-- Povedz jednou vetou: projekt nemá `.claude/devkit.json` → `/dev:project-init` ho nastaví; dovtedy nebeží Stop kontrola ani commit gate.
+- Ak projekt používa vlastný harness, vráť jeho výsledok. Kitové hooky môže vlastník pripojiť cez `/dev:project-init`.
 - Chybný JSON → `jq . .claude/devkit.json` ukáže miesto chyby.
-- Náhradná kontrola (len čítajúce príkazy), ak chce používateľ výsledok hneď:
-  - príkazy nájdi v CLAUDE.md projektu, `Makefile`, `composer.json` (`scripts`), `pyproject.toml`
-  - PHP: `vendor/bin/phpstan analyse`, `vendor/bin/phpunit`, `vendor/bin/phpcs`; Python: `pytest -q`, `ruff check .`, `mypy`
-  - projekt v Dockeri (`docker-compose*.yml`, `compose*.yml`) → `docker exec <kontajner> …` bez `-it`; make ciele s `-it` bez TTY padnú
-  - vo výstupe uveď `bez devkit.json — marker pre commit sa nezapisuje`
+- Použi natívny vstup uvedený v pravidlách projektu. Ak ho projekt ešte neurčil, hľadaj v manifeste, dokumentácii modulu alebo CI. Pri nejasnosti uveď rozsah, ktorý si dokázal overiť. Bez nastavenia kitu sa marker nevytvára.
 
 ## 5. Výstup
 
-- Prvý riadok = verdikt zo skriptu: `check <režim>: PASS|FAIL|PARTIAL|SKIP · N ok · N fail · N skip · N s` (pri známych zlyhaniach aj `· N známe`).
+- Najprv uveď výsledok povinného harnessu. Ak bežal kit, pripoj jeho verdikt: `check <režim>: PASS|FAIL|PARTIAL|SKIP · N ok · N fail · N skip · N s` (pri známych zlyhaniach aj `· N známe`).
 - Preskočené kroky vždy spomeň s dôvodom: `!` = nedal sa spustiť (overenie neúplné), `–` = netýka sa zmien.
 - FAIL: všetky nálezy z výstupu a logu, číslované `N. súbor:riadok — chyba (krok)`, potom `Poradie opráv: 2 → 1 → 3` a jednou-dvoma vetami prečo.
 - Posledný riadok `log: <cesta>`.

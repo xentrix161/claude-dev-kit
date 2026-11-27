@@ -1,8 +1,49 @@
 # dev-kit
 
-Plugin `dev` pre Claude Code. Claude si po sebe skontroluje kód (lint, testy, statickú analýzu) skôr, ako povie „hotovo“ alebo commitne, a neprepustí commit kódu, ktorý kontrolou neprešiel. Podporuje PHP Nette (Dibi alebo Doctrine), PHP Symfony a Python.
+Spoločný vývojový playbook pre Codex a Claude Code používa pravidlá a kontroly otvoreného projektu. Voliteľný Claude plugin `dev` pridáva hooky a šablóny pre Nette, Symfony a Python.
 
-## Inštalácia
+## Codex
+
+Z koreňa klonu prepoj skilly, ktoré ešte nemáš v osobnom adresári Codexu.
+
+```bash
+mkdir -p ~/.agents/skills
+ln -s "$PWD/plugins/dev/skills/dev-kit-workflow" ~/.agents/skills/
+ln -s "$PWD/plugins/dev/skills/project-init" ~/.agents/skills/
+ln -s "$PWD/codex/dev-kit" ~/.agents/skills/
+```
+
+V novom chate môžeš cez `@` vyhľadať `dev-kit-workflow`. Odkaz sleduje aktuálnu pracovnú kópiu aj po aktualizácii. Pred opakovanou inštaláciou over cieľ cez `readlink ~/.agents/skills/dev-kit-workflow`. Na pravidelné používanie stačí do osobných pokynov pridať vetu „Pri vývoji použi dev-kit-workflow a projektový harness.“ Claude načíta ten istý skill z pluginu.
+
+V aplikácii napíš `@`, vyhľadaj `project-init` a vyber skill kitu. Môže sa zobraziť ako `dev:project-init`. V novom projekte zobrazí plán nastavenia. S `--dry-run` skončí pri náhľade. Vstavané `/init` v Codexe vytvára základ `AGENTS.md`. [Výber skillu](https://learn.chatgpt.com/docs/build-skills) · [Príkazy v aplikácii](https://learn.chatgpt.com/docs/reference/slash-commands)
+
+Pre ďalšie príkazy vyber cez `@` skill `dev-kit` a dopíš napríklad `check --quick`, `review` či `mr`. Samotný skill vypíše ponuku. V CLI použi napríklad `$dev-kit init --dry-run` alebo `$dev-kit check --quick`. Oba príkazové skilly sa otvárajú na vyžiadanie. Automaticky používaný [vývojový postup](plugins/dev/skills/dev-kit-workflow/SKILL.md) ostáva stručný.
+
+Automatickú kontrolu pred commitom pripoj z koreňa trvalého klonu:
+
+```bash
+bash tools/install-codex-hook.sh
+```
+
+Inštalátor pridá do osobného `hooks.json` jednu kontrolu a vypíše cestu k zálohe existujúceho súboru. V novom Codexe otvor `/hooks`, skontroluj cestu k `pre-bash.sh` a potvrď dôveru. V projekte s `.claude/devkit.json` hook pri shellovom commite overí výsledok pre pripravovaný obsah. Povinný projektový krok pripojený ku kontrole kitu tak stačí vykonať raz. Vlastný Git hook projektu sa spúšťa podľa jeho nastavenia aj pri commite z terminálu či IDE. V projekte bez konfigurácie kitu naďalej rozhodujú jeho vlastné pokyny a kontroly. [Hooky v Codexe](https://developers.openai.com/codex/hooks/)
+
+## Existujúci projekt
+
+Pri drobnej oprave stačí nájsť dotknuté miesto, opraviť ho a doložiť cielené overenie. Povinné kontroly určuje projekt aj vtedy, keď sa zmenil jediný riadok. Podrobnosti pre plán, review, MR a vydanie otvor až pri príslušnej úlohe.
+
+Claude Code od verzie 2.1.277 v predvolenom režime načíta samotný `AGENTS.md`. Súbor `CLAUDE.local.md` slúži na súkromné pokyny používateľa pre konkrétny checkout. Kit ho nevytvára. Ak v projekte alebo nadradenom adresári existuje `CLAUDE.local.md` či iný projektový Claude súbor, skontroluj účinné pokyny. [Načítavanie inštrukcií Claude](https://code.claude.com/docs/en/memory#when-claude-code-reads-agentsmd)
+
+Začni projektovým `AGENTS.md`, zdokumentovanými príkazmi a existujúcim harnessom. Tento postup funguje aj bez `.claude/devkit.json` a bez šablóny pre daný jazyk. Pri rozpore v rozsahu kontroly dolož, čo projekt skutočne spúšťa. [Fázy playbooku](plugins/dev/skills/dev-kit-workflow/references/playbook.md)
+
+Pri `fix`, `test`, `deps` aj produkčnom audite rozhoduje výsledok povinného projektového harnessu. Pri povinnom kroku nad nepripraveným diffom nastav `phase: before-stage` a spusti `/dev:check --auto --before-stage` pred `git add`. Pripravený obsah následne over cez `/dev:check --auto`. Pri nových súboroch v tejto fáze prevezmi z harnessu skutočný výber ciest. Projekt môže povoliť iba stav kroku bez ukladania jeho výstupu. [Nastavenia kontrol](docs/devkit-json.md#nové-súbory-pred-stagingom)
+
+Pri príprave MR kit doloží vlastný beh pre konkrétny commit. Pokrytie zmien musí potvrdiť projektový harness alebo CI. Prevádzkový postup otvor pri migrácii, monitoringu, nasadení alebo incidente. [Prevádzka](plugins/dev/skills/dev-kit-workflow/references/operations.md) · [Bezpečnostné review](plugins/dev/skills/dev-kit-workflow/references/security.md)
+
+### Pred commitom
+
+V PHP projekte použi jeho audit lockfile a PHPStan s predpísaným rozsahom. Vyber unit testy pre zmenenú logiku, integračné testy pre dotknuté rozhrania a E2E pre dotknuté používateľské toky. Výsledok existujúceho harnessu môže pokryť viac krokov naraz. Nové PHP šablóny vedia audit a PHPStan pripojiť ako povinné kroky. Príkazy E2E, rozsah integračných sád a prostredie určuje projekt. Pri chýbajúcej povinnej kontrole commit počká. [PHP](plugins/dev/skills/dev-kit-workflow/references/php.md) · [JS a UI](plugins/dev/skills/dev-kit-workflow/references/js.md) · [Prevádzka](plugins/dev/skills/dev-kit-workflow/references/operations.md)
+
+## Inštalácia pre Claude Code
 
 ```bash
 brew install jq                                   # bez jq hooky mlčia
@@ -14,11 +55,11 @@ Novú verziu stiahneš príkazom `claude plugin update dev@dev-kit`. Potrebuješ
 
 ## Prvé spustenie v projekte
 
-Projekt bez `.claude/devkit.json` kit nechá na pokoji: hooky v ňom nič nerobia, úvodná karta session to raz za deň pripomenie. Nastavenie vytvoríš v Claude Code v koreni projektu:
+Projekt bez `.claude/devkit.json` kit nechá na pokoji: hooky v ňom nič nerobia, úvodná karta session to raz za deň pripomenie. V koreni projektu spusti onboarding podľa toho, čo chceš pripojiť.
 
-1. `/dev:project-init --dry-run` ukáže plán súborov a návrh `.claude/devkit.json`. Nič nezapíše.
-2. `/dev:project-init` zapíše nastavenie, rules a `CLAUDE.md` (v lokálnom režime `CLAUDE.local.md`). Súhlas pýta po fázach: plán, zápis s kontrolou, konvencie, `CLAUDE.md`; existujúci súbor zmení len so súhlasom. Pýta sa, či nastavenie ostane len tvoje (lokálny režim, `.git/info/exclude`), alebo ho commitneš pre tím (nižšie), a či skryť atribúciu Claude v commitoch a PR (predvolene sa nemení). Plány z režimu plánovania idú do `docs/plans/` (`plansDirectory`).
-3. `/dev:check --full` uloží východiskový stav. Testy, ktoré padajú už teraz, zapíše init so súhlasom do `check.knownFailures` — zoznamu známych zlyhaní, ktoré commit neblokujú, kým ich niekto neopraví; inak by commit gate blokoval každý commit. Krok `audit` (`composer audit`, `pip-audit`) beží len vo `--full` a pošle zoznam balíkov projektu na Packagist alebo PyPI; init ho zaradí len so schválením plánu.
+1. V Codexe vyber cez `@` **project-init**, v Claude spusti `/dev:project-init`. Init ukáže plán vrátane kontroly pred commitom. Uvidíš, ktoré projektové príkazy ju zabezpečia. Pre verzovaný pre-commit, ktorý pokrýva celý povinný krok, môže tím zdieľať rovnaký skript ako kontrolu kitu. V checkoute s aktívnym hookom ho vykoná Git. V čerstvom klone bez aktívneho hooku si Codex či Claude pred commitom vyžiada úspešný výsledok rovnakého skriptu.
+2. Vyber a schváľ variant **iba pre mňa** alebo **pre tím**. Vybraný plán zahŕňa aj nastavenie hooku. Lokálny variant používa osobné nastavenia checkoutu. Tímový variant pripraví zdieľané súbory vrátane prípadného doplnenia `AGENTS.md`. Pri odmietnutí aj pri `--dry-run` zostane projekt bez zápisu. Opakovaný init v nastavenom projekte ukáže stav a možnosť synchronizácie.
+3. `/dev:check --full` uloží východiskový stav. Pri voliteľných kitových krokoch testy, ktoré padajú už teraz, zapíše init so súhlasom do `check.knownFailures` — zoznamu známych zlyhaní, ktoré commit neblokujú, kým ich niekto neopraví; inak by commit gate blokoval každý commit. PHP šablóny pripájajú audit do `quick` aj `full`, Python do `full`. Plán uvádza skutočný zdroj oznámení a prenášané údaje. Pri chýbajúcom povolenom zdroji ostáva povinný audit zablokovaný.
 
 Po novej verzii kitu obnovíš skopírované šablóny príkazom `/dev:project-init --sync`. Každý kľúč `.claude/devkit.json` s príkladom popisuje [docs/devkit-json.md](docs/devkit-json.md); editor ich dopĺňa a kontroluje podľa schémy z kľúča `$schema`.
 
@@ -35,36 +76,36 @@ Po novej verzii kitu obnovíš skopírované šablóny príkazom `/dev:project-i
 |---|---|
 | po každom edite | Lint a guardy na debug výpis (aj `console.log`), `die()`, `{!$var}`, `@`, SQL skladané reťazcom a priradenie do `innerHTML`. Pridané riadky prehľadá aj na tajomstvá. Claude nález opraví hneď. |
 | na konci ťahu | Testy a analýza nad kódom, ktorý Claude v session zmenil (aj cez Bash, napr. `sed` či `git checkout`); súbory, ktoré kontrolujú len kroky `/dev:check` (napr. `.js`, `.css`), ich nespustia. Kým padajú, Claude nemôže skončiť; rovnaké zlyhanie zablokuje koniec ťahu najviac 2×, pri treťom už len upozorní. |
-| pred commitom | Commit, ktorý spúšťa Claude, prejde len s PASS z `/dev:check` pre presne ten obsah. Tajomstvá a lokálne configy (`config.local.neon`, `.env`) neprejdú. Commit z terminálu alebo IDE gate nestráži — hooky vidia len príkazy Clauda. |
+| pred commitom | Pri zapnutej kontrole v Claude alebo Codexe overí kit pre príslušné súbory PASS pre presne ten obsah. Kontroluje aj tajomstvá a zakázané lokálne súbory. Commit spustený priamo v termináli alebo IDE strážia projektové Git hooky. |
 | pred editom | Súbory zo `secrets.forbidFiles` (lokálne configy, `.env`) Claude needituje. Pred zmenou už commitnutej migrácie sa Claude spýta. Počas `/dev:fix` je test zamknutý, takže Claude opraví kód, nie test; zmenu testu cez Bash kontrola hlási ako FAIL. |
 | pri štarte session | Karta so stackom, stavom kontajnera, gitom, posledným handoffom a zmenou `devkit.json` od poslednej session. Šablóny skopírované zo staršej verzie kitu pripomenie raz za session (`/dev:project-init --sync`). |
 | pred kompakciou | Do pokynov súhrnu pridá stav session: súbory, ktoré Claude menil, výsledok poslednej Stop kontroly a posledný PASS z `/dev:check`, zamknutý test a posledný handoff. Kompakciu nikdy nezastaví. |
 
-Nebežiaci kontajner ani chýbajúci nástroj nič nezablokujú, kontrola sa len preskočí. Výsledok je potom **PARTIAL**: nič nepadlo, ale niektorý krok sa nedal spustiť, takže kód nie je overený — PARTIAL nie je PASS a commit gate commit kódu odmietne. Hláška vypíše kroky, ktoré neprebehli, a ponúkne únik: odstrániť príčinu (napríklad spustiť kontajner), alebo navrhnúť ti dočasné vypnutie cez `disabledRules` krokov, ktoré sa nedali spustiť — a keď neprebehol žiadny krok, celého `commitGate` (kontrola tajomstiev beží ďalej). Config Claude sám nemení.
+Nebežiaci kontajner ani chýbajúci nástroj nič nezablokujú, kontrola sa len preskočí. Výsledok je potom **PARTIAL**: nič nepadlo, ale niektorý krok sa nedal spustiť, takže kód nie je overený — PARTIAL nie je PASS a commit gate commit kódu odmietne. Hláška vypíše kroky, ktoré neprebehli. Pri povinnom projektovom kroku obnov predpoklady a zopakuj celý príkaz. Voliteľné kroky umožňujú odstrániť príčinu (napríklad spustiť kontajner), alebo navrhnúť ti dočasné vypnutie cez `disabledRules` krokov, ktoré sa nedali spustiť — a keď neprebehol žiadny krok, celého `commitGate` (kontrola tajomstiev beží ďalej). Config Claude sám nemení.
 
 ## Príkazy
 
 | Príkaz | Na čo |
 |---|---|
 | `/dev:check [--quick · --full · --auto] [--files …]` | kontroly projektu; PASS odomkne commit |
-| `/dev:commit` | kontrola, zoskupenie zmien a jednoriadková správa podľa pravidla o commitoch v `CLAUDE.md` projektu (bez neho `[#XX] typ: výstih`); nikdy nerobí push |
-| `/dev:review [branch [base]] [--security]` | review diffu: bugy, bezpečnosť, súlad s plánom, zastarané `CLAUDE.md` |
-| `/dev:mr [base]` | popis PR/MR vetvy (Čo, Prečo, Ako overiť, Riziká, Po nasadení) z diffu, plánu, posledného `/dev:check` a migrácií, s review agentmi; PR/MR cez `gh` či `glab` vytvorí len so súhlasom, push nikdy |
+| `/dev:commit` | kontrola, zoskupenie zmien a jednoriadková správa podľa pravidla o commitoch v pokynoch projektu (bez neho `[#XX] typ: výstih`); nikdy nerobí push |
+| `/dev:review [branch [base]] [--security]` | review diffu: bugy, bezpečnosť, súlad s plánom, zastarané projektové pokyny |
+| `/dev:mr [base]` | popis PR/MR vetvy (Čo, Prečo, Ako overiť, Riziká, Po nasadení) z diffu, plánu, posledného `/dev:check` a migrácií, s nezávislým review pri povolenej delegácii; PR/MR cez `gh` či `glab` vytvorí len so súhlasom, push nikdy |
 | `/dev:deps [balík]` | jedna závislosť naraz: zastarané balíky, update, changelog novej verzie, `/dev:check --full` a commit súborov závislostí; nikdy hromadný `composer update` |
 | `/dev:fix` | repro test → zámok testu → oprava kódu → kontrola |
 | `/dev:test` | test najprv: RED → GREEN → REFACTOR (PHPUnit, Nette Tester, pytest) |
 | `/dev:debug` | logy a stav prostredia → hypotéza → minimálny repro → návrh opravy |
-| `/dev:plan` | plán do `docs/plans/` pre väčšie alebo rizikové úlohy |
+| `/dev:plan` | plán väčšej alebo rizikovej zmeny podľa zvyklostí projektu |
 | `/dev:handoff` | stav práce do handoff dokumentu pred `/clear` |
 | `/dev:explain` | čo kód robí, z čoho závisí a čo hrozí pri zmene |
-| `/dev:learn` | návrhy pravidiel do pamäte alebo `.claude/rules/`; zapíše len schválené |
+| `/dev:learn` | návrhy pre osobné pokyny, projekt alebo spoločný kit |
 | `/dev:stats` | čo hooky zachytili a ktoré pravidlá sú najhlučnejšie |
-| `/dev:project-init` | nastavenie projektu zo šablóny |
+| `/dev:project-init` | lokálny alebo tímový plán nastavenia vrátane kontroly pred commitom |
 | `/dev:ecc-production-audit` | audit pred nasadením (len ručne) |
 
 Review — ktorý príkaz kedy:
 
-- `/dev:review` — vlastná zmena pred commitom alebo MR: bugy a bezpečnosť s checklistom Nette, Symfony alebo Python, súlad s plánom v `docs/plans/`, zastarané `CLAUDE.md` a rules; drží `REVIEW.md` projektu (čo hlásiť, čo nie). `--security` pridá hĺbkový bezpečnostný prechod.
+- `/dev:review` — vlastná zmena pred commitom alebo MR: bugy a bezpečnosť s checklistom Nette, Symfony alebo Python, súlad s plánom v `docs/plans/`, aktuálnosť projektových pokynov; drží `REVIEW.md` projektu (čo hlásiť, čo nie). `--security` pridá hĺbkový bezpečnostný prechod.
 - `/code-review` (vstavaný v Claude Code) — keď chceš zvoliť hĺbku (`low` … `max`), review PR podľa čísla alebo nálezy ako komentáre do PR (`--comment`).
 - `/security-review` (vstavaný) — samostatný bezpečnostný audit zmien celej vetvy, napríklad pred MR.
 

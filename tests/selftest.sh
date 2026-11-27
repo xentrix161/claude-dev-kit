@@ -635,6 +635,716 @@ t_check_skip_missing() {
   want_rc 0 && want_out '– phantom: chýba vendor/bin/phantom' || return 1
   [ ! -f "$REPO/.marks/ran-phantom" ] || fail "krok phantom bežal napriek chýbajúcemu requires"
 }
+codex_hook_event() {
+  OUT=$(cd "$CASE" && printf '%s\n' "$1" | bash -c "$2" 2>"$CASE/err")
+  RC=$?
+  ERR=$(cat "$CASE/err")
+}
+t_codex_commit_hook() {
+  new_case
+  local home_dir="$CASE/codex home" file installer="$KIT/tools/install-codex-hook.sh" cmd payload
+  file="$home_dir/hooks.json"
+  mkdir -p "$home_dir"
+  printf '%s\n' '{"hooks":{"Stop":[{"hooks":[{"type":"command","command":"true"}]}]}}' > "$file"
+  cp "$file" "$CASE/original"
+  CODEX_HOME="$home_dir" bash "$installer" >/dev/null || return 1
+  cmp "$CASE/original" "$home_dir"/hooks.json.dev-kit-backup.* || return 1
+  jq -e --slurpfile original "$CASE/original" '
+    .hooks.Stop == $original[0].hooks.Stop and (.hooks.PreToolUse | length == 1)
+    and .hooks.PreToolUse[0].matcher == "^Bash$"' "$file" >/dev/null || return 1
+  cp "$file" "$CASE/installed"
+  CODEX_HOME="$home_dir" bash "$installer" >/dev/null && cmp "$file" "$CASE/installed" || return 1
+  cmp "$CASE/original" "$home_dir"/hooks.json.dev-kit-backup.* || return 1
+  cmd=$(jq -er '.hooks.PreToolUse[0].hooks[0].command' "$file") || return 1
+  jq '.hooks.PreToolUse += .hooks.PreToolUse' "$CASE/installed" > "$file"
+  cp "$file" "$CASE/doubled"
+  if CODEX_HOME="$home_dir" bash "$installer" > "$CASE/install.out" 2>&1; then return 1; fi
+  cmp "$file" "$CASE/doubled" && grep -Fq 'viackrát' "$CASE/install.out" || return 1
+  cp "$CASE/installed" "$file"
+  mkdir -p "$REPO/sub"
+  payload=$(jq -nc --arg root "$REPO/sub" --arg sid "$SID" '{hook_event_name:"PreToolUse",
+    session_id:$sid, cwd:$root, tool_name:"Bash", tool_input:{command:"git commit -m zmena"}}')
+  unset CLAUDE_PROJECT_DIR CLAUDE_PLUGIN_ROOT
+  add app/Foo.php '$f = 6;'
+  g add app/Foo.php
+  cfg '.check.steps |= map(if .id == "unit" then .required = true else . end)'
+  codex_hook_event "$payload" "$cmd"
+  want_decision deny && [ "$(unit_calls)" = 0 ] || return 1
+  check --quick --project "$REPO"
+  want_rc 0 && [ "$(unit_calls)" = 1 ] || return 1
+  codex_hook_event "$payload" "$cmd"
+  want_allow && [ "$(unit_calls)" = 1 ] || return 1
+  add app/Foo.php '$f = 7;'
+  g add app/Foo.php
+  codex_hook_event "$payload" "$cmd"
+  want_decision deny && [ "$(unit_calls)" = 1 ] || return 1
+  printf 'neplatné' > "$file"
+  if CODEX_HOME="$home_dir" bash "$installer" >/dev/null 2>&1; then return 1; fi
+  [ "$(cat "$file")" = 'neplatné' ] || return 1
+  mkdir "$CASE/fresh"
+  CODEX_HOME="$CASE/fresh" bash "$installer" >/dev/null || return 1
+  jq -e '.hooks.PreToolUse | length == 1' "$CASE/fresh/hooks.json" >/dev/null
+}
+
+t_codex_commands() {
+  new_case nocfg
+  local runner="$CASE/osobné skilly/dev-kit/scripts/command.sh" name rc before
+  mkdir -p "$CASE/osobné skilly" && ln -s "$KIT/codex/dev-kit" "$CASE/osobné skilly/dev-kit" || return 1
+  before=$(git -C "$REPO" status --porcelain)
+  (cd "$REPO" && bash "$runner" --list) > "$CASE/menu" || return 1
+  for name in check commit debug deps ecc-production-audit explain fix handoff learn mr plan project-init review stats test; do
+    grep -Fxq "$name" "$CASE/menu" || return 1
+    (cd "$REPO" && bash "$runner" "$name") > "$CASE/command" || return 1
+    tail -n +4 "$CASE/command" | cmp - "$KIT/plugins/dev/skills/$name/SKILL.md" || return 1
+  done
+  bash "$runner" init > "$CASE/init" && bash "$runner" project-init | cmp - "$CASE/init" || return 1
+  bash "$runner" audit > "$CASE/audit" && bash "$runner" ecc-production-audit | cmp - "$CASE/audit" || return 1
+  for name in ../project-init unknown dev-kit-workflow; do
+    rc=0
+    bash "$runner" "$name" > "$CASE/out" 2>/dev/null || rc=$?
+    [ "$rc" = 2 ] && [ ! -s "$CASE/out" ] || return 1
+  done
+  [ "$(git -C "$REPO" status --porcelain)" = "$before" ]
+}
+t_init_commit_hook() {
+  new_case nocfg
+  local unconfigured='Projekt zatiaľ nemá konfiguráciu kitu.'
+  local found wt="$CASE/další checkout" root="$REPO/sub" hook="$REPO/project hooks/pre-commit"
+  mkdir -p "$root" "$(dirname "$hook")"
+  git -C "$REPO" config core.hooksPath 'project hooks' || return 1
+  printf '#!/bin/sh\ntouch "%s"\n' "$CASE/hook-ran" > "$hook"
+  cp "$REPO/.git/config" "$CASE/gitconfig"
+  found=$(bash "$S/init-commit-hook.sh" "$root") || return 1
+  [ "$found" = "$unconfigured" ] || { fail "nový projekt s nespustiteľným hookom: $found"; return 1; }
+  chmod +x "$hook"
+  found=$(bash "$S/init-commit-hook.sh" "$root") || return 1
+  printf '%s\n' "$found" | grep -Fq 'project hooks/pre-commit' &&
+    [ "$(printf '%s\n' "$found" | tail -1)" = "$unconfigured" ] &&
+    [ ! -e "$CASE/hook-ran" ] && [ ! -e "$REPO/.claude/devkit.json" ] &&
+    cmp "$REPO/.git/config" "$CASE/gitconfig" || { fail 'inventár Git hooku alebo zápis pred schválením plánu'; return 1; }
+  if git -C "$REPO" hook list --show-scope pre-commit >/dev/null 2>&1; then
+    git -C "$REPO" config hook.native.event pre-commit
+    git -C "$REPO" config hook.native.command true
+    bash "$S/init-commit-hook.sh" "$root" | grep -Fxq 'Git pre-commit (local): native' || return 1
+    git -C "$REPO" config hook.native.enabled false
+    found=$(bash "$S/init-commit-hook.sh" "$root") || return 1
+    case "$found" in *': native'*) fail 'vypnutý pomenovaný Git hook'; return 1 ;; esac
+  fi
+  found=$(bash "$S/init-commit-hook.sh" "$root") || return 1
+  git -C "$REPO" config --local devkit.askCommitGate false
+  [ "$(bash "$S/init-commit-hook.sh" "$root")" = "$found" ] &&
+    [ "$(git -C "$REPO" config --local --get devkit.askCommitGate)" = false ] ||
+    { fail 'stará voľba otázky zmenila inventár pre plán alebo bola prepísaná'; return 1; }
+  cfg 'del(.commitGate)'
+  git -C "$REPO" worktree add -q --detach "$wt" || return 1
+  found=$(bash "$S/init-commit-hook.sh" "$wt") || return 1
+  case "$found" in *"zapnutá ($REPO/.claude/devkit.json)"*) ;; *) fail "zdedená konfigurácia: $found"; return 1 ;; esac
+  cfg '.commitGate.enabled = false'
+  bash "$S/init-commit-hook.sh" "$root" | grep -Fq 'konfigurácii: vypnutá' || return 1
+  cfg '.disabledRules += ["commitGate"]'
+  bash "$S/init-commit-hook.sh" "$root" | grep -Fq 'konfigurácii: vypnutá' || return 1
+  printf '{' > "$REPO/.claude/devkit.json"
+  bash "$S/init-commit-hook.sh" "$root" | grep -Fq 'konfigurácii: neoverená' || return 1
+  [ ! -e "$PDATA/project.json" ] && [ ! -e "$CASE/hook-ran" ]
+}
+
+t_native_hook_checkouts() {
+  new_case
+  local original="$REPO" rel=.githooks/pre-commit
+  put .gitignore '.claude/
+.marks/'
+  # Presne výnimky zo schvaľovaného tímového plánu.
+  awk '/^```gitignore$/{block=1; next} block && /^```$/{exit} block' \
+    "$KIT/plugins/dev/skills/project-init/references/install.md" >> "$REPO/.gitignore"
+  put .claude/settings.json '{}'
+  put .claude/settings.local.json '{}'
+  put "$rel" '#!/bin/sh
+mkdir -p .marks
+echo kontrola >> .marks/runs
+test ! -f .marks/fail'
+  chmod +x "$REPO/$rel"
+  cfg --arg path "$rel" '.commitGate.nativeHook=$path |
+    .check.steps=[{id:"project",required:true,runtime:"host",run:("./" + $path)}]'
+  g add .gitignore .claude/devkit.json .claude/settings.json "$rel" && g commit -qm nastavenie || return 1
+  git -C "$REPO" check-ignore -q .claude/settings.local.json || return 1
+  g config core.hooksPath .githooks
+  git clone -q "$original" "$CASE/clone" || return 1
+  add app/Foo.php zmena && g add app/Foo.php || return 1
+  OUT=$(bash "$S/init-commit-hook.sh" "$REPO")
+  want_out 'krok vykoná Git' || return 1
+  pre_bash 'git commit -qm zmena'
+  want_allow && [ ! -f "$REPO/.marks/runs" ] || return 1
+  pre_bash "git  commit -m '[úloha] dve  slová'"
+  want_allow || return 1
+  put rozpracovane.txt cudzie
+  pre_bash 'git commit -m zmena'
+  want_decision deny && want_out 'obsah commitu sa líši' || return 1
+  rm "$REPO/rozpracovane.txt"
+  # Aj pri delegovaní Git kroku stráži kit zakázané súbory.
+  put app/config/config.local.neon citlivy
+  g add -f app/config/config.local.neon
+  pre_bash 'git commit -m zmena'
+  want_decision deny && want_out 'zakázaný súbor' || return 1
+  g restore --staged app/config/config.local.neon && rm "$REPO/app/config/config.local.neon" || return 1
+  mkdir -p "$REPO/.marks" && touch "$REPO/.marks/fail"
+  if g commit -qm zmena; then fail 'Git pustil neúspešný natívny hook'; return 1; fi
+  rm "$REPO/.marks/fail"
+  g commit -qm zmena && [ "$(wc -l < "$REPO/.marks/runs" | tr -d ' ')" = 2 ] || return 1
+  add "$rel" '# zmenený vstup'
+  pre_bash 'git commit --allow-empty -m zmena'
+  want_decision deny || return 1
+  REPO="$CASE/clone" CLAUDE_PROJECT_DIR="$CASE/clone"
+  OUT=$(bash "$S/init-commit-hook.sh" "$REPO")
+  want_out 'musí overiť kit' || return 1
+  add app/Foo.php zmena && g add app/Foo.php || return 1
+  pre_bash 'git commit -m zmena'
+  want_decision deny || return 1
+  check --quick --project "$REPO"
+  want_rc 0 || return 1
+  pre_bash 'git commit -m zmena'
+  want_allow && g commit -qm zmena && [ "$(cat "$REPO/.marks/runs")" = kontrola ] || return 1
+  g config core.hooksPath .githooks
+  jq '.check.steps += [{id:"extra",required:true,run:"false"}]' "$REPO/.claude/devkit.json" > "$CASE/extra"
+  cp "$CASE/extra" "$REPO/.claude/devkit.json"
+  pre_bash 'git commit --allow-empty -m dalsi'
+  want_decision deny || return 1
+  jq 'del(.check.steps[0])' "$CASE/extra" > "$REPO/.claude/devkit.json"
+  pre_bash 'git commit --allow-empty -m dalsi'
+  want_decision deny && want_out 'potrebuje povinný projektový krok'
+}
+
+t_required_empty_commit() {
+  new_case
+  cfg '.check.steps=[{id:"projekt",required:true,run:"sh bin/fake-phpunit"}]'
+  local c
+  for c in 'git commit --allow-empty -m vydanie' 'git commit --amend --no-edit'; do
+    pre_bash "$c"
+    want_decision deny || return 1
+  done
+  check --quick --project "$REPO"
+  want_rc 0 || return 1
+  for c in 'git commit --allow-empty -qm vydanie' 'git commit --amend --no-edit'; do
+    pre_bash "$c"
+    want_allow || return 1
+  done
+  add README.md zmena && g add README.md || return 1
+  pre_bash 'git commit -qm dokumentácia'
+  want_decision deny || return 1
+  check --quick --project "$REPO"
+  want_rc 0 || return 1
+  pre_bash "git  commit   -qm 'dve  slová'"
+  want_allow || return 1
+  pre_bash 'git status && git commit -qm zmena'
+  want_decision deny
+}
+
+t_init_setup_plan() {
+  new_case nocfg
+  local init="$KIT/plugins/dev/skills/project-init" plan="$CASE/instructions"
+  bash "$KIT/codex/dev-kit/scripts/command.sh" init > "$plan" || return 1
+  tail -n +4 "$plan" | cmp - "$init/SKILL.md" || return 1
+  grep -F 'Bežný init aj `--dry-run`' "$plan" | grep -Fq '(references/install.md)' &&
+    grep -Fq 'Hook schvaľuje používateľ spolu s plánom.' "$plan" &&
+    grep -Fq '(commit-hook.md)' "$init/references/install.md" &&
+    grep -Fq '„iba pre mňa“ alebo „pre tím“' "$plan" ||
+    { fail 'bežný init a náhľad musia použiť ten istý plán s voľbou režimu a spoločným schválením'; return 1; }
+  if grep -Fq 'devkit.askCommitGate' "$plan" "$init/references/install.md" "$init/references/commit-hook.md"; then
+    fail 'plán opäť používa osobitnú voľbu hooku'; return 1
+  fi
+}
+
+t_project_context() {
+  new_case nocfg
+  local inventory="$KIT/plugins/dev/skills/dev-kit-workflow/scripts/project-context.sh" before found
+  put AGENTS.md 'Overuj cez bin/harness.'
+  put bin/harness 'exit 42'
+  put REVIEW.md 'Kritériá projektu.'
+  put .claude/REVIEW.md 'Lokálne doplnenia.'
+  put sub/AGENTS.md 'Lokálny rozsah.'
+  put sub/.claude/AGENTS.md '## Test'
+  printf 'PRIVATE-ANCESTOR-CONTENT\n' > "$CASE/CLAUDE.local.md"
+  mkdir -p "$CASE/.claude"
+  printf 'PRIVATE-ANCESTOR-CONTENT\n' > "$CASE/.claude/CLAUDE.md"
+  printf '## Overovanie\nSpusti test.\n' >> "$REPO/sub/AGENTS.md"
+  ln -s AGENTS.md "$REPO/CLAUDE.md"
+  g add -- AGENTS.md sub/AGENTS.md bin/harness CLAUDE.md || return 1
+  before=$(git -C "$REPO" status --short --untracked-files=all)
+  found=$(bash "$inventory" "$REPO/sub") || return 1
+  case "$found" in *PRIVATE-ANCESTOR-CONTENT*) fail "inventár zobrazil súkromný obsah"; return 1 ;; esac
+  for f in "$CASE/CLAUDE.local.md" "$CASE/.claude/CLAUDE.md"; do
+    printf '%s\n' "$found" | grep -Fq "$f môže tieniť" || { fail "chýba nadradená cesta"; return 1; }
+  done
+  for f in sub/AGENTS.md sub/.claude/AGENTS.md REVIEW.md .claude/REVIEW.md AGENTS.md CLAUDE.md bin/harness; do
+    printf '%s\n' "$found" | grep -Fxq "$f" || { fail "inventár: chýba $f"; return 1; }
+  done
+  printf '%s\n' "$found" | grep -Fq "$(wc -c < "$REPO/sub/AGENTS.md" | tr -d ' ') B · sekcie kontrol na riadkoch 2" ||
+    { fail "inventár: veľkosť alebo riadok kontrol"; return 1; }
+  [ "$found" = "$(bash "$inventory" "$REPO/sub")" ] &&
+    [ "$before" = "$(git -C "$REPO" status --short --untracked-files=all)" ] &&
+    [ -L "$REPO/CLAUDE.md" ] && [ ! -e "$REPO/CLAUDE.local.md" ] || fail "inventár zmenil checkout"
+}
+t_project_required() {
+  new_case
+  cfg '.check.steps |= map(if .id == "unit" then . + {required:true, runFiles:"false", changedLinesOnly:true} else . end)
+    | .check.knownFailures = [{step:"unit",pattern:"testOld"}]'
+  add app/Foo.php '$k = 12;'
+  g add app/Foo.php
+  check --quick --project "$REPO" --files app/Foo.php
+  want_rc 0 && [ -f "$PDATA/pass.json" ] || return 1
+  g add app/Foo.php
+  pre_bash 'git commit -m "x"'
+  want_allow "povinný príkaz overený" || return 1
+  cfg '.check.steps |= map(if .id == "unit" then . + {required:true, run:"false"} else . end)'
+  pre_bash 'git commit -m "x"'
+  want_decision deny "zmenená povinná kontrola vyžaduje nový výsledok" || return 1
+  cfg '.check.steps |= map(if .id == "unit" then . + {required:true, runFiles:"false", changedLinesOnly:true} else . end)
+    | .check.knownFailures = [{step:"unit",pattern:"testOld"}]'
+  fail_unit 'Tests\Order::testOld'
+  check --quick --project "$REPO" --files app/Foo.php
+  want_rc 1 && want_out '✗ unit' && [ ! -f "$PDATA/pass.json" ] || return 1
+  cfg '.check.steps |= map(if .id == "unit" then . + {required:true, requires:"bin/nedostupny"} else . end)'
+  check --quick --project "$REPO"
+  want_rc 4 && want_out 'PARTIAL' && want_out 'chýba bin/nedostupny' || return 1
+  g add app/Foo.php
+  pre_bash 'git commit -m "x"'
+  want_decision deny && want_json '.hookSpecificOutput.permissionDecisionReason | contains("Obnov predpoklady povinnej projektovej kontroly")' || return 1
+  cfg '.check.steps |= map(if .id == "unit" then .required = true else . end) | .disabledRules += ["step:unit"]'
+  check --quick --project "$REPO"
+  want_rc 4 && want_out 'povinná kontrola je vypnutá'
+}
+t_project_proof() {
+  new_case
+  cfg '(.check.steps[] | select(.id == "unit")).required = true'
+  add app/Foo.php 'zmena'
+  put 'sub/nový súbor.txt' 'vstup'
+  check --quick --project "$REPO" --files app/Foo.php
+  want_rc 0 || return 1
+  pre_bash 'git add -A && git commit -m "celý overený strom"'
+  want_decision deny || return 1
+  pre_bash 'git add app/Foo.php && git commit -m "časť"'
+  want_decision deny || return 1
+  g add app/Foo.php
+  pre_bash 'git commit -m "čiastočný commit"'
+  want_decision deny && want_out 'obsah commitu sa líši' || return 1
+  g add 'sub/nový súbor.txt'
+  check --quick --project "$REPO"
+  want_rc 0 || return 1
+  pre_bash 'git add -A && git commit -m "celý overený strom"'
+  want_allow || return 1
+  local example
+  example=$(sed -n '/^git commit -m /p' "$KIT/plugins/dev/skills/commit/SKILL.md")
+  [ -n "$example" ] || { fail "chýba ukážka commitu"; return 1; }
+  pre_bash "$example"
+  want_allow || return 1
+  pre_bash 'git commit --amend --no-edit'
+  want_allow || return 1
+  pre_bash 'git commit --amend --only --no-edit'
+  want_decision deny || return 1
+  pre_bash 'git rebase --continue'
+  want_allow || return 1
+  pre_bash 'git restore --staged README.md && git commit -m "iné poradie"'
+  want_decision deny || return 1
+  pre_bash 'git commit -m "len jeden" -- app/Foo.php'
+  want_decision deny || return 1
+  add README.md 'ďalšia zmena'
+  pre_bash 'git commit -am "aj README"'
+  want_decision deny || return 1
+  g add README.md && g commit -qm fixture || return 1
+  add app/Foo.php 'zmena na novom HEAD'
+  g add app/Foo.php
+  check --quick --project "$REPO"
+  want_rc 0 || return 1
+  local next
+  next=$(git -C "$REPO" commit-tree 'HEAD^{tree}' -p HEAD -m "nový základ") && g update-ref HEAD "$next" || return 1
+  pre_bash 'git commit -m "starý výsledok"'
+  want_decision deny && want_out 'nový výsledok' || return 1
+  cfg '(.check.steps[] | select(.id == "unit")) += {required:true,run:"echo edit >> README.md"}'
+  check --quick --project "$REPO"
+  want_rc 4 && want_out 'stav projektu počas kontroly' && [ ! -f "$PDATA/pass.json" ]
+}
+t_project_required_docs() {
+  new_case
+  cfg '(.check.steps[] | select(.id == "unit")).required = true | .check.fullWhen = ["docs/**"]'
+  add docs/handoff.md 'zmena rozhrania'
+  g add docs/handoff.md
+  pre_bash 'git commit -m "dokumentácia"'
+  want_decision deny || return 1
+  check --quick --project "$REPO"
+  want_rc 0 || return 1
+  pre_bash 'git commit -m "dokumentácia"'
+  want_decision deny && want_out 'vyžaduje /dev:check --full' || return 1
+  check --auto --project "$REPO"
+  want_rc 0 || return 1
+  pre_bash 'git commit -m "dokumentácia"'
+  want_allow
+}
+t_staged_harness() {
+  new_case
+  cfg '.check.steps = [{id:"native",required:true,run:"sh bin/native-check"}]'
+  put bin/native-check 'git diff --cached --name-only -- app/Foo.php > .marks/selected
+if [ -s .marks/selected ]; then test -f .marks/allow; fi'
+  g add bin/native-check && g commit -qm harness || return 1
+  mkdir -p "$REPO/.marks"
+  add app/Foo.php 'zmena'
+  check --quick --project "$REPO"
+  want_rc 0 && [ ! -s "$REPO/.marks/selected" ] || return 1
+  g add app/Foo.php
+  pre_bash 'git commit -m "over index"'
+  want_decision deny || return 1
+  check --quick --project "$REPO"
+  want_rc 1 && grep -Fxq app/Foo.php "$REPO/.marks/selected" || return 1
+  touch "$REPO/.marks/allow"
+  check --quick --project "$REPO"
+  want_rc 0 || return 1
+  pre_bash 'git commit -m "over index"'
+  want_allow || return 1
+  cfg '.check.steps = [{id:"native",required:true,run:"git restore --staged -- app/Foo.php"}]'
+  check --quick --project "$REPO"
+  want_rc 4 && want_out 'index' && [ ! -f "$PDATA/pass.json" ]
+}
+t_before_stage() {
+  new_case
+  cfg '.check.steps = [{id:"edits",required:true,phase:"before-stage",run:"sh bin/edits"},
+    {id:"staged",required:true,run:"git diff --cached --name-only | grep -qx app/Foo.php"}]'
+  put bin/edits 'git diff --name-only > .marks/edits
+if grep -qx app/Foo.php .marks/edits; then ! grep -q INVALID app/Foo.php; fi'
+  g add bin/edits && g commit -qm harness || return 1
+  mkdir -p "$REPO/.marks"
+  add app/Foo.php INVALID
+  check --quick --before-stage --project "$REPO"
+  want_rc 1 && want_out '✗ edits' || return 1
+  g add app/Foo.php
+  check --quick --project "$REPO"
+  want_rc 4 || return 1
+  pre_bash 'git commit -m fixture'
+  want_decision deny || return 1
+  check --quick --before-stage --project "$REPO"
+  want_rc 4 && want_jfile "$PDATA/partial.json" '.steps == ["edits"]' || return 1
+  g restore --staged app/Foo.php
+  put app/Foo.php '<?php // opravené'
+  check --quick --before-stage --project "$REPO"
+  want_rc 0 && grep -Fxq app/Foo.php "$REPO/.marks/edits" || return 1
+  g add app/Foo.php
+  check --quick --project "$REPO"
+  want_rc 0 && want_out '✓ staged' || return 1
+  pre_bash 'git commit -m fixture'
+  want_allow || return 1
+  add app/Foo.php 'iný obsah'
+  g add app/Foo.php
+  check --quick --project "$REPO"
+  want_rc 4
+}
+t_before_stage_full() {
+  new_case
+  cfg '.check.steps = [{id:"tests",phase:"before-stage",required:true,modes:["quick"],run:"true"},
+    {id:"tests",phase:"before-stage",required:true,modes:["full"],run:"false"}]'
+  add app/Foo.php zmena
+  check --quick --before-stage --project "$REPO"
+  want_rc 0 || return 1
+  g add app/Foo.php
+  check --full --project "$REPO"
+  want_rc 4 && want_out 'chýba overenie' || return 1
+  pre_bash 'git commit -m fixture'
+  want_decision deny || return 1
+  g restore --staged app/Foo.php
+  check --full --before-stage --project "$REPO"
+  want_rc 1 && want_out '✗ tests'
+}
+t_before_stage_new_paths() {
+  new_case
+  put bin/native 'set -eu
+mkdir -p .marks
+git diff --name-only -z -- "*.php" > .marks/selected
+[ ! -e .marks/keep-report ] || exit 0
+jq -n --arg run "$DEVKIT_SCOPE_RUN" --rawfile paths .marks/selected \
+  '\''{run:$run, checked:($paths|split("\u0000")|map(select(length>0))), excluded:{"notes.txt":"Rozsah PHP podľa pravidiel projektu"}}'\'' > .marks/scope.json'
+  g add bin/native && g commit -qm harness || return 1
+  put 'app/New file.php' '<?php'
+  put notes.txt 'poznámky'
+  cfg '.check.steps = [{id:"native",required:true,phase:"before-stage",run:"sh bin/native"}]'
+  check --quick --before-stage --project "$REPO"
+  want_rc 4 && want_out 'newPathsReport' || return 1
+  cfg '.check.steps = [{id:"native",required:true,phase:"before-stage",newPathsReport:".marks/scope.json",output:"status",run:"sh bin/native"}]'
+  check --quick --before-stage --project "$REPO"
+  want_rc 4 && want_out 'nedoložil nové cesty' && [ ! -s "$REPO/.marks/selected" ] || return 1
+  g add 'app/New file.php' notes.txt
+  check --quick --project "$REPO"
+  want_rc 4 || return 1
+  pre_bash 'git commit -m fixture'
+  want_decision deny || return 1
+  g restore --staged 'app/New file.php' notes.txt && g add -N 'app/New file.php' || return 1
+  touch "$REPO/.marks/keep-report"
+  check --quick --before-stage --project "$REPO"
+  want_rc 4 || return 1
+  rm "$REPO/.marks/keep-report"
+  check --quick --before-stage --project "$REPO"
+  want_rc 0 && want_jfile "$REPO/.marks/scope.json" '.checked == ["app/New file.php"]' || return 1
+  touch "$REPO/.marks/keep-report"
+  check --quick --before-stage --project "$REPO"
+  want_rc 4 && want_out 'nedoložil nové cesty' || return 1
+  rm "$REPO/.marks/keep-report"
+  check --quick --before-stage --project "$REPO"
+  want_rc 0 || return 1
+  g add 'app/New file.php' notes.txt
+  check --quick --project "$REPO"
+  want_rc 0 || return 1
+  pre_bash 'git commit -m fixture'
+  want_allow || return 1
+  jq 'del(.newPathsVerified)' "$PDATA/before-stage.json" > "$CASE/legacy"
+  cat "$CASE/legacy" > "$PDATA/before-stage.json"
+  pre_bash 'git commit -m fixture'
+  want_decision deny
+}
+t_private_check_output() {
+  new_case
+  cfg '.check.steps = [{id:"private",output:"status",run:"echo SYNTHETIC_CMD; sh bin/private",changedLinesOnly:true,modes:["quick","full","stop"]}]'
+  put bin/private 'echo "SYNTHETIC_OUTPUT"
+echo "SYNTHETIC_ERROR" >&2
+test ! -f .marks/fail'
+  mkdir -p "$REPO/.marks"
+  session_files app/Foo.php
+  local mode
+  for mode in quick stop full; do
+    check "--$mode" --session "$SID" --project "$REPO"
+    want_rc 0 && want_not SYNTHETIC || return 1
+    touch "$REPO/.marks/fail"
+    check "--$mode" --session "$SID" --project "$REPO"
+    want_rc 1 && want_out 'exit 1' && want_not SYNTHETIC || return 1
+    rm "$REPO/.marks/fail"
+  done
+  [ -n "$(ls "$PDATA"/logs/check-*.log)" ] && ! grep -F SYNTHETIC "$PDATA"/logs/check-*.log
+}
+t_required_modes_and_type() {
+  new_case
+  cfg '.check.steps = [{id:"native",required:true,run:"test -f .marks/green",modes:["quick"]},
+    {id:"extra",run:"true",modes:["full"]}]'
+  add app/Foo.php zmena
+  g add app/Foo.php
+  check --full --project "$REPO"
+  want_rc 1 && want_out '✗ native' || return 1
+  pre_bash 'git commit -m fixture'
+  want_decision deny || return 1
+  mkdir -p "$REPO/.marks" && touch "$REPO/.marks/green"
+  check --full --project "$REPO"
+  want_rc 0 && want_jfile "$PDATA/pass.json" '.requiredSteps == ["native"]' || return 1
+  pre_bash 'git commit -m fixture'
+  want_allow || return 1
+  jq 'del(.requiredSteps)' "$PDATA/pass.json" > "$CASE/legacy.json" && cp "$CASE/legacy.json" "$PDATA/pass.json" || return 1
+  pre_bash 'git commit -m fixture'
+  want_decision deny || return 1
+  g restore --staged app/Foo.php
+  mv "$REPO/app/Foo.php" "$CASE/previous.php"
+  ln -s Old.php "$REPO/app/Foo.php"
+  g add app/Foo.php
+  pre_bash 'git commit -m fixture'
+  want_decision deny
+}
+t_mr_text_zero() {
+  new_case nocfg
+  unset DEVKIT_DATA
+  ev_scaffold mr-describe || return 1
+  local pass count coverage count_re contradiction valid wrong heading late claim outside missing_count DK_NL=$'\n'
+  pass=$(cd "$W" && bash "$S/mr-evidence.sh" "$W") || return 1
+  local want_file="$W/.git/selected-paths"
+  [ -f "$want_file" ] && [ ! -s "$want_file" ] &&
+    [ -n "$(git -C "$W" diff --name-only main...HEAD)" ] || return 1
+  count=$(grep -hx 'Skontrolované súbory: 0' "$W"/.git/dev-kit-data/projects/*/logs/check-full-*.log) || return 1
+  coverage=$(ev_pattern "$EV/mr-describe/graders/coverage.md")
+  count_re=$(ev_pattern "$EV/mr-describe/graders/count.md")
+  contradiction=$(ev_pattern "$EV/mr-describe/graders/no-full-coverage.md")
+  heading='## Ako overiť'
+  wrong=$(printf '%s\n' '```markdown' "$heading" "${pass%%"$DK_NL"*}")
+  valid=$(printf '%s\n' "$wrong" "$count" 'Pokrytie MR: neoverené' '## Riziká' '```')
+  late=$(printf '%s\n' "$wrong" '## Riziká' 'Pokrytie MR: neoverené')
+  claim=$(printf '%s\n' "$valid" 'Celý diff prešiel kontrolou.')
+  outside=$(printf '%s\n' "$wrong" '```' "$heading" 'Pokrytie MR: neoverené')
+  missing_count=$(printf '%s\n' "$wrong" 'Pokrytie MR: neoverené' '## Riziká' "$count" '```')
+  jq -ne --arg count "$count_re" --arg no_count "$missing_count" --arg outside "$outside" --arg re "$coverage" --arg bad "$contradiction" --arg good "$valid" --arg missing "$wrong" \
+    --arg late "$late" --arg claim "$claim" '($good|test($re)) and ($good|test($bad)|not)
+      and ($good|test($count)) and ($no_count|test($count)|not)
+      and ($good|gsub("súbory: 0"; "súbory: 10")|test($count)|not)
+      and (($good + "\nCelý diff prešiel manuálnym review.")|test($bad)|not)
+      and all($missing,$late,$outside; test($re)|not) and ($claim|test($bad))' >/dev/null
+}
+t_overlapping_checks() {
+  new_case
+  cfg '.check.steps = [{id:"native",required:true,run:"sh bin/verify"}]'
+  put bin/verify 'if test -f .marks/running; then test ! -f .marks/full-fails; exit $?; fi
+touch .marks/running
+i=0
+while ! test -f .marks/release; do i=$((i+1)); test "$i" -lt 200 || exit 1; sleep .05; done
+test -f .marks/full-fails'
+  g add bin/verify && g commit -qm harness || return 1
+  mkdir -p "$REPO/.marks"
+  add app/Foo.php zmena && g add app/Foo.php
+  touch "$REPO/.marks/full-fails"
+  local outcome first old_rc n
+  for outcome in fail pass; do
+    bash "$S/check.sh" --quick --project "$REPO" > "$CASE/first.log" &
+    first=$! n=0 old_rc=0
+    while [ ! -f "$REPO/.marks/running" ] && [ "$n" -lt 200 ]; do sleep .05; n=$((n+1)); done
+    check --full --project "$REPO"
+    touch "$REPO/.marks/release"
+    wait "$first" || old_rc=$?
+    grep -q 'rozhoduje novší beh' "$CASE/first.log" || return 1
+    if [ "$outcome" = fail ]; then
+      want_rc 1 && [ "$old_rc" = 4 ] && [ ! -f "$PDATA/pass.json" ] || return 1
+      pre_bash 'git commit -m fixture'
+      want_decision deny || return 1
+      rm "$REPO/.marks/full-fails" "$REPO/.marks/release" "$REPO/.marks/running"
+    else
+      want_rc 0 && [ "$old_rc" = 1 ] || return 1
+      pre_bash 'git commit -m fixture'
+      want_allow && g commit -qm fixture || return 1
+      OUT=$(bash "$S/mr-evidence.sh" "$REPO")
+      want_out 'check full: PASS' || return 1
+    fi
+  done
+}
+t_mr_worktree() {
+  new_case
+  cfg '.check.steps = [{id:"native",required:true,run:"true"}]'
+  check --full --project "$REPO"
+  want_rc 0 || return 1
+  local wt="$CASE/linked" branch_tip
+  g worktree add -qb topic "$wt" || return 1
+  echo zmena >> "$wt/README.md"
+  git -C "$wt" commit -qam feature || return 1
+  branch_tip=$(git -C "$wt" rev-parse HEAD)
+  (cd "$wt" && bash "$S/check.sh" --full --project "$REPO") > "$CASE/linked.log" || return 1
+  OUT=$(cd "$wt" && bash "$S/mr-evidence.sh" "$REPO")
+  want_out "check full: PASS · $branch_tip" || return 1
+  OUT=$(cd "$wt" && bash "$S/mr-evidence.sh" "$REPO" "$(git -C "$REPO" rev-parse HEAD)")
+  want_out 'inému tipu MR' && want_not 'full: PASS'
+}
+t_mr_zero_scope() {
+  new_case
+  cfg '.check.steps = [{id:"native",required:true,run:"sh bin/native-check"}]'
+  put bin/native-check 'git diff HEAD --name-only -- "*.php" > .marks/selected
+wc -l < .marks/selected'
+  g add bin/native-check && g commit -qm harness || return 1
+  local base
+  base=$(git -C "$REPO" rev-parse HEAD)
+  add app/Foo.php 'zmena vetvy'
+  g add app/Foo.php && g commit -qm feature || return 1
+  mkdir -p "$REPO/.marks"
+  [ "$(git -C "$REPO" diff --name-only "$base"...HEAD)" = app/Foo.php ] || return 1
+  check --full --project "$REPO"
+  want_rc 0 && [ -f "$REPO/.marks/selected" ] && [ ! -s "$REPO/.marks/selected" ] || return 1
+  OUT=$(bash "$S/mr-evidence.sh" "$REPO")
+  want_out 'check full: PASS' && want_out 'pokrytie MR: neoverené' && want_not 'MR: PASS'
+}
+t_mr_evidence() {
+  new_case nocfg
+  local script="$S/mr-evidence.sh" report
+  report=$(bash "$script" "$REPO") || return 1
+  [ ! -d "$PDATA" ] && [[ "$report" == *"check full: neoverené"* ]] || { fail "bez konfigurácie má ostať neoverený iba kitový beh, bez zápisu"; return 1; }
+  cfg '.check.steps = [{id:"native",run:"true",modes:["full"]}]'
+  put 'nový súbor.txt' 'verzia'
+  g add 'nový súbor.txt' || return 1
+  check --full --project "$REPO"
+  want_rc 0 || return 1
+  OUT=$(bash "$script" "$REPO")
+  want_out 'inému obsahu' || return 1
+  g add 'nový súbor.txt' && g commit -qm fixture || return 1
+  OUT=$(bash "$script" "$REPO")
+  want_out "check full: PASS · $(git -C "$REPO" rev-parse HEAD)" && want_out 'pokrytie MR: neoverené' || return 1
+  cfg '.check.steps = [{id:"native",run:"echo iná",modes:["full"]}]'
+  OUT=$(bash "$script" "$REPO")
+  want_out 'zmenila sa konfigurácia' || return 1
+  cfg '.check.steps = [{id:"native",run:"true",modes:["full"]}]'
+  check --full --project "$REPO" --files README.md
+  OUT=$(bash "$script" "$REPO")
+  want_out 'neoverené' || return 1
+  check --full --project "$REPO"
+  want_rc 0 || return 1
+  cp "$REPO/.claude/devkit.json" "$CASE/alternate.json"
+  check --full --project "$REPO" --config "$CASE/alternate.json"
+  want_rc 0 || return 1
+  OUT=$(bash "$script" "$REPO")
+  want_out 'check full: PASS' && want_out 'pokrytie MR: neoverené' || return 1
+  g commit --allow-empty -qm next && g commit --allow-empty -qm later || return 1
+  OUT=$(bash "$script" "$REPO")
+  want_out 'zmenil sa základ' || return 1
+  printf '{"mode":"full"}\n' > "$PDATA/pass.json"
+  OUT=$(bash "$script" "$REPO")
+  want_out 'chýba dôkaz' || return 1
+  printf '{}\n' > "$PDATA/partial.json"
+  OUT=$(bash "$script" "$REPO")
+  want_out 'PARTIAL'
+}
+t_php_native_template() {
+  new_case
+  local stack step args command='sh bin/project-stan --level 6 -c config.neon src tests'
+  put bin/project-stan 'printf "%s\n" "$@" > .marks/args
+test -f .marks/allow'
+  mkdir -p "$REPO/.marks"
+  for stack in php-nette php-symfony; do
+    step=$(jq -ce '.check.steps[] | select(.id == "phpstan" and .required == true and .runtime == "host" and .run == "{{phpstanCommand}}" and (has("requires") | not))' "$KIT/plugins/dev/templates/$stack/devkit.json") || return 1
+    grep -Fq '| PHPStan | `{{phpstanCommand}}` |' "$KIT/plugins/dev/templates/$stack/AGENTS.md.tmpl" || return 1
+    cfg --argjson step "$step" --arg command "$command" '.container = "fixture-container"
+      | .check.steps = [($step | .run = $command),{id:"optional",runtime:"host",run:"true"}]'
+    check --quick --project "$REPO"
+    want_rc 1 && want_out '✗ phpstan' && want_out '✓ optional' || return 1
+    args=$(tr '\n' ' ' < "$REPO/.marks/args")
+    [ "$args" = '--level 6 -c config.neon src tests ' ] && [ ! -s "$DK_FAKE_DOCKER_LOG" ] || return 1
+  done
+  touch "$REPO/.marks/allow"
+  check --quick --project "$REPO"
+  want_rc 0 && want_out '2 ok'
+}
+t_php_suite_wrappers() {
+  local st template id symbol row steps
+  for st in php-nette php-symfony; do
+    new_case
+    template="$KIT/plugins/dev/templates/$st"
+    put Makefile '.PHONY: unit phpunit tester integration migration
+unit phpunit tester integration migration:
+	@echo "$@" >> .marks/suites'
+    mkdir -p "$REPO/.marks"
+    steps='[]'
+    for id in unit phpunit tester integration migration; do
+      case "$st/$id" in php-nette/phpunit|php-symfony/unit|php-symfony/tester) continue ;; esac
+      case "$id" in unit|phpunit) symbol=unitCommand ;; migration) symbol=migrationTestCommand ;; *) symbol="${id}Command" ;; esac
+      row=$(jq -ce --arg id "$id" --arg sym "{{$symbol}}" '.check.steps[]
+        | select(.id == $id and .run == $sym and .runtime == "host" and .requires == null)
+        | .run = ("make " + $id)' "$template/devkit.json") || return 1
+      grep -Fq "{{$symbol}}" "$template/AGENTS.md.tmpl" || return 1
+      steps=$(jq -c --argjson row "$row" '. + [$row]' <<< "$steps")
+    done
+    cfg --argjson steps "$steps" '.container = "container-only" | .check.steps = $steps'
+    check --full --project "$REPO"
+    want_rc 0 && [ "$(cat "$REPO/.marks/suites")" = "$(jq -r '.[].id' <<< "$steps")" ] || return 1
+  done
+}
+t_skill_budget() {
+  new_case nocfg
+  local details="$KIT/tools/details.sh" fake="$CASE/details-cli" ret plugin="$CASE/plugin"
+  mkdir -p "$plugin/.claude-plugin" "$plugin/skills/project-init" "$plugin/agents"
+  cp "$KIT/plugins/dev/.claude-plugin/plugin.json" "$plugin/.claude-plugin/"
+  cp "$KIT/plugins/dev/skills/project-init/SKILL.md" "$plugin/skills/project-init/"
+  printf '%s\n' '---' 'name: example' '---' > "$plugin/agents/example.md"
+  CLAUDE=true bash "$details" > "$CASE/budget" 2>&1 && { fail "chýbajúce meranie prešlo"; return 1; }
+  cat > "$fake" <<'STUB'
+#!/bin/sh
+printf 'Always-on: ~1,050 tok\ncomponent always-on on-invoke\nproject-init ~20 %s\n' "$TEST_COST"
+case "${TEST_ROWS:-valid}" in
+  missing) ;;
+  duplicate) printf 'example ~20 ~50\nexample ~20 ~50\n' ;;
+  malformed) printf 'example ~20 unknown\n' ;;
+  *) printf 'example < 20 < 50\n' ;;
+esac
+STUB
+  chmod +x "$fake"
+  for ret in unknown '~2k'; do
+    CLAUDE="$fake" TEST_COST="$ret" bash "$details" "$plugin" > "$CASE/budget" 2>&1 && { fail "neplatná alebo privysoká cena $ret prešla"; return 1; }
+  done
+  for ret in missing duplicate malformed; do
+    CLAUDE="$fake" TEST_COST=100 TEST_ROWS="$ret" bash "$details" "$plugin" > "$CASE/budget" && { fail "tabuľka $ret prešla"; return 1; }
+  done
+  CLAUDE="$fake" TEST_COST='~1.1k' bash "$details" "$plugin" > "$CASE/budget" &&
+    grep -Fq 'project-init ~1100 tok.' "$CASE/budget" || fail "platný rozpočet"
+}
 t_check_all_skip() {
   new_case
   cfg '.check.steps |= map(.requires = "vendor/bin/nic")'
@@ -1788,7 +2498,11 @@ t_check_phpcs_no_files_checked() {
   cfg --arg c "$(real phpcs-excluded-by-ruleset 16)" '.check.steps += [{"id": "phpcs", "runFiles": $c, "ext": [".php"], "modes": ["quick"]}]'
   add app/Foo.php '$f = 6;'
   check --quick --project "$REPO"
-  want_rc 0 && want_out '– phpcs: nástroj nič neskontroloval (No files were checked)' && want_not 'check quick: FAIL'
+  want_rc 0 && want_out '– phpcs: nástroj nič neskontroloval (No files were checked)' && want_not 'check quick: FAIL' || return 1
+  cfg --arg c "echo 'ok - PHPCS reported No files were checked'; echo 'not ok - project'; exit 1" \
+    '.check.steps += [{id:"harness", run:$c, modes:["quick"]}]'
+  check --quick --project "$REPO"
+  want_rc 1 && want_out '✗ harness' && [ ! -f "$PDATA/pass.json" ]
 }
 t_edit_latte_error_unchanged_line() {
   new_case
@@ -2199,14 +2913,14 @@ EOF
     grep -q '^## Pasce' "$f" || bad="$bad${f#"$KIT"/}: chýba ## Pasce; "
     [ "$(wc -l < "$f" | tr -d ' ')" -le 60 ] || bad="$bad${f#"$KIT"/}: viac ako 60 riadkov; "
   done
-  s=$(grep -o '<!-- db:[a-z]* -->' "$T/php-nette/CLAUDE.md.tmpl" | sort -u | grep -v -e '<!-- db:dibi -->' -e '<!-- db:doctrine -->')
-  [ -z "$s" ] || bad="${bad}templates/php-nette/CLAUDE.md.tmpl: neznáma značka $(flat "$s"); "
+  s=$(grep -o '<!-- db:[a-z]* -->' "$T/php-nette/AGENTS.md.tmpl" | sort -u | grep -v -e '<!-- db:dibi -->' -e '<!-- db:doctrine -->')
+  [ -z "$s" ] || bad="${bad}templates/php-nette/AGENTS.md.tmpl: neznáma značka $(flat "$s"); "
   s=$(jq -r '(.check.steps // [])[] | select((.id | startswith("doctrine-")) and ((.requires // "") == "")) | .id' "$T/php-nette/devkit.json")
   [ -z "$s" ] || bad="${bad}templates/php-nette/devkit.json: krok doctrine-* bez requires $(flat "$s"); "
   for f in "$T/php-nette/devkit.json" "$T/php-symfony/devkit.json"; do
     s=$(jq -r '[.check.steps[].id] as $ids | ([.check.steps[] | select(.id == "migration")] | first) as $m
       | if $m == null then "chýba krok migration"
-        elif $m.modes != ["full"] or $m.run != "php vendor/bin/phpunit --testsuite migration" or $m.requires != "vendor/bin/phpunit" then "krok migration: \($m | tojson)"
+        elif $m.modes != ["full"] or $m.run != "{{migrationTestCommand}}" or $m.runtime != "host" or $m.requires != null then "krok migration: \($m | tojson)"
         elif ($ids | index("migration")) != ($ids | index("integration")) + 1 then "krok migration nie je hneď za integration"
         else empty end' "$f" 2>&1)
     [ -z "$s" ] || bad="$bad${f#"$KIT"/}: $s; "
@@ -2789,12 +3503,12 @@ t_notebook_edit() {
 
 # Každý {{symbol}} šablón stackov má riadok v tabuľke project-init a skill nemenuje symbol, ktorý šablóny nemajú
 t_templates_symbols() {
-  local T="$KIT/plugins/dev/templates" sk="$KIT/plugins/dev/skills/project-init/SKILL.md" used rows named s bad=""
+  local T="$KIT/plugins/dev/templates" sk="$KIT/plugins/dev/skills/project-init/references/symbols.md" used rows named s bad=""
   [ -f "$sk" ] || { fail "chýba $sk"; return 1; }
   used=$(grep -rhoE '\{\{[a-zA-Z]+\}\}' "$T/php-nette" "$T/php-symfony" "$T/python" | LC_ALL=C sort -u)
   rows=$(sed -n '/^## Zástupné symboly/,/^## Pasce/p' "$sk" | awk -F'|' '/^\| `\{\{/ {print $2}' |
     grep -oE '\{\{[a-zA-Z]+\}\}' | LC_ALL=C sort -u)
-  named=$(grep -oE '\{\{[a-zA-Z]+\}\}' "$sk" | LC_ALL=C sort -u)
+  named=$(grep -hoE '\{\{[a-zA-Z]+\}\}' "$KIT"/plugins/dev/skills/project-init/{SKILL.md,references/*.md} | LC_ALL=C sort -u)
   [ -n "$rows" ] || { fail "SKILL.md bez tabuľky Zástupné symboly"; return 1; }
   s=$(printf '%s\n' "$used" | LC_ALL=C comm -23 - <(printf '%s\n' "$rows"))
   [ -z "$s" ] || bad="${bad}bez riadku v tabuľke: $(flat "$s"); "
@@ -2805,7 +3519,7 @@ t_templates_symbols() {
 # Init bez kroku s run, ktorý pobeží: SKIP nezapíše marker a gate nemá únik → plán dá commitGate.enabled false
 # aj pri krokoch len s runFiles — zúžené ext nepokryje commit, ktorý súbor len maže (project-init krok 2, SPEC §6)
 t_init_gate_no_runnable_step() {
-  local sk="$KIT/plugins/dev/skills/project-init/SKILL.md" c f s
+  local sk="$KIT/plugins/dev/skills/project-init/references/install.md" c f s
   LC_ALL=C grep -q '^- \*\*Kontrola bez kroku:\*\*.*len maže.*"commitGate": {"enabled": false, …}` aj pri krokoch s `runFiles`' "$sk" &&
     LC_ALL=C grep -q 'compose mountuje len podadresár' "$sk" ||
     { fail "project-init: Kontrola bez kroku bez enabled false pri runFiles alebo bez mountu podadresára v otázke 1"; return 1; }
@@ -2843,8 +3557,8 @@ t_init_gate_no_runnable_step() {
 }
 # Init: migrácie Doctrine aj z nettrine/migrations (%appDir%); nástroj bez kroku zmizne z CLAUDE.md (SPEC §6)
 t_templates_init_doctrine_tools() {
-  local T="$KIT/plugins/dev/templates" sk="$KIT/plugins/dev/skills/project-init/SKILL.md" s w
-  s=$(LC_ALL=C grep '^| migrácie Doctrine (php-nette) |' "$sk")
+  local T="$KIT/plugins/dev/templates" sk="$KIT/plugins/dev/skills/project-init/references/install.md" s w
+  s=$(LC_ALL=C grep '^| migrácie Doctrine (php-nette) |' "${sk%/*}/nette.md")
   for w in migrations_paths 'Nettrine\Migrations\DI\MigrationsExtension' 'nettrine.migrations:' 'directories:' 'directory:' \
     '`%appDir%` = adresár s `Bootstrap.php`' 'Version<14 číslic>.php' 'pair `doctrine-entity-migration` vypusti'; do
     case "$s" in *"$w"*) ;; *) fail "project-init: riadok migrácie Doctrine bez '$w'"; return 1 ;; esac
@@ -2853,10 +3567,10 @@ t_templates_init_doctrine_tools() {
     "$T/php-nette/devkit.json" >/dev/null 2>&1 || { fail "_init php-nette bez pokynu nettrine/migrations"; return 1; }
   sed -n '2,/^---$/p' "$T/php-nette/rules/db-doctrine.md" | LC_ALL=C grep -qF '"**/migrations/**"' ||
     { fail "db-doctrine.md paths: bez **/migrations/**"; return 1; }
-  LC_ALL=C grep -q '^- \*\*Nástroje bez kroku:\*\*' "$sk" || { fail "project-init: chýba pravidlo Nástroje bez kroku"; return 1; }
+  LC_ALL=C grep -q '^- \*\*Nástroje bez kroku:\*\*' "${sk%/*}/symbols.md" || { fail "project-init: chýba pravidlo Nástroje bez kroku"; return 1; }
   for s in php-nette php-symfony python; do
-    sed -n '1,/^-->$/p' "$T/$s/CLAUDE.md.tmpl" | LC_ALL=C grep -q '^Nástroj, ktorého krok.*init vypustil, zmaž aj bez symbolu' ||
-      { fail "$s/CLAUDE.md.tmpl: úvodný komentár bez pokynu pre nástroj bez kroku"; return 1; }
+    sed -n '1,/^-->$/p' "$T/$s/AGENTS.md.tmpl" | LC_ALL=C grep -q '^Nástroj, ktorého krok.*init vypustil, zmaž aj bez symbolu' ||
+      { fail "$s/AGENTS.md.tmpl: úvodný komentár bez pokynu pre nástroj bez kroku"; return 1; }
   done
 }
 
@@ -3080,7 +3794,7 @@ t_templates_tester() {
   local T="$KIT/plugins/dev/templates/php-nette/devkit.json" s want got
   s=$(jq -r '([.check.steps[] | select(.id == "tester")] | first) as $t
     | if $t == null then "chýba krok tester"
-      elif $t.run != "php vendor/bin/tester tests -s -C" or $t.requires != "vendor/bin/tester" or $t.ext != null then "krok tester: \($t | tojson)"
+      elif $t.run != "{{testerCommand}}" or $t.runtime != "host" or $t.requires != null or $t.ext != null then "krok tester: \($t | tojson)"
       elif (.lint[".phpt"] // []) != ["php -l {file}"] then "lint .phpt: \(.lint[".phpt"] | tojson)"
       elif (.commitGate.ext | index(".phpt")) == null then "commitGate.ext bez .phpt"
       elif [.guards[] | select((.id == "debug-php" or .id == "test-skip") and (.ext | index(".phpt")))] | length != 2 then "debug-php alebo test-skip bez .phpt"
@@ -3099,11 +3813,11 @@ t_templates_tester() {
 }
 # Phinx (B8): init berie migrations.paths z paths.migrations; cesta s `*` (module/*/migrations) chráni commitnuté migrácie
 t_templates_phinx() {
-  local T="$KIT/plugins/dev/templates/php-nette" sk="$KIT/plugins/dev/skills/project-init/SKILL.md" f
+  local T="$KIT/plugins/dev/templates/php-nette" sk="$KIT/plugins/dev/skills/project-init/references/install.md" f
   jq -e '[._init[] | select(test("paths\\.migrations") and test("migrations\\.paths") and test("phinx\\.php"))] | length == 1' \
     "$T/devkit.json" >/dev/null 2>&1 || { fail "_init php-nette bez pokynu Phinx (paths.migrations → migrations.paths)"; return 1; }
   for f in phinx.php phinx.json phinx.yaml phinx.yml; do
-    LC_ALL=C grep -q "^| Phinx (php-nette) |.*\`$f\`" "$sk" || { fail "project-init: riadok detekcie Phinx bez $f"; return 1; }
+    LC_ALL=C grep -q "^| Phinx (php-nette) |.*\`$f\`" "${sk%/*}/nette.md" || { fail "project-init: riadok detekcie Phinx bez $f"; return 1; }
     sed -n '2,/^---$/p' "$T/rules/db-dibi.md" | LC_ALL=C grep -qF "\"$f\"" ||
       { fail "db-dibi.md paths: bez $f"; return 1; }
   done
@@ -3156,19 +3870,19 @@ t_templates_ask_destructive() {
   done
 }
 
-# CLAUDE.md.tmpl php-nette a php-symfony: rovnaké sekcie a {{…}} okrem symbolov frameworku; každý symbol stacku má
+# AGENTS.md.tmpl php-nette a php-symfony: rovnaké sekcie a {{…}} okrem symbolov frameworku; každý symbol stacku má
 # v tabuľke project-init písmeno stacku; značky php-symfony, api-platform.md len s api-platform/*, Encore v deny (E1)
 t_templates_php_parity() {
-  local T="$KIT/plugins/dev/templates" sk="$KIT/plugins/dev/skills/project-init/SKILL.md" n y s got want rows st l x f bad=""
-  n=$(grep -oE '\{\{[a-zA-Z]+\}\}' "$T/php-nette/CLAUDE.md.tmpl" | LC_ALL=C sort -u)
-  y=$(grep -oE '\{\{[a-zA-Z]+\}\}' "$T/php-symfony/CLAUDE.md.tmpl" | LC_ALL=C sort -u)
+  local T="$KIT/plugins/dev/templates" sk="$KIT/plugins/dev/skills/project-init/references/install.md" n y s got want rows st l x f bad=""
+  n=$(grep -oE '\{\{[a-zA-Z]+\}\}' "$T/php-nette/AGENTS.md.tmpl" | LC_ALL=C sort -u)
+  y=$(grep -oE '\{\{[a-zA-Z]+\}\}' "$T/php-symfony/AGENTS.md.tmpl" | LC_ALL=C sort -u)
   got=$( { printf '%s\n' "$n" | LC_ALL=C comm -23 - <(printf '%s\n' "$y") | sed 's/^/N:/'
     printf '%s\n' "$n" | LC_ALL=C comm -13 - <(printf '%s\n' "$y") | sed 's/^/S:/'; } | LC_ALL=C tr '\n' ' ')
-  want="N:{{baseModel}} N:{{dibiVersion}} N:{{doctrineNeon}} N:{{entityDir}} N:{{latteVersion}} N:{{localConfig}} N:{{migrationsCmd}} N:{{migrationsDir}} N:{{netteVersion}} N:{{ormVersion}} N:{{repositoryDir}} N:{{schemaValidateCmd}} N:{{securedPresenter}} S:{{symfonyVersion}} "
+  want="N:{{baseModel}} N:{{dibiVersion}} N:{{doctrineNeon}} N:{{entityDir}} N:{{latteVersion}} N:{{localConfig}} N:{{migrationsCmd}} N:{{migrationsDir}} N:{{netteVersion}} N:{{ormVersion}} N:{{repositoryDir}} N:{{schemaValidateCmd}} N:{{securedPresenter}} N:{{testerCommand}} S:{{symfonyVersion}} "
   [ "$got" = "$want" ] || bad="${bad}symboly mimo frameworku sa líšia: '$got', čakal som '$want'; "
-  s=$(grep '^## ' "$T/php-nette/CLAUDE.md.tmpl")
-  [ "$s" = "$(grep '^## ' "$T/php-symfony/CLAUDE.md.tmpl")" ] || bad="${bad}sekcie CLAUDE.md.tmpl sa líšia; "
-  rows=$(sed -n '/^## Zástupné symboly/,/^## Pasce/p' "$sk" |
+  s=$(grep '^## ' "$T/php-nette/AGENTS.md.tmpl")
+  [ "$s" = "$(grep '^## ' "$T/php-symfony/AGENTS.md.tmpl")" ] || bad="${bad}sekcie AGENTS.md.tmpl sa líšia; "
+  rows=$(sed -n '/^## Zástupné symboly/,/^## Pasce/p' "${sk%/*}/symbols.md" |
     awk -F'|' '/^\| `\{\{/ { k = split($2, a, "`"); for (i = 1; i <= k; i++) if (a[i] ~ /^\{\{[a-zA-Z]+\}\}$/) print a[i] "\t" $3 }')
   for st in php-nette:N php-symfony:S python:P; do
     l=${st#*:}
@@ -3178,10 +3892,10 @@ t_templates_php_parity() {
         bad="$bad$st: $x bez $l v stĺpci Stack; "
     done
   done
-  for f in CLAUDE.md.tmpl rules/twig-frontend.md; do
+  for f in AGENTS.md.tmpl rules/twig-frontend.md; do
     s=$(grep -o '<!-- [a-z:-]* -->' "$T/php-symfony/$f" | LC_ALL=C sort -u | LC_ALL=C tr '\n' ' ')
     case "$f" in
-      CLAUDE.md.tmpl) want='<!-- api-platform --> <!-- fe:assetmapper --> <!-- fe:encore --> ' ;;
+      AGENTS.md.tmpl) want='<!-- api-platform --> <!-- fe:assetmapper --> <!-- fe:encore --> ' ;;
       *) want='<!-- fe:assetmapper --> <!-- fe:encore --> ' ;;
     esac
     [ "$s" = "$want" ] || bad="${bad}php-symfony/$f: značky '$s', čakal som '$want'; "
@@ -3194,8 +3908,8 @@ t_templates_php_parity() {
   jq -e '[._init[] | select(test("rules/api-platform\\.md") and test("api-platform/\\*") and test("fe:encore"))] | length == 1' \
     "$T/php-symfony/devkit.json" >/dev/null 2>&1 || bad="${bad}_init php-symfony bez podmienky api-platform a fe:; "
   LC_ALL=C grep -q '^- php-symfony: `api-platform.md` len keď krok 1 našiel balík `api-platform/\*`' "$sk" &&
-    LC_ALL=C grep -q '^| frontend a API (php-symfony) |.*`symfony/asset-mapper`.*`symfony/webpack-encore-bundle`.*`api-platform/\*`' "$sk" &&
-    LC_ALL=C grep -q 'php-symfony: `api-platform.md` len s balíkom `api-platform/\*`' "$sk" ||
+    LC_ALL=C grep -q '^| frontend a API (php-symfony) |.*`symfony/asset-mapper`.*`symfony/webpack-encore-bundle`.*`api-platform/\*`' "${sk%/*}/symfony.md" &&
+    LC_ALL=C grep -q 'php-symfony: `api-platform.md` len s balíkom `api-platform/\*`' "${sk%/*}/sync.md" ||
     bad="${bad}project-init: chýba detekcia, kopírovanie alebo --sync api-platform.md; "
   [ -z "$bad" ] || fail "$bad"
 }
@@ -3203,21 +3917,24 @@ t_templates_php_parity() {
 # php-nette: lokálny config len cez {{localConfig}} s kandidátmi v tabuľke project-init; lint .neon (neon-lint, stdout
 # do /dev/null) — nález [ERROR] … on line N bez hlavičky a \r, bez nástroja edit prejde (PHP 8.3+ aj staršie) (E2)
 t_templates_nette_neon() {
-  local T="$KIT/plugins/dev/templates/php-nette" sk="$KIT/plugins/dev/skills/project-init/SKILL.md" f s fb
+  local T="$KIT/plugins/dev/templates/php-nette" sk="$KIT/plugins/dev/skills/project-init/references/install.md" f s fb
   s=$(grep -rn 'local\.neon' "$T")
   [ -z "$s" ] || { fail "php-nette: lokálny config natvrdo: $(flat "$s")"; return 1; }
-  for f in devkit.json .worktreeinclude CLAUDE.md.tmpl rules/nette.md; do
+  for f in devkit.json AGENTS.md.tmpl rules/nette.md; do
     LC_ALL=C grep -qF '{{localConfig}}' "$T/$f" || { fail "php-nette/$f bez {{localConfig}}"; return 1; }
   done
   jq -e '.secrets.forbidFiles | index("{{localConfig}}")' "$T/devkit.json" >/dev/null 2>&1 || { fail "forbidFiles bez {{localConfig}}"; return 1; }
-  s=$(LC_ALL=C grep '^| `{{localConfig}}` | N |' "$sk")
+  for f in "$KIT"/plugins/dev/templates/*/.worktreeinclude; do
+    if grep -Eq '^(\{\{localConfig\}\}|\.test-credentials|\.env.*)$' "$f"; then fail "osobné údaje v $f"; return 1; fi
+  done
+  s=$(LC_ALL=C grep '^| `{{localConfig}}` | N |' "${sk%/*}/symbols.md")
   for f in '`app/config/config.local.neon`' '`app/config/local.neon`' '`config/local.neon`' 'otázka 4'; do
     case "$s" in *"$f"*) ;; *) fail "project-init: riadok {{localConfig}} bez $f"; return 1 ;; esac
   done
-  LC_ALL=C grep -q '^- Pýtaj sa len na .*`{{localConfig}}`' "$sk" || { fail "project-init: {{localConfig}} chýba medzi otázkami"; return 1; }
+  LC_ALL=C grep -q '^- Pýtaj sa len na .*`{{localConfig}}`' "${sk%/*}/symbols.md" || { fail "project-init: {{localConfig}} chýba medzi otázkami"; return 1; }
   jq -e '.lint[".neon"] == ["php vendor/bin/neon-lint {file} >/dev/null"] and ([._init[] | select(test("neon-lint") and test("3\\.3\\.1"))] | length == 1)' \
     "$T/devkit.json" >/dev/null 2>&1 || { fail "php-nette: lint .neon alebo _init neon-lint"; return 1; }
-  LC_ALL=C grep -q 'php-nette `.neon` len so spustiteľným `vendor/bin/neon-lint`' "$sk" || { fail "project-init --sync: lint .neon bez podmienky"; return 1; }
+  LC_ALL=C grep -q 'php-nette `.neon` len so spustiteľným `vendor/bin/neon-lint`' "${sk%/*}/sync.md" || { fail "project-init --sync: lint .neon bez podmienky"; return 1; }
   new_case
   fb="$CASE/fakebin"
   mkdir -p "$fb"
@@ -3267,7 +3984,7 @@ SH
 # settings.json šablón: marketplace a plugin kitu (mená z manifestov, repo z README), plansDirectory, bez attribution;
 # zlúčenie z project-init: tím pridá kľúče a hodnoty projektu nechá, lokálne bez marketplace a pluginu (E3)
 t_templates_settings_team() {
-  local T="$KIT/plugins/dev/templates" sk="$KIT/plugins/dev/skills/project-init/SKILL.md" st s m p repo cmd c
+  local T="$KIT/plugins/dev/templates" sk="$KIT/plugins/dev/skills/project-init/references/install.md" st s m p repo cmd c
   m=$(jq -r .name "$KIT/.claude-plugin/marketplace.json")
   p=$(jq -r .name "$KIT/plugins/dev/.claude-plugin/plugin.json")
   repo=$(LC_ALL=C sed -n 's/^claude plugin marketplace add \([[:alnum:]_.-]*\/[[:alnum:]_.-]*\)$/\1/p' "$KIT/README.md" | head -n 1)
@@ -3465,21 +4182,52 @@ CVE: CVE-2020-0001
   check --quick --project "$REPO"
   want_rc 0 "ignorovaný blok sa nepočíta" && want_out '(známe zlyhania: 2)' "ignorovaný blok sa nepočíta"
 }
-# Šablóny: krok audit len vo full, súhlas s odoslaním zoznamu balíkov v pláne initu; skilly odkazujú na krok
+# Šablóny: audit pred PHP commitom a pre Python vo full, súhlas s odoslaním zoznamu balíkov v pláne initu; skilly odkazujú na krok
+t_php_native_wrappers() {
+  local template st
+  for st in php-nette php-symfony; do
+    new_case
+    template="$KIT/plugins/dev/templates/$st/devkit.json"
+    mkdir -p "$REPO/.marks"
+    put Makefile 'prepare:
+	@echo prepared >> .marks/prerequisites
+stan: prepare
+	@echo whole >> .marks/stan
+audit-lock: prepare
+	@test -f .marks/audit-available'
+    put bin/stan-stop 'printf "%s\n" "$@" >> .marks/stop'
+    put composer.lock '{}'
+    cfg --slurpfile tpl "$template" '.check.steps = [$tpl[0].check.steps[]
+      | select(.id == "phpstan" or .id == "audit" or .id == "phpstan-stop")
+      | if .run == "{{phpstanCommand}}" then .run = "make stan"
+        elif .run == "{{composerAuditCommand}}" then .run = "make audit-lock"
+        elif .runFiles == "{{phpstanStopCommand}}" then .runFiles = "sh bin/stan-stop {files}" else . end]'
+    add app/Foo.php 'zmena'
+    check --stop --project "$REPO" --files app/Foo.php README.md
+    want_rc 0 && [ "$(cat "$REPO/.marks/stop")" = app/Foo.php ] && [ ! -e "$REPO/.marks/stan" ] || return 1
+    check --quick --project "$REPO" --files app/Foo.php
+    want_rc 1 && want_out '✗ audit' && [ "$(cat "$REPO/.marks/stan")" = whole ] || return 1
+    touch "$REPO/.marks/audit-available"
+    check --full --project "$REPO"
+    want_rc 0 && [ "$(wc -l < "$REPO/.marks/prerequisites" | tr -d ' ')" = 4 ] &&
+      [ "$(cat "$REPO/.marks/stop")" = app/Foo.php ] || return 1
+  done
+}
 t_templates_audit() {
   local T="$KIT/plugins/dev/templates" sk="$KIT/plugins/dev/skills" st s
   for st in php-nette php-symfony python; do
     s=$(jq -r --arg st "$st" '([.check.steps[] | select(.id == "audit")] | first) as $a
       | if $a == null then "chýba krok audit"
-        elif $a.modes != ["full"] or $a.changedLinesOnly != null or $a.ext != null then "krok audit: \($a | tojson)"
-        elif ($st != "python") and ($a.run != "composer audit --no-interaction --format=plain" or $a.requires != "composer.json") then "krok audit: \($a | tojson)"
-        elif ($st == "python") and ($a.run != "{{bin}}pip-audit --progress-spinner off --aliases on" or $a.requires != "{{bin}}pip-audit") then "krok audit: \($a | tojson)"
+        elif $a.changedLinesOnly != null or $a.ext != null then "krok audit: \($a | tojson)"
+        elif ($st != "python") and (any(.check.steps[]; .id == "phpstan" and .required == true and .runFiles == null and .modes == ["quick","full"]) | not) then "chýba povinná celoprojektová analýza"
+        elif ($st != "python") and ($a.run != "{{composerAuditCommand}}" or $a.runtime != "host" or $a.requires != "composer.lock" or $a.required != true or $a.modes != ["quick","full"]) then "krok audit: \($a | tojson)"
+        elif ($st == "python") and ($a.modes != ["full"] or $a.run != "{{bin}}pip-audit --progress-spinner off --aliases on" or $a.requires != "{{bin}}pip-audit") then "krok audit: \($a | tojson)"
         elif [._init[] | select(test("^audit ") and test("súhlas") and test("fáza 1") and test("Packagist|PyPI"))] | length != 1 then "_init bez pokynu o súhlase"
         else empty end' "$T/$st/devkit.json" 2>&1)
     [ -z "$s" ] || { fail "šablóna $st: $s"; return 1; }
   done
-  LC_ALL=C grep -q '^- \*\*Audit závislostí:\*\*.*Schválenie plánu je súhlas' "$sk/project-init/SKILL.md" &&
-    LC_ALL=C grep -q '^| audit závislostí |' "$sk/project-init/SKILL.md" ||
+  LC_ALL=C grep -q '^- \*\*Audit závislostí:\*\*.*Schválenie plánu je súhlas' "$sk/project-init/references/install.md" &&
+    LC_ALL=C grep -q '^| audit závislostí |' "$sk/project-init/references/install.md" ||
     { fail "project-init: chýba riadok detekcie alebo súhlas s krokom audit v pláne"; return 1; }
   for s in review ecc-production-audit; do
     LC_ALL=C grep -q 'krok `audit`' "$sk/$s/SKILL.md" || { fail "$s: neodkazuje na krok audit"; return 1; }
@@ -3611,7 +4359,7 @@ t_evals_suite() {
   LC_ALL=C grep -q '^eval:' "$KIT/Makefile" && ! LC_ALL=C grep -Eq '^check:.* eval( |$)' "$KIT/Makefile" ||
     { fail "Makefile: cieľ eval mimo make check"; return 1; }
   LC_ALL=C grep -qF 'scripts/test-lock.sh" lock' "$KIT/plugins/dev/skills/fix/SKILL.md" &&
-    LC_ALL=C grep -qF 'scripts/check.sh" --auto' "$KIT/plugins/dev/skills/fix/SKILL.md" ||
+    LC_ALL=C grep -qF '../check/SKILL.md' "$KIT/plugins/dev/skills/fix/SKILL.md" ||
     { fail "fix/SKILL.md: príkazy nesedia s gradermi fix-locked-test (test-lock.sh\" lock, check.sh\" --auto)"; return 1; }
   LC_ALL=C grep -qF '(`feature/ABC-123-popis` → `ABC-123`)' "$KIT/plugins/dev/skills/commit/SKILL.md" &&
     LC_ALL=C grep -qF 'riadok `Commit:` v Pravidlách `CLAUDE.md`' "$KIT/plugins/dev/skills/commit/SKILL.md" ||
@@ -3706,9 +4454,9 @@ t_evals_suite() {
     { fail "mr-describe: pass.json full pre HEAD v .git/dev-kit-data"; return 1; }
   awk '/Posledný verdikt/ { s = 1 } s && /^```bash$/ { b = 1; next } b && /^```$/ { exit } b { print }' \
     "$KIT/plugins/dev/skills/mr/SKILL.md" > "$CASE/verdict.sh"
-  OUT=$(cd "$W" && bash "$CASE/verdict.sh" 2>&1)
-  printf '%s\n' "$OUT" | LC_ALL=C grep -q '^{"file":"pass.json",.*"mode":"full","head":"'"$(git -C "$W" rev-parse HEAD)"'"' &&
-    printf '%s\n' "$OUT" | LC_ALL=C grep -q '^check-full-[0-9]*\.log$' ||
+  OUT=$(cd "$W" && CLAUDE_PLUGIN_ROOT="$KIT/plugins/dev" bash "$CASE/verdict.sh" 2>&1)
+  printf '%s\n' "$OUT" | LC_ALL=C grep -Fq "check full: PASS · $(git -C "$W" rev-parse HEAD) · check-full-" &&
+    printf '%s\n' "$OUT" | LC_ALL=C grep -Fq 'pokrytie MR: neoverené' ||
     { fail "mr/SKILL.md: príkaz na verdikt nenašiel pass.json a log: $(flat "$OUT")"; return 1; }
 
   # deps-one-package: atrapa bin/composer (outdated, update jedného balíka, hromadný update odmietne), vendor/ mimo gitu;
@@ -4115,6 +4863,30 @@ t "pre-bash: telo heredocu správy commitu sa nečíta ako príkazy" t_bash_here
 t "check.sh --quick: všetko PASS → exit 0, riadky krokov, log, pass.json s blobmi" t_check_quick_pass
 t "check.sh: zlyhaný krok → exit 1, ≤ 20 riadkov, ✗ krok" t_check_fail
 t "check.sh: chýbajúci requires → SKIP riadok" t_check_skip_missing
+t "projektový inventár: opakované čítanie vnorených pravidiel a symlinku" t_project_context
+t "init: inventár pre plán nastavenia, Git hook, stará voľba otázky a konfigurácia vo worktree" t_init_commit_hook
+t "init: spoločný lokálny alebo tímový plán pre Codex, Claude a náhľad" t_init_setup_plan
+t "tímový hook: viditeľné súbory a jeden projektový krok na každom z dvoch klonov" t_native_hook_checkouts
+t "povinný hook: prázdny commit, úprava správy, medzery a spojené prepínače" t_required_empty_commit
+t "Codex: menu príkazov, rovnaký zdroj cez osobný symlink, aliasy a neznámy názov" t_codex_commands
+t "Codex: registrácia hooku, povinná kontrola raz, commit len pre overený index" t_codex_commit_hook
+t "povinný PASS: rozsah commitu, nové súbory, zmena HEAD a zmena počas kontroly" t_project_proof
+t "povinný PASS: fullWhen aj mimo prípon kódu" t_project_required_docs
+t "povinný harness: výsledok patrí skutočne overenému indexu" t_staged_harness
+t "regresia: projektový príkaz pred stagingom aj zo skutočného indexu" t_before_stage
+t "regresia: predbežný quick nedokazuje sadu iba pre full s tým istým id" t_before_stage_full
+t "regresia: full zahŕňa povinný quick a gate rozpozná zmenu typu" t_required_modes_and_type
+t "regresia: súbeh quick a full zachová verdikt, commit aj dôkaz pre MR" t_overlapping_checks
+t "regresia: nový súbor pred stagingom potrebuje čerstvý dôkaz z projektového príkazu" t_before_stage_new_paths
+t "regresia: citlivý výstup quick, full a stop sa neukladá ani pri zlyhaní" t_private_check_output
+t "regresia: PHP testovacie sady cez projektové wrappery bez vendor na hostiteľovi" t_php_suite_wrappers
+t "regresia: text MR pri nule vyžaduje neoverené pokrytie v sekcii Ako overiť" t_mr_text_zero
+t "regresia: MR číta výsledok aktuálneho worktree" t_mr_worktree
+t "MR: úspešný harness vybral 0 súborov pri neprázdnom diffe" t_mr_zero_scope
+t "MR: dôkaz úplného behu pre presný commit a rozsah" t_mr_evidence
+t "PHP šablóny rešpektujú povinný projektový wrapper, argumenty a runtime" t_php_native_template
+t "rozpočet skillov: chýbajúce, neplatné a nadlimitné meranie" t_skill_budget
+t "projektová kontrola: celý príkaz, povinný výsledok, neúplné overenie" t_project_required
 t "check.sh: všetky kroky SKIP → exit 4" t_check_all_skip
 t "check.sh: krok sa nedá spustiť (exit 127) → PARTIAL, exit 4, bez pass.json" t_check_blocked_partial
 t "check.sh: chyba prostredia v jednom kroku → PARTIAL" t_check_infra_partial
@@ -4213,7 +4985,8 @@ t "Phinx: _init, detekcia phinx.{php,json,yaml,yml}, db-dibi.md; migrations.path
 t "šablóna php-nette: ask na phinx migrate, rollback, seed:run a breakpoint (status, create voľné); php-symfony ich nemá" t_templates_phinx_ask
 t "check.sh: knownFailures zo zraniteľností composer audit a pip-audit (vzor na CVE alias pokryje záznam, ukotvenie platí)" t_check_known_failures_audit
 t "check.sh: audit — abandoned ostáva FAIL, Ignore reason a blok bez id, tabuľka, sieť = PARTIAL, pytest bez hlavičky bez id" t_check_audit_edges
-t "šablóny: krok audit len vo full so súhlasom v pláne initu; review a production-audit odkazujú na krok" t_templates_audit
+t "PHP šablóny: pôvodné Make ciele aj s predpokladmi, voliteľný PHPStan len pri Stop" t_php_native_wrappers
+t "šablóny: audit pred PHP commitom a pre Python vo full so súhlasom v pláne initu; review a production-audit odkazujú na krok" t_templates_audit
 t "check.sh --config / DEVKIT_CONFIG: kópia s container \"\" beží na hoste, bez pass.json a partial.json, Stop berie config projektu" t_check_config
 t "check.sh --config: projekt bez devkit.json, neplatný JSON, chýbajúca hodnota, ten istý súbor a prázdne DEVKIT_CONFIG → markery" t_check_config_edges
 t "eval suite: prompt.md a gradery, fixture shop zo scaffold.sh (PARTIAL, commit gate aj po PARTIAL, štýl commitu Jira z CLAUDE.md, zámok testu, diff, vetva s migráciou a pass.json pre /dev:mr, atrapa composeru pre /dev:deps), make eval mimo check" t_evals_suite
@@ -4226,7 +4999,7 @@ t "partial.json, pass.json, test-lock.json a stats.sh: diakritika cez hranicu bl
 t "šablóny: ask na git reset --hard, clean, stash drop/clear, branch -D a docker volume/system prune, composer (php), alembic upgrade a manage.py migrate (python); git restore nie (D9)" t_templates_ask_destructive
 t "session-card: decisions.jsonl nad 10 MB → .1 len pri startup, stats.sh číta .1 aj aktuálny log (E13)" t_decisions_rotation
 t "session-card: pri startup zmaže dáta projektu s neexistujúcou cestou z project.json bez súboru < 90 dní; existujúca cesta, novší súbor a bez project.json ostanú (E13)" t_card_prune_projects
-t "šablóny php: CLAUDE.md.tmpl php-nette a php-symfony s rovnakými sekciami a {{…}} okrem frameworku, písmeno stacku v tabuľke project-init, api-platform.md len s api-platform/*, vetvy AssetMapper/Encore (E1)" t_templates_php_parity
+t "šablóny php: AGENTS.md.tmpl php-nette a php-symfony s rovnakými sekciami a {{…}} okrem frameworku, písmeno stacku v tabuľke project-init, api-platform.md len s api-platform/*, vetvy AssetMapper/Encore (E1)" t_templates_php_parity
 t "šablóna php-nette: lokálny config len ako {{localConfig}} (kandidáti v project-init), lint .neon neon-lint — [ERROR] … on line N bez hlavičky, bez nástroja edit prejde (E2)" t_templates_nette_neon
 t "šablóny settings.json: marketplace dev-kit a plugin dev (mená z manifestov), plansDirectory, bez attribution; zlúčenie project-init — tím pridá a hodnoty projektu nechá, lokálne bez marketplace (E3)" t_templates_settings_team
 t "devkit.schema.json: draft-07, kľúče šablón, configu kitu, fixtúr a príkladu zo SPEC ⊆ schéma, \$schema = URL z README, každý kľúč v docs/devkit-json.md, plná validácia s jsonschema, skripty \$schema ignorujú (E4)" t_devkit_schema

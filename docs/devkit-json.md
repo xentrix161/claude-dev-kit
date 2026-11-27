@@ -57,12 +57,16 @@ Editor (VS Code, PhpStorm) podľa nej dopĺňa kľúče a hlási neznámy kľú�
 
 | Pole kroku | Význam |
 |---|---|
+| `phase` | Fáza povinného kroku. `staged` je predvolená. Pre príkaz nad nepripraveným diffom zvoľ `before-stage`. |
+| `newPathsReport` | Relatívna cesta k projektovému JSON s výberom nových súborov z aktuálneho kroku `before-stage`. Formát uvádzame nižšie. |
+| `output` | Predvolené `log` zapíše príkaz a výstup do logu. Pri `status` kit zahodí stdout a stderr pred spracovaním vo všetkých režimoch vrátane Stop. Zostávajú metadáta behu, cesty a stav kroku. Zlyhanie posúdi podľa exit kódu, filtre výstupu sa neuplatnia. |
+| `required` | Povinný celý príkaz v zvolených režimoch. Predvolená hodnota je `false`. |
 | `id` | meno kroku vo výstupe a v `disabledRules` (`step:<id>`) |
 | `run` | príkaz nad celým projektom |
 | `runFiles` | príkaz nad zmenenými súbormi; `{files}` nahradí ich zoznam (v apostrofoch, pri dlhom zozname po dávkach) |
 | `ext` | prípony súborov kroku, napr. `[".php"]`; filtrujú `{files}` a patria medzi kódové prípony commit gate |
 | `modes` | kedy krok beží: `stop` (koniec ťahu), `quick` (`/dev:check`, predvolený), `full` (`/dev:check --full`); bez poľa `quick` a `full` |
-| `requires` | cesta na hostiteľovi relatívne k projektu; keď chýba, krok sa preskočí (`– <id>: chýba <cesta>`) |
+| `requires` | cesta na hostiteľovi relatívne k projektu; chýbajúci predpoklad dá pri voliteľnom kroku SKIP, pri povinnom PARTIAL |
 | `runtime` | `host` = vždy na hostiteľovi; `container` alebo bez poľa = v kontajneri, keď je `container` nastavený |
 | `changedLinesOnly` | `true` = nálezy len na pridaných riadkoch v každom režime; `"stop"` = len v Stop kontrole (`/dev:check` ukáže aj staré nálezy súboru); `false` alebo bez poľa = všetky |
 | `timeoutSec` | limit jedného behu v sekundách, predvolene 300, `0` = bez limitu; po prekročení `! krok <id> prekročil <N> s` |
@@ -82,6 +86,22 @@ Výsledok kontroly:
 - **SKIP** — nebežal žiadny krok (riadky `–` len hovoria, že sa krok netýka). Ani SKIP nie je PASS.
 
 Do `stop` patria len rýchle kroky: Stop hook má na všetky kroky spolu 600 s. Pomalé testy daj do `full` s vyšším `timeoutSec` (šablóny 1800).
+
+### Nové súbory pred stagingom
+
+Pri zmenách existujúcich súborov stačí bežný postup `before-stage`. Pri pridávaní ciest musí projektový krok doložiť, ktoré naozaj overil. Nastav napríklad `"newPathsReport": ".reports/php-check.json"`. Použi projektom povolený, gitom ignorovaný výstup dostupný z pracovného stromu aj po skončení príkazu v kontajneri. Kit pre tento krok poskytne v jeho runtime jedinečný `DEVKIT_SCOPE_RUN`. Wrapper zachová pôvodný návratový kód a zapíše jeden objekt JSON zo skutočného výsledku kontroly.
+
+```json
+{"run":"<hodnota DEVKIT_SCOPE_RUN>","checked":["src/New.php"],"excluded":{"README.txt":"Podľa pravidiel projektu tento krok overuje iba PHP"}}
+```
+
+Cesty sú relatívne ku koreňu. `excluded` je voliteľné. Dôvody výnimiek pochádzajú z pravidiel projektu. Starý report alebo vynechaná nová cesta bez zdôvodnenia pri úspešnom exit kóde znamenajú `PARTIAL`. Ak natívny harness ponúka úplnú sadu nad pripraveným obsahom, možno použiť tento projektový vstup vo fáze `staged`.
+
+### Povinný projektový krok
+
+Pri PHPStan zachovaj celý príkaz vrátane levelu, konfigurácie a cieľov. Projektový wrapper spúšťaný z koreňa na hostiteľovi dostane `runtime: host` aj v projekte s kontajnerom.
+
+Keď výslovne pripájaš natívnu kontrolu ku kitovým krokom, nastav `"required": true`, celý príkaz v `run` a urči `modes`. Napríklad `{"id":"project","run":"make verify","requires":"Makefile","required":true,"modes":["quick","full"]}`. Rozsah určí projektový príkaz aj pri použití `--files`. Chýbajúci predpoklad alebo vypnutý krok dá PARTIAL. Nálezy sa nefiltrujú podľa zmenených riadkov ani podľa `knownFailures`. Commit s povinnými krokmi potrebuje výsledok pre rovnakú konfiguráciu, HEAD a overený obsah projektu vrátane nových súborov mimo ignore. Pre príkaz nad nepripraveným diffom nastav `phase: before-stage` a spusti `check.sh --auto --before-stage` s čistým indexom. Potom priprav presný obsah commitu a spusti `check.sh --auto`. Kit spojí výsledky podľa HEAD, konfigurácie, obsahu a skutočne úspešných krokov. Režim `full` zahŕňa povinné kontroly z `quick`. Obsah indexu aj pracovný strom sa porovnávajú pred behom, po ňom a s predmetom commitu. Zmena stagingu pri rovnakých súboroch môže zmeniť výber natívneho harnessu. Pri cudzích rozpracovaných zmenách over samostatný worktree. Pri zloženom príkaze s neistým výsledným indexom vykonaj stage samostatne. Ignorované dáta, služby a runtime overuje natívny harness. So začiatkom každej riadnej kontroly prestane platiť predošlý PASS. Starší súbežný beh oznámi, že rozhoduje novší, a pri vlastnom úspechu vráti `PARTIAL` s kódom 4. Pre MR platí log vybraného behu aj po neskoršej kontrole s alternatívnym configom. Príznak je predvolene vypnutý pre kompatibilitu s existujúcimi voliteľnými krokmi.
 
 ### `fullWhen`
 
@@ -177,10 +197,20 @@ Pred úpravou súboru, ktorý sedí na glob a už je v `HEAD`, sa Claude spýta 
 "commitGate": {"enabled": true, "ext": [".php", ".latte", ".neon", ".twig"]}
 ```
 
-- Pred `git commit`, ktorý spúšťa Claude: každý súbor commitu s príponou z `ext` musí mať PASS z `/dev:check` presne pre svoj obsah (pri zmene vo `fullWhen` z `--full`). Bez `ext` platia prípony z `lint` a z `check.steps[].ext`. Commit bez takých súborov (dokumentácia) prejde.
-- Gate stráži len príkazy Clauda, nie commity z terminálu alebo IDE.
-- Po PARTIAL hláška povie, ktoré kroky neprebehli, a Claude navrhne odstrániť príčinu (napríklad spustiť kontajner) alebo dočasné vypnutie krokov či gate cez `disabledRules`. Config sám nemení.
+- Claude s aktívnym pluginom a Codex s potvrdeným osobným hookom overujú shellový commit. Pri vlastnom commite v termináli alebo IDE rozhodujú Git hooky projektu.
+- Pri voliteľných krokoch rozhoduje prípona z `ext` (predvolene z `lint` a krokov). Pri povinných krokoch sa overuje obsah, HEAD a konfigurácia aj pri dokumentácii, prázdnom commite alebo úprave správy. PARTIAL vyžaduje doplnenie chýbajúceho výsledku.
 - `enabled: false` vypne gate; kontrola tajomstiev pred commitom beží ďalej. Rovnako `disabledRules: ["commitGate"]`.
+
+Voliteľný `nativeHook` je cesta k verzovanému spustiteľnému súboru pre-commit od koreňa projektu. Použi ho, keď tento skript pokrýva celú povinnú kontrolu a funguje samostatne nad indexom z koreňa. Príklad spoločného nastavenia:
+
+```json
+{
+  "commitGate": {"enabled": true, "nativeHook": ".githooks/pre-commit"},
+  "check": {"steps": [{"id": "project", "runtime": "host", "required": true, "run": "./.githooks/pre-commit", "modes": ["quick", "full"]}]}
+}
+```
+
+Git musí v tomto checkoute používať ten istý súbor v nezmenenom stave oproti HEAD aj indexu. Pri samostatnom commite celého pripraveného indexu zhodného s pracovným stromom potom kontrolu vykoná Git. Cudzie rozpracované zmeny zachovaj a over v samostatnom worktree. Pri chýbajúcej aktivácii, inom hooku, ďalších krokoch quick/full, aktívnom zámku testu alebo režime `output: status` kit vyžaduje vlastný výsledok. Pri čiastočnom pokrytí môže Git svoj krok opakovať. Init ukáže aktuálny stav. Pokrytie MR dokladá samostatný výsledok pre jeho rozsah.
 
 ## Vypnutie pravidiel — `disabledRules`
 

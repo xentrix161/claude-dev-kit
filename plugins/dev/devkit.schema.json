@@ -104,6 +104,7 @@
       "additionalProperties": false,
       "properties": {
         "enabled": {"type": "boolean", "default": true},
+        "nativeHook": {"type": "string", "pattern": "^([A-Za-z0-9_.-]+/)*pre-commit$", "description": "Verzovaný spustiteľný pre-commit. Git môže v tomto checkoute vykonať totožný jediný povinný krok z quick a full."},
         "ext": {"$ref": "#/definitions/exts"}
       }
     },
@@ -157,7 +158,11 @@
           "items": {"enum": ["stop", "quick", "full"]},
           "default": ["quick", "full"]
         },
-        "requires": {"type": "string", "minLength": 1, "description": "Cesta na hostiteľovi; chýba = krok sa preskočí."},
+        "requires": {"type": "string", "minLength": 1, "description": "Predpoklad na hostiteľovi. Chýbajúci povinný krok dá PARTIAL."},
+        "phase": {"enum": ["before-stage", "staged"], "default": "staged", "description": "Fáza povinného kroku podľa toho, či projekt vyberá zmeny pred alebo po git add."},
+        "newPathsReport": {"type": "string", "minLength": 1, "description": "Cesta od koreňa k projektovému JSON pre nové súbory pred stagingom. Pole run obsahuje DEVKIT_SCOPE_RUN z tohto kroku, checked je zoznam skontrolovaných ciest, voliteľné excluded mapuje cestu na dôvod výnimky."},
+        "output": {"enum": ["log", "status"], "default": "log", "description": "V režime status sa štandardný ani chybový výstup príkazu neukladá. O výsledku rozhoduje návratový kód."},
+        "required": {"type": "boolean", "default": false, "description": "V zvolených režimoch spustí celý príkaz run bez zúženia a potlačenia nálezov."},
         "runtime": {"$ref": "#/definitions/runtime"},
         "changedLinesOnly": {"enum": [true, false, "stop"]},
         "timeoutSec": {"type": "integer", "minimum": 0, "default": 300}

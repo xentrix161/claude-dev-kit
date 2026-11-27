@@ -1,5 +1,5 @@
 <!--
-Šablóna dev-kit (php-symfony). /dev:project-init vyplní {{…}} podľa tabuľky Zástupné symboly vo svojom SKILL.md;
+Šablóna dev-kit (php-symfony). /dev:project-init vyplní {{…}} podľa tabuľky Zástupné symboly v references/symbols.md;
 nezistený symbol zmaž bez otázky (riadok alebo jeho časť) — prázdny placeholder nenechávaj. Strom v Architektúre uprav podľa repa.
 Limit 120 riadkov; tematické detaily patria do .claude/rules/*.md (paths:).
 Nepíš sem počty testov, časy behu ani dáta — zastarajú.
@@ -11,13 +11,13 @@ Nepíš sem počty testov, časy behu ani dáta — zastarajú.
 Riadky s HTML komentárom závisia od composer.json (project-init krok 1): api-platform len s balíkom api-platform/*,
 fe:assetmapper pri symfony/asset-mapper, fe:encore pri symfony/webpack-encore-bundle. Ponechaj riadky zisteného
 variantu a značku z nich odstráň aj s medzerou pred ňou (v tabuľke stojí pred posledným |); ostatné riadky so značkou zmaž.
-Testy: príkazy rýchlej a pomalej sady ako kroky phpunit a integration v devkit.json (init ich vyberie podľa phpunit.xml).
+Testy: príkazy rýchlej a pomalej sady ako kroky phpunit a integration v devkit.json (z projektového harnessu, pri priamom volaní podľa phpunit.xml).
 Nástroj, ktorého krok alebo lint init vypustil, zmaž aj bez symbolu: PHPStan (v Kvalite, riadok v Príkazoch, veta o baseline),
 PHPUnit, PHP CS Fixer, lint:yaml a lint:twig (v Kvalite, ich riadky v Príkazoch), bez kroku doctrine-schema riadok schémy,
 bez kroku integration vetu za „—“ pri /dev:check --auto, bez kroku migration riadok testov migrácií v Príkazoch
 aj vetu o sade migration v Overovaní práce.
 -->
-# CLAUDE.md — {{projectName}}
+# AGENTS.md — {{projectName}}
 
 ## Projekt
 
@@ -36,15 +36,14 @@ aj vetu o sade migration v Overovaní práce.
 
 ## Príkazy
 
-Agent nemá TTY → `docker exec` **bez `-it`** (make ciele s `-it` padnú: „the input device is not a TTY").
+Pre beh bez TTY použi projektový cieľ pre CI vrátane jeho predpokladov. Ak je podporovaný len interaktívny vstup, kontrolu vykáž ako zablokovanú.
 
 | Úloha | Príkaz | Zdravý výstup |
 |---|---|---|
-| kontrola zmien | `/dev:check` · `--auto` · `--full` | `[dev-kit] check quick: PASS · N ok · 0 fail · 0 skip · S s` |
-| rýchle testy | `{{run}}php vendor/bin/phpunit --exclude-group integration` | `OK (N tests, M assertions)` |
-| integračné testy | `{{run}}php vendor/bin/phpunit --group integration` | `OK (N tests, M assertions)` |
-| testy migrácií | `{{run}}php vendor/bin/phpunit --testsuite migration` | `OK (N tests, M assertions)` |
-| PHPStan | `{{run}}php vendor/bin/phpstan analyse -c {{phpstanConfig}} --memory-limit=1G` | `[OK] No errors` |
+| rýchle testy | `{{unitCommand}}` | `OK (N tests, M assertions)` |
+| integračné testy | `{{integrationCommand}}` | `OK (N tests, M assertions)` |
+| testy migrácií | `{{migrationTestCommand}}` | `OK (N tests, M assertions)` |
+| PHPStan | `{{phpstanCommand}}` | `[OK] No errors` |
 | code style | `{{run}}php vendor/bin/php-cs-fixer fix --dry-run --diff <súbory>` | exit 0, žiadny diff |
 | DI kontajner | `{{run}}php bin/console lint:container` | `[OK] The container was linted successfully: …` |
 | YAML | `{{run}}php bin/console lint:yaml config --parse-tags` | `[OK] All … YAML files contain valid syntax.` |
@@ -58,12 +57,17 @@ Agent nemá TTY → `docker exec` **bez `-it`** (make ciele s `-it` padnú: „t
 | cache | `{{run}}php bin/console cache:clear` | `[OK] Cache for the "dev" environment (debug=true) was successfully cleared.` |
 
 - Iný výstup (`FAILURES!`, `[ERROR] Found N errors`, `[ERROR]` z `lint:*`) = nie je hotovo.
-- `SKIP` ani `PARTIAL` v `/dev:check` (kontajner nebeží, chýba nástroj) nie je PASS — povedz to výslovne.
+- Preskočenú alebo zablokovanú kontrolu uveď s dôvodom.
+
+## Code Review Rules
+
+Pri review použi projektový `REVIEW.md` v koreni, prípadne `.claude/REVIEW.md`.
 
 ## Overovanie práce
 
-- Pred „hotovo" spusti `/dev:check --auto` — pri zmene entít, migrácií či Doctrine configu pustí aj integračné testy.
-- Testy migrácií patria do vlastnej sady `migration` v `phpunit.xml` (nie do rýchlych testov); bežia len vo `/dev:check --full`.
+- Pred dokončením spusti projektové kontroly z tabuľky vyššie v rozsahu zmeny a všetky povinné záverečné kroky.
+- Pred commitom over audit zamknutých závislostí a projektovú statickú analýzu. Podľa zmeny vyber unit, integračné a E2E scenáre. Uveď skutočné príkazy a výsledky, každý povinný krok musí prejsť.
+- Testy migrácií patria do vlastnej sady `migration` v `phpunit.xml` (nie do rýchlych testov); spusti ich pri projektovom overení migrácií.
 - Do odpovede vlož súhrnný riadok výstupu. Bez výstupu netvrď, že testy prešli.
 - Padá test → oprav kód, nie test. Test meníš len keď je preukázateľne zlý — povedz prečo.
 - Žiadne `markTestSkipped()` ani mazanie asercií kvôli zelenej.
@@ -106,7 +110,7 @@ migrations/  tests/    Doctrine migrácie, PHPUnit (zrkadlí src/)
 11. Tajomstvá patria do `.env.local` alebo do vaultu (`secrets:set`); `.env` v gite drží len defaulty; `.env.local` nikdy necommituj ani nevypisuj.
 12. Commit: {{commitStyle}}; `git push` len na výslovný pokyn.
 13. Zmena zastará tento súbor alebo `.claude/rules/` → uprav ich v tom istom commite.
-14. Detaily v `.claude/rules/` (php-core, symfony, doctrine, twig-frontend, api-platform, tests) — načítajú sa podľa cesty.
+14. Detaily v `.claude/rules/` (php-core, symfony, doctrine, twig-frontend, api-platform, tests) — pri práci v danej oblasti si otvor príslušný súbor.
 
 ## Pasce
 
@@ -120,6 +124,6 @@ migrations/  tests/    Doctrine migrácie, PHPUnit (zrkadlí src/)
 
 ## Compact instructions
 
-- Zachovaj zoznam zmenených súborov, stav každého (hotové / rozpracované) a posledný výsledok `/dev:check`.
+- Zachovaj zoznam zmenených súborov, stav každého (hotové / rozpracované) a posledný výsledok projektových kontrol.
 - Zachovaj číslo úlohy, otvorené rozhodnutia, čo používateľ zamietol, a ďalší krok.
 - Zachovaj presné príkazy na overenie.

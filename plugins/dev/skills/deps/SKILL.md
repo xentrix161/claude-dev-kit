@@ -17,14 +17,14 @@ Aktualizuje jeden priamy balík: zoznam zastaraných, update, changelog, kontrol
 
 ## 1. Projekt
 
-- Správca podľa `stack` v `.claude/devkit.json`: `php-*` → Composer, `python` → podľa súborov nižšie. Iný stack alebo bez configu: `composer.json` → Composer; `uv.lock` → uv; `poetry.lock` → Poetry; `requirements*.txt` → pip (so `requirements*.in` pip-tools). Nejasné (viac správcov, `Pipfile`, `pdm.lock`, nič z toho) → spýtaj sa a skonči.
-- Ako spúšťať: príkaz z `CLAUDE.md` projektu (tabuľka Príkazy, wrapper ako `bin/composer` či `make composer`); inak ako krok `audit` v `devkit.json` — s `container` a bez `runtime: host` cez `docker exec -i -w <workdir> <container> <príkaz>` (`workdir` = `appRoot`, vo worktree `appRoot/<cesta voči hlavnému repu>`, nikdy `-it`), inak na hostiteľovi (`composer`, `.venv/bin/pip`, `poetry`, `uv`). Kontajner nebeží → povedz to a skonči; kontajnery nespúšťaj.
+- Správcu urč podľa projektových pokynov a aktívneho lockfile. Pri chýbajúcom postupe použi `stack` v `.claude/devkit.json`: `php-*` → Composer, `python` → podľa súborov nižšie. Iný stack alebo bez configu: `composer.json` → Composer; `uv.lock` → uv; `poetry.lock` → Poetry; `requirements*.txt` → pip (so `requirements*.in` pip-tools). Nejasné (viac správcov, `Pipfile`, `pdm.lock`, nič z toho) → spýtaj sa a skonči.
+- Použi wrapper a runtime z projektového `AGENTS.md`, harnessu alebo CI. Ak projekt spôsob neurčil, vychádzaj z runtime nakonfigurovaného kroku `audit`. Chýbajúce prostredie oznám.
 - Súbory závislostí už zmenené v pracovnom strome (`git status --short`: `composer.*`, `symfony.lock`, `requirements*`, `pyproject.toml`, `*.lock`) → skonči jednou vetou: aktualizácia ide do samostatného commitu.
 
 ## 2. Zoznam
 
 - Composer `composer outdated --direct --format=json`; pip `pip list --outdated --format=json` (len balíky z `requirements*.txt` alebo `pyproject.toml`); Poetry `poetry show --outdated --top-level`; uv `uv pip list --outdated --format=json`. Dotaz ide na Packagist alebo PyPI — kvôli tomu príkaz existuje.
-- Zraniteľnosti len keď `devkit.json` má krok `audit` (súhlas s odoslaním zoznamu balíkov dal `/dev:project-init`): jeho príkaz spusti rovnakou cestou s JSON výstupom (`composer audit --locked --format=json`, `pip-audit --format json`). Bez kroku ho nespúšťaj; pod tabuľku daj vetu, že zraniteľnosti nie sú overené (krok navrhne `/dev:project-init --sync`).
+- Pre zraniteľnosti použi projektom schválený audit a poskytovateľa, aj bez `devkit.json`. Ak projekt audit neurčil, možno použiť schválený krok `audit` z konfigurácie kitu. Bez schváleného zdroja uveď, že audit neprebehol.
 - Tabuľka, najviac 15 riadkov, poradie: so zraniteľnosťou, v rámci obmedzenia, mimo neho:
 
 | balík | nainštalovaná | dostupná | druh | poznámka |
@@ -53,25 +53,23 @@ Počkaj na jedno „ok“. Súhlas v argumente (`schvaľujem`, `bez otázky`) pl
 
 ## 5. Kontrola
 
-```bash
-bash "${CLAUDE_PLUGIN_ROOT}/scripts/check.sh" --full --project "${CLAUDE_PROJECT_DIR}"
-```
+Skontroluj `git diff --cached` aj pracovný diff. Pri cudzom alebo čiastočnom stagingu v skupine zastav pred zmenou indexu. Pred `git add` spusti projektové kontroly nad nepripravenými zmenami. Pri pripojenom kroku `phase: before-stage` použi `/dev:check --full --before-stage` nad novým lockfile. Priprav iba schválené súbory závislostí cez `git add -- <súbory>` a skontroluj ich staged diff. Cudzie zmeny v indexe nesmú vstúpiť do commitu.
 
-- Bash timeout 600000 ms.
-- PASS a žiadna breaking change nezasahuje kód projektu → krok 6.
+Po aktualizácii vykonaj [overenie projektu](../check/SKILL.md) vrátane povinného harnessu a auditu nad novým lockfile. Pre zapnuté doplnkové kroky použi `--full`. Totožný povinný audit nad tým istým stavom spusti raz.
+- Úspech všetkých povinných kontrol a žiadna breaking change nezasahuje kód projektu → krok 6.
 - FAIL, PARTIAL, SKIP alebo breaking change v kóde projektu → balík neopravuj ani nevracaj sám. Nahlás nálezy `súbor:riadok` a návrat: `git checkout -- composer.json composer.lock` (aj `symfony.lock`) a `composer install`; Python `git checkout -- <súbory závislostí>` a inštalácia zo zámku. Skonči otázkou: opraviť kód, alebo vrátiť.
 
 ## 6. Commit
 
 - Len súbory závislostí, ktoré update zmenil: `composer.json`, `composer.lock`, `symfony.lock`; `requirements*.txt`, `requirements*.in`, `pyproject.toml`, `poetry.lock`, `uv.lock`. Recepty Flex a iné zmeny vymenuj a nechaj necommitnuté.
-- Správa podľa pravidla o commitoch projektu ako v `/dev:commit` (riadok `Commit:` v `CLAUDE.md`, číslo úlohy z argumentu alebo vetvy): typ `chore`, výstih `aktualizácia <balík> <od> → <do>`, napr. `[#31] chore: aktualizácia acme/slugify 3.1.0 → 3.2.0`; Jira `ABC-123 Aktualizácia acme/slugify 3.1.0 → 3.2.0`. Jeden riadok.
-- `git add <súbory>` (nikdy `-A` ani `.`), `git commit -m "<správa>"`, potom `git log --oneline -1`. Zamietnutie commit gate → postupuj ako `/dev:commit`.
+- Správa podľa pravidla o commitoch projektu ako v `/dev:commit` (projektové pokyny v `AGENTS.md`, číslo úlohy z argumentu alebo vetvy): typ `chore`, výstih `aktualizácia <balík> <od> → <do>`, napr. `[#31] chore: aktualizácia acme/slugify 3.1.0 → 3.2.0`; Jira `ABC-123 Aktualizácia acme/slugify 3.1.0 → 3.2.0`. Jeden riadok.
+- Over, že index stále zodpovedá kontrole z kroku 5. Pri zmene zopakuj overenie. Potom `git commit -m "<správa>"` a `git log --oneline -1`. Zamietnutie commit gate rieš podľa `/dev:commit`.
 
 ## 7. Výstup
 
 - `<balík> <od> → <do>` a druh.
 - Changelog v najviac 6 odrážkach a dopad na projekt `súbor:riadok`; zastarané API, ktoré ešte funguje, navrhni ako ďalšiu úlohu.
-- Riadok verdiktu `check.sh` a commit (hash + správa), alebo prečo nevznikol.
+- Výsledok projektového harnessu a prípadných krokov kitu a commit (hash + správa), alebo prečo nevznikol.
 
 ## Pravidlá
 

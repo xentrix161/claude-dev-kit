@@ -10,9 +10,9 @@ paths:
 
 # Python testy (pytest)
 
-- Prednosť má projekt: `CLAUDE.md`, `.claude/rules/tests.md`, `[tool.pytest.ini_options]` v `pyproject.toml`, existujúce `conftest.py`.
+- Prednosť má projekt: `AGENTS.md`, príslušné pokyny Claude, `.claude/rules/tests.md`, `[tool.pytest.ini_options]` v `pyproject.toml`, existujúce `conftest.py`.
 - Postup RED → GREEN → REFACTOR vedie `/dev:test`; oprava bugu s reprodukčným testom `/dev:fix`.
-- Spúšťaj s prefixom z `.claude/devkit.json` (`.venv/bin/pytest …` alebo `docker exec -i -w <workdir> <kontajner> pytest …`); celok overí `/dev:check`.
+- Spusť projektový testovací vstup s jeho prostredím a argumentmi aj bez kitu. Totožný krok v `/dev:check` stačí raz.
 - Do odpovede len skutočný výstup: `N passed in X s` alebo `FAILED <node id> - <príčina>`.
 
 ## Cyklus s dôkazom

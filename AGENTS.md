@@ -1,7 +1,9 @@
-# CLAUDE.md — dev-kit
+# AGENTS.md — dev-kit
 
 ## Projekt
 
+- Spoločný playbook pre Codex aj Claude je v [dev-kit-workflow](plugins/dev/skills/dev-kit-workflow/SKILL.md).
+- Osobný hook Codexu registruje `tools/install-codex-hook.sh`. Pri commite používa ten istý `pre-bash.sh` a uložený výsledok ako Claude.
 - Plugin `dev` pre Claude Code (hooky, príkazy `/dev:*`, agenti, šablóny projektov) a marketplace `dev-kit`, ktorý ho distribuuje.
 - Kontrakt (názvy, cesty, výstupy, hlášky, `devkit.json`): `docs/SPEC.md`. Pri rozpore so zvyškom repa platí SPEC.
 - Stav úloh a rozhodnutia: `docs/handoff.md`.
@@ -37,7 +39,7 @@ Spúšťaj z koreňa repa.
 
 ## Overovanie práce
 
-- Pred „hotovo" spusti `/dev:check`, pred commitom `make check`. Do odpovede vlož súhrnný riadok výstupu.
+- Pred „hotovo" spusti `/dev:check` alebo z koreňa `bash plugins/dev/scripts/check.sh --auto --project .`, pred commitom `make check`. Do odpovede vlož súhrnný riadok výstupu.
 - Padá prípad selftestu → oprav skript, nie test. Test meníš len keď je preukázateľne zlý — povedz prečo.
 - Zmena hooku → over ju aj v reálnej session (`/reload-plugins`), nielen selftestom.
 - Po 2 neúspešných pokusoch o tú istú opravu zastav, zhrň zistenia a navrhni iný prístup.
@@ -71,7 +73,7 @@ docs/DEVELOPMENT.md               správca kitu: CI kitu, eval, údržba, vydani
 2. Text pre ľudí (hlášky, skilly, README, šablóny) po slovensky s plnou diakritikou; identifikátory, príkazy a cesty ostávajú.
 3. Zmena správania skriptu alebo hooku → uprav `docs/SPEC.md` v tom istom commite.
 4. Oprava alebo nové správanie skriptu → prípad v `tests/selftest.sh`.
-5. Always-on kontext pluginu ≤ 3000 tokenov (`make details`); popisy skillov drž krátke.
+5. Always-on kontext pluginu ≤ 3000 tokenov (`make details`); otvorenie `project-init` ≤ 1500 tokenov. Popisy skillov drž krátke.
 6. Hooky bez `.claude/devkit.json` musia ostať no-op; nebežiaci kontajner ani chýbajúci nástroj nikdy neblokujú. Výnimky: commit gate pri PARTIAL blokuje, hlásenie musí povedať prečo a ako ďalej; `agentReadOnly` platí aj bez configu (agenti kitu zapisujú len do svojej pamäte).
 7. Kusy z ECC: zmenu zapíš do `plugins/dev/PROVENANCE.md`; `plugins/dev/LICENSES/` nemeň.
 8. Šablóny sú generické: žiadne mená projektov, ľudí, klientov ani dáta. Platí pre celé repo — je verejné.

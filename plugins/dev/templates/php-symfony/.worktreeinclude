@@ -2,5 +2,3 @@
 # Kopíruje sa len to, čo je zároveň v .gitignore — verzované súbory nikdy.
 vendor/
 assets/vendor/
-.env.local
-.env.*.local

@@ -1,5 +1,5 @@
 <!--
-Šablóna dev-kit (php-nette). /dev:project-init vyplní {{…}} podľa tabuľky Zástupné symboly vo svojom SKILL.md;
+Šablóna dev-kit (php-nette). /dev:project-init vyplní {{…}} podľa tabuľky Zástupné symboly v references/symbols.md;
 nezistený symbol zmaž bez otázky (riadok alebo jeho časť) — prázdny placeholder nenechávaj. Strom v Architektúre uprav podľa repa.
 {{entityDir}}, {{repositoryDir}}, {{migrationsDir}} = adresár s / na konci (napr. app/Entity/).
 Limit 120 riadkov; tematické detaily patria do .claude/rules/*.md (paths:).
@@ -13,7 +13,7 @@ Riadky s HTML komentárom db:dibi / db:doctrine závisia od DB vrstvy (project-i
 riadky zistenej vrstvy a značku z nich odstráň aj s medzerou pred ňou (v tabuľke stojí pred posledným |);
 riadky inej vrstvy zmaž.
 Nette Tester namiesto PHPUnit (krok tester v devkit.json): v Stacku Nette Tester namiesto PHPUnit, riadky unit
-a integračných testov nahraď riadkami krokov tester/integration (`{{run}}php vendor/bin/tester tests -s -C`,
+a integračných testov nahraď riadkami krokov tester/integration (`{{testerCommand}}`,
 zdravý výstup `OK (N tests, S seconds)`), v Overovaní práce markTestSkipped() → Environment::skip(); PHPUnit aj Tester → oboje.
 Phinx (db:dibi, project-init krok 1): config mimo koreňa → príkaz migrácií s `-c <config>`; Dibi bez Phinx → zo Stacku
 zmaž „ · migrácie Phinx (…)“, riadok migrácií v Príkazoch a slovo Phinx v pravidle 5.
@@ -21,7 +21,7 @@ Nástroj, ktorého krok alebo lint init vypustil, zmaž aj bez symbolu: PHPStan 
 PHPUnit, PHPCS, latte-lint a neon-lint (v Kvalite, ich riadky v Príkazoch), bez kroku integration vetu za „—“ pri /dev:check --auto,
 bez kroku migration riadok testov migrácií v Príkazoch aj vetu o sade migration v Overovaní práce.
 -->
-# CLAUDE.md — {{projectName}}
+# AGENTS.md — {{projectName}}
 
 ## Projekt
 
@@ -40,15 +40,14 @@ bez kroku migration riadok testov migrácií v Príkazoch aj vetu o sade migrati
 
 ## Príkazy
 
-Agent nemá TTY → `docker exec` **bez `-it`** (make ciele s `-it` padnú: „the input device is not a TTY").
+Pre beh bez TTY použi projektový cieľ pre CI vrátane jeho predpokladov. Ak je podporovaný len interaktívny vstup, kontrolu vykáž ako zablokovanú.
 
 | Úloha | Príkaz | Zdravý výstup |
 |---|---|---|
-| kontrola zmien | `/dev:check` · `--auto` · `--full` | `[dev-kit] check quick: PASS · N ok · 0 fail · 0 skip · S s` |
-| unit testy | `{{run}}php vendor/bin/phpunit --testsuite unit` | `OK (N tests, M assertions)` |
-| integračné testy | `{{run}}php vendor/bin/phpunit --testsuite integration` | `OK (N tests, M assertions)` |
-| testy migrácií | `{{run}}php vendor/bin/phpunit --testsuite migration` | `OK (N tests, M assertions)` |
-| PHPStan | `{{run}}php vendor/bin/phpstan analyse -c {{phpstanConfig}} --memory-limit=1G` | `[OK] No errors` |
+| unit testy | `{{unitCommand}}` | `OK (N tests, M assertions)` |
+| integračné testy | `{{integrationCommand}}` | `OK (N tests, M assertions)` |
+| testy migrácií | `{{migrationTestCommand}}` | `OK (N tests, M assertions)` |
+| PHPStan | `{{phpstanCommand}}` | `[OK] No errors` |
 | code style | `{{run}}php vendor/bin/phpcs -q -n --standard=PSR12 <súbory>` | žiadny výstup, exit 0 |
 | Latte | `{{run}}php vendor/bin/latte-lint <cesta>` | `Done (checked N files, found errors in 0)` |
 | NEON | `{{run}}php vendor/bin/neon-lint <cesta>` | exit 0, bez `[ERROR]` |
@@ -59,13 +58,18 @@ Agent nemá TTY → `docker exec` **bez `-it`** (make ciele s `-it` padnú: „t
 | cache | `{{run}}sh -c 'rm -rf temp/cache/*'` | žiadny výstup |
 
 - Iný výstup (`FAILURES!`, `[ERROR] Found N errors`, `found errors in 1`) = nie je hotovo.
-- `SKIP` ani `PARTIAL` v `/dev:check` (kontajner nebeží, chýba nástroj) nie je PASS — povedz to výslovne.
+- Preskočenú alebo zablokovanú kontrolu uveď s dôvodom.
 - Ostatné ciele: `make help` (sú pre človeka s terminálom).
+
+## Code Review Rules
+
+Pri review použi projektový `REVIEW.md` v koreni, prípadne `.claude/REVIEW.md`.
 
 ## Overovanie práce
 
-- Pred „hotovo" spusti `/dev:check --auto` — pri zmene modelov, `libs/`, `db/` či presenterov pustí aj integračné testy.
-- Testy migrácií patria do vlastnej sady `migration` (nie do `unit` ani `integration`); bežia len vo `/dev:check --full`.
+- Pred dokončením spusti projektové kontroly z tabuľky vyššie v rozsahu zmeny a všetky povinné záverečné kroky.
+- Pred commitom over audit zamknutých závislostí a projektovú statickú analýzu. Podľa zmeny vyber unit, integračné a E2E scenáre. Uveď skutočné príkazy a výsledky, každý povinný krok musí prejsť.
+- Testy migrácií patria do vlastnej sady `migration` (nie do `unit` ani `integration`); spusti ich pri projektovom overení migrácií.
 - Do odpovede vlož súhrnný riadok výstupu. Bez výstupu netvrď, že testy prešli.
 - Padá test → oprav kód, nie test. Test meníš len keď je preukázateľne zlý — povedz prečo.
 - Žiadne `markTestSkipped()` ani mazanie asercií kvôli zelenej.
@@ -107,8 +111,8 @@ libs/  {{migrationsDir}}  tests/  www/
 11. `{{localConfig}}` (lokálny config) nikdy necommituj ani nevypisuj.
 12. Commit: {{commitStyle}}; `git push` len na výslovný pokyn.
 13. Zmena zastará tento súbor alebo `.claude/rules/` → uprav ich v tom istom commite.
-14. Detaily v `.claude/rules/` (php-core, nette, latte-frontend, db-dibi, tests) — načítajú sa podľa cesty. <!-- db:dibi -->
-14. Detaily v `.claude/rules/` (php-core, nette, latte-frontend, db-doctrine, tests) — načítajú sa podľa cesty. <!-- db:doctrine -->
+14. Detaily v `.claude/rules/` (php-core, nette, latte-frontend, db-dibi, tests) — pri práci v danej oblasti si otvor príslušný súbor. <!-- db:dibi -->
+14. Detaily v `.claude/rules/` (php-core, nette, latte-frontend, db-doctrine, tests) — pri práci v danej oblasti si otvor príslušný súbor. <!-- db:doctrine -->
 
 ## Pasce
 
@@ -122,6 +126,6 @@ libs/  {{migrationsDir}}  tests/  www/
 
 ## Compact instructions
 
-- Zachovaj zoznam zmenených súborov, stav každého (hotové / rozpracované) a posledný výsledok `/dev:check`.
+- Zachovaj zoznam zmenených súborov, stav každého (hotové / rozpracované) a posledný výsledok projektových kontrol.
 - Zachovaj číslo úlohy, otvorené rozhodnutia, čo používateľ zamietol, a ďalší krok.
 - Zachovaj presné príkazy na overenie.

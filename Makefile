@@ -30,7 +30,7 @@ validate:
 
 # Hooky strážia guardmi len pridané riadky, tu celý strom. Vzory bash4 a gnu-only sú v .claude/devkit.json.
 # shellcheck: SC1087 (regex "$VAR[…]"), SC1111 (slovenské úvodzovky), SC2034 (DK_* zdieľané cez lib.sh) sú falošné nálezy.
-SH_DIRS = plugins/dev/scripts tests tools
+SH_DIRS = plugins/dev/scripts plugins/dev/skills/dev-kit-workflow/scripts codex/dev-kit/scripts tests tools
 SHELLCHECK_EXCLUDE = SC1087,SC1111,SC2034
 guards:
 	@command -v jq >/dev/null 2>&1 || { echo "[dev-kit] chýba jq"; exit 1; }
