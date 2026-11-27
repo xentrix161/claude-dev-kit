@@ -9,6 +9,8 @@ disable-model-invocation: true
 
 Plán ide do repa spolu so zmenou; `/dev:review` podľa neho kontroluje diff. Komunikuj po slovensky.
 
+Najprv nájdi záznam úlohy a plán používaný projektom. Aktualizuj ho v existujúcom formáte. Pri malých zmenách stačí plán v tikete alebo chate. Nasledujúca šablóna a cesta slúžia pre projekty bez vlastnej konvencie.
+
 ## 1. Treba plán?
 
 - Netreba, keď úloha mení ≤ 3 súbory a nezasahuje rizikové cesty → povedz jednou vetou `plán netreba (≤ 3 súbory, bez rizikových ciest)` a skonči. Ak používateľ trvá na pláne, zapíš ho.

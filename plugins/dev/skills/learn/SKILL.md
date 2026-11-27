@@ -21,6 +21,9 @@ Nie: triviálne opravy (preklep, syntax), jednorazové výpadky, čo vidno z kó
 
 ## 2. Kam — pre každého kandidáta jeden cieľ
 
+- **Projekt** — tímové pravidlo patrí do `AGENTS.md`, konkrétny kontrakt do existujúceho harnessu alebo jeho dokumentácie.
+- **Kit** — prenositeľnú skúsenosť navrhni ako zmenu spoločného playbooku alebo regresiu kitu. Prilož anonymný vstup, očakávaný výsledok a prípad, kde pravidlo neplatí. Zverejnenie návrhu je samostatný krok.
+
 - **memory `feedback`** — ako má Claude pracovať s týmto používateľom (korekcie, potvrdené postupy)
 - **memory `project`** — rozhodnutia, termíny a kontext projektu, ktorý z kódu nevidno
 - **`.claude/rules/<súbor>.md`** — pravidlo pre prácu s kódom v určitých cestách; vyber súbor podľa `paths:` vo frontmatteri, nový súbor len s `paths:`
@@ -32,13 +35,13 @@ Mechanické pravidlo (guard, pair) má prednosť pred textom — rada v texte sa
 ## 3. Kontrola duplicít (pred návrhom)
 
 - auto-memory: `MEMORY.md` a topic súbory v adresári auto-memory tohto projektu (cesta je v tvojom kontexte)
-- `CLAUDE.md`, `.claude/rules/*.md`, `.claude/devkit.json` (`guards`, `pairs`)
+- `AGENTS.md`, `CLAUDE.md`, `.claude/rules/*.md`, `.claude/devkit.json` (`guards`, `pairs`)
 - prekryv → „Zlúčiť do <súbor>" (doplnenie existujúceho), nie nový záznam
 
 ## 4. Návrh — nič nezapisuj
 
 Číslovaný zoznam, jedna položka:
-- `N. [memory feedback | memory project | rules/<súbor> | guard | pair] výstih — dôkaz zo session`
+- `N. [projekt | kit | memory feedback | memory project | rules/<súbor> | guard | pair] výstih — dôkaz zo session`
 - pod ňou presný text alebo JSON, ktorý sa zapíše (krátko)
 
 Zahodených kandidátov zhrň jedným riadkom: `Zahodené: N (triviálne / duplicitné / jednorazové)`.

@@ -1,0 +1,25 @@
+{
+  "version": 1,
+  "stack": "shell",
+  "check": {
+    "steps": [
+      {
+        "id": "native",
+        "runtime": "host",
+        "required": true,
+        "run": "git diff --name-only HEAD -- > .git/selected-paths && awk 'END {print \"Skontrolované súbory: \" NR}' .git/selected-paths"
+      }
+    ]
+  },
+  "migrations": {
+    "paths": [
+      "db/migrations/**"
+    ]
+  },
+  "commitGate": {
+    "enabled": true,
+    "ext": [
+      ".sh"
+    ]
+  }
+}

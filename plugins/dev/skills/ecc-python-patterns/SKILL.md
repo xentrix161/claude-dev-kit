@@ -8,9 +8,8 @@ paths:
 
 # Python — vzory a idiómy
 
-- Prednosť má projekt: `CLAUDE.md`, `.claude/rules/*.md`, `pyproject.toml` (`requires-python`, ruff, mypy) a štýl okolitého kódu.
-- Overenie: `/dev:check` (ruff + mypy + pytest podľa `.claude/devkit.json`); výsledok hlás z výstupu, nie odhadom.
-- Nástroje z venv projektu (`.venv/bin/ruff`) alebo cez `docker exec -i -w <workdir> <kontajner>` podľa `devkit.json`, nie zo systémového Pythonu.
+- Prednosť má projekt: `AGENTS.md`, príslušné pokyny Claude, `.claude/rules/*.md`, `pyproject.toml` (`requires-python`, ruff, mypy) a štýl okolitého kódu.
+- Použi overovací príkaz a runtime projektu vrátane wrappera alebo venv. Pri pripojenom `/dev:check` zachovaj pôvodný rozsah a výsledok harnessu.
 
 ## Zásady
 

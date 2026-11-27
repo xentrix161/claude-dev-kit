@@ -297,6 +297,7 @@ EOF
     line=$(printf '%s' "$words" | tr "$DK_US" ' ')
     case "$kind" in
         commit)
+            if [ -z "$DK_COMMIT_LINES" ]; then DK_COMMIT_WORDS=$words; else DK_COMMIT_WORDS=""; fi
             DK_COMMIT_LINES="$DK_COMMIT_LINES$line$DK_NL"; DK_ADD_LINES="$DK_ADD_LINES$DK_ADD_PEND"; DK_ADD_PEND=""
             [ -z "$op" ] || [ -n "$DK_CONT" ] || DK_CONT="git $op --continue"
             ;;
@@ -410,6 +411,10 @@ dk_partial_note() {
     fi
     printf 'Posledná kontrola skončila PARTIAL:\n'
     dk__items 5 'ďalšie riadky' "$lines"
+    if jq -e --slurpfile result "$f" 'any(.check.steps[]?; .required == true and (.id as $id | $result[0].steps | index($id) != null))' "$DK_CFG" >/dev/null 2>&1; then
+        printf 'Obnov predpoklady povinnej projektovej kontroly a spusti ju znova.\n'
+        return 0
+    fi
     if [ "$ok" -gt 0 ] && [ -n "$ids" ]; then
         case "$ids" in *", "*) what=krokov ;; esac
         printf 'Únik: navrhni používateľovi %s a kontrolu zopakuj, alebo mu navrhni dočasné vypnutie %s: disabledRules %s v .claude/devkit.json (config nemeň sám, počkaj na jeho rozhodnutie).\n' "$why" "$what" "$ids"
@@ -479,7 +484,7 @@ dk_main() {
     local fb base line tag rest dl="" parsed rdirs=""
     fb=${DK_CWD:-${CLAUDE_PROJECT_DIR:-$PWD}}
     DK_VARS="" DK_VARS_E="" DK_KANDS="" DK_HOME="" DK_HOME_UNKNOWN="" DK_RITEMS="" DK_SNIPS="" DK_RDIRS=""
-    DK_COMMIT_LINES="" DK_ADD_LINES="" DK_ADD_PEND="" DK_RESCUE=0 DK_RHARD=0 DK_CONT=""
+    DK_COMMIT_WORDS="" DK_COMMIT_LINES="" DK_ADD_LINES="" DK_ADD_PEND="" DK_RESCUE=0 DK_RHARD=0 DK_CONT=""
     parsed=$(dk_cmd_parse "$cmd")
     while IFS= read -r line; do
         [ -n "$line" ] || continue
@@ -565,6 +570,114 @@ EOF
     return 0
 }
 
+# Pri priamom git add … && git commit postačí dokázať, že po add bude index zhodný s pracovným stromom.
+dk_add_covers_worktree() {
+    local line=${DK_ADD_LINES%"$DK_NL"} tok all=0 literal=0
+    local outside=()
+    [ "$1" = "$DK_PROJECT" ] && [ "$DK_CWD" = "$DK_PROJECT" ] || return 1
+    case "$line" in *"$DK_NL"*) return 1 ;; "git add "*) ;; *) return 1 ;; esac
+    while IFS= read -r tok; do
+        tok=$(dk_strip_quotes "$tok")
+        if [ "$literal" = 0 ]; then
+            case "$tok" in
+                -A|--all) all=1; continue ;;
+                --) literal=1; continue ;;
+            esac
+        fi
+        case "$tok" in
+            .) outside+=(":(exclude)**") ;;
+            -*|/*|..|../*|*/../*|*[![:alnum:]._/\ -]*) return 1 ;;
+            *) outside+=(":(exclude,literal)$tok") ;;
+        esac
+    done <<EOF
+$(dk__tokens "${line#git add }")
+EOF
+    if [ "${#outside[@]}" = 0 ]; then [ "$all" = 1 ]; return; fi
+    dk_git diff --quiet --ignore-submodules=none -- . "${outside[@]}" &&
+        dk_git ls-files -z --others --exclude-standard -- . "${outside[@]}" > "$DK_TMP/add.others" &&
+        [ ! -s "$DK_TMP/add.others" ]
+}
+
+# Porovnaj presné slová parsera, medzery a tabulátory medzi nimi nemajú význam.
+dk_same_words() {
+    local rest=$1 word
+    while IFS= read -r word; do
+        rest=${rest#"${rest%%[![:blank:]]*}"}
+        case "$rest" in "$word"*) rest=${rest#"$word"} ;; *) return 1 ;; esac
+        case "$rest" in ''|[[:blank:]]*) ;; *) return 1 ;; esac
+    done <<EOF
+$(printf '%s' "$2" | tr "$DK_US" '\n')
+EOF
+    [ -z "${rest#"${rest%%[![:blank:]]*}"}" ]
+}
+
+# Vyber pohľad Gitu podľa už rozobratých argumentov jedného commitu.
+dk_commit_proof() {
+    local dir=$1 tok flags inner commit=0 value=0 literal=0 only=0 view=index line add
+    local paths=()
+    [ -n "$DK_COMMIT_WORDS" ] || return 1
+    line=$(printf '%s' "$DK_COMMIT_WORDS" | tr "$DK_US" ' ')
+    if [ -n "$DK_ADD_LINES" ]; then
+        add=${DK_ADD_LINES%"$DK_NL"}
+        [ "$cmd" = "$add && $line" ] || return 1
+    else
+        dk_same_words "$cmd" "$DK_COMMIT_WORDS" || return 1
+        if [ -n "$DK_CONT" ]; then dk_project_proof index "$dir"; return; fi
+    fi
+    while IFS= read -r tok; do
+        if [ "${3:-}" = native ]; then
+            case "$tok" in
+                \'*\') inner=${tok#\'}; inner=${inner%\'}; case "$inner" in *\'*) return 1 ;; esac ;;
+                \"*\") inner=${tok#\"}; inner=${inner%\"}; case "$inner" in *[\"\$\\\`]*) return 1 ;; esac ;;
+                *[![:alnum:]._/:=@,+-]*) return 1 ;;
+            esac
+        fi
+        if [ "$commit" = 0 ]; then [ "$tok" != commit ] || commit=1; continue; fi
+        if [ "$value" = 1 ]; then value=0; continue; fi
+        if [ "$literal" = 0 ]; then
+            # Krátke prepínače bez hodnoty môžu predchádzať -m či -F v jednej skupine.
+            case "$tok" in
+                -[qvsao]*)
+                    flags=${tok#-}
+                    while [ -n "$flags" ]; do
+                        case "${flags:0:1}" in
+                            a) view=tracked ;; o) only=1 ;; q|v|s) ;; *) break ;;
+                        esac
+                        flags=${flags#?}
+                    done
+                    [ -n "$flags" ] || continue
+                    tok="-$flags" ;;
+            esac
+            case "$tok" in
+                --) literal=1; continue ;;
+                --all) view=tracked; continue ;;
+                -m|-F|-C|-c|--message|--file|--author|--date|--trailer|--cleanup|--reuse-message|--reedit-message) value=1; continue ;;
+                --only) only=1; continue ;;
+                -m?*|-F?*|--message=*|--file=*|--author=*|--date=*|--trailer=*|--cleanup=*|--amend|--allow-empty|--no-edit|--signoff|--quiet|--verbose|-S*|--gpg-sign*) continue ;;
+                -*) return 1 ;;
+            esac
+        fi
+        tok=$(dk_strip_quotes "$tok")
+        paths+=("$tok")
+    done <<EOF
+$(printf '%s' "$DK_COMMIT_WORDS" | tr "$DK_US" '\n')
+EOF
+    [ "$commit" = 1 ] && [ "$value" = 0 ] || return 1
+    [ "$only" = 0 ] || [ "${#paths[@]}" -gt 0 ] || return 1
+    if [ "${3:-}" = native ]; then
+        [ "$view" = index ] && [ "${#paths[@]}" = 0 ] || return 1
+        local work index
+        work=$(dk_project_proof worktree "$DK_PROJECT") && index=$(dk_project_proof index "$DK_PROJECT") &&
+            [ -n "$work" ] && [ "$work" = "$index" ]
+        return
+    fi
+    if [ -n "$DK_ADD_LINES" ]; then
+        [ "${#paths[@]}" = 0 ] && dk_add_covers_worktree "$dir" || return 1
+        printf '%s\n' "$2"
+    elif [ "${#paths[@]}" -gt 0 ]; then dk_project_proof paths "$dir" "${paths[@]}"
+    else dk_project_proof "$view" "$dir"; fi
+}
+
 # Kontroly (tajomstvá, commit gate) v repe DK_PROJECT pre všetky commity a add príkazu; výsledok v DK_EDENY.
 dk_eval_repo() { # <t0>
     local t0="$1" d
@@ -572,9 +685,11 @@ dk_eval_repo() { # <t0>
     # Zmena devkit.json repa commitu (R3): systemMessage raz za session, gate ani kontrola tajomstiev sa nemenia.
     [ -n "$DK_CFG_NOTE" ] || { dk_cfg_trust note && DK_CFG_NOTE=$(dk_cfg_note); }
 
-    local tag a b enabled=true gext="" fullw="" pats="" allow="" forbid=""
+    local tag a b enabled=true strict=false native="" gext="" fullw="" pats="" allow="" forbid=""
     dk_cfg_read '"E\u001f\(if (.commitGate|type) == "boolean" then .commitGate elif .commitGate.enabled == false then false else true end | s)",
-        "G\u001f\((.commitGate.ext // []) | join(","))",
+        "R\u001f\(any(.check.steps[]?; .required == true and any((.modes // ["quick","full"])[]; . == "quick" or . == "full")) | s)",
+        "G\u001f\((.commitGate.ext? // []) | join(","))",
+        "H\u001f\(.commitGate.nativeHook? // "" | s)",
         ((.check.fullWhen // [])[] | "W\u001f\(.|s)"),
         ((.secrets.patterns // [])[] | "P\u001f\(.|s)"),
         ((.secrets.allow // [])[] | "L\u001f\(.|s)"),
@@ -582,6 +697,8 @@ dk_eval_repo() { # <t0>
     while IFS=$DK_US read -r tag a; do
         case "$tag" in
             E) enabled=$a ;;
+            R) strict=$a ;;
+            H) native=$a ;;
             G) gext=$a ;;
             W) fullw="$fullw$a$DK_NL" ;;
             P) pats="$pats$a$DK_NL" ;;
@@ -595,6 +712,19 @@ EOF
     local gate_on=0 sec_on=0
     [ "$enabled" != false ] && dk_rule_on commitGate && gate_on=1
     DK_GATE_ON=$gate_on
+    if [ "$gate_on" = 1 ] && [ -n "$native" ]; then
+        # Delegovať iba samostatný git commit bez úpravy prostredia či nastavení Gitu.
+        if dk_native_pre_commit "$native"; then
+            case "$DK_COMMIT_WORDS" in
+                "git${DK_US}commit"|"git${DK_US}commit${DK_US}"*)
+                    if [ -z "$DK_ADD_LINES$DK_CONT" ] && [ "$DK_RESCUE" = 0 ] &&
+                        dk_commit_proof "$base" "" native; then gate_on=0; fi ;;
+            esac
+        elif [ "$?" = 2 ]; then
+            DK_EDENY='[dev-kit] nativeHook potrebuje povinný projektový krok pre quick aj full.'
+            return 0
+        fi
+    fi
     dk_rule_on secrets && sec_on=1
     [ "$gate_on$sec_on" != 00 ] || return 0
 
@@ -691,8 +821,8 @@ EOF
     # Súbory, ktoré pôjdu do commitu: staged ∪ (-a: zmenené sledované) ∪ (pathspec / git add: zmenené voči HEAD + nové,
     # pri -f aj ignorované). Položky s koncovým '/' (vnorené repo, worktree) sa nedajú hashovať.
     local staged f sp
-    staged=$(dk_git diff --cached --name-only --no-renames --diff-filter=ACMRD 2>/dev/null)
-    [ "$all" = 1 ] && wt="$wt$DK_NL$(dk_git diff --name-only --no-renames --diff-filter=ACMRD HEAD 2>/dev/null)"
+    staged=$(dk_git diff --cached --name-only --no-renames --diff-filter=ACMRDT 2>/dev/null)
+    [ "$all" = 1 ] && wt="$wt$DK_NL$(dk_git diff --name-only --no-renames --diff-filter=ACMRDT HEAD 2>/dev/null)"
     dk_tmpdir
     printf '%s' "$specs" | grep -v '^$' | tr '\n' '\0' > "$DK_TMP/specs.z"
     if [ -s "$DK_TMP/specs.z" ]; then
@@ -709,7 +839,7 @@ EOF
     wt=$(printf '%s\n' "$wt" | grep -v '^$' | sort -u)
     local tbc qn
     tbc=$(printf '%s\n%s\n' "$staged" "$wt" | grep -v '^$' | sort -u)
-    if [ "$partial" = 0 ] && [ "$forceall" = 0 ] && [ -z "$tbc" ]; then return 0; fi
+    if [ "$partial" = 0 ] && [ "$forceall" = 0 ] && [ -z "$tbc" ] && [ "$gate_on:$strict" != 1:true ]; then return 0; fi
 
     # Názov, ktorý git vypíše len v úvodzovkách (", \, riadiace znaky), sa nedá spoľahlivo overiť.
     qn=$(printf '%s\n' "$tbc" | grep '^"' | head -n 1)
@@ -837,18 +967,44 @@ EOF
 
     # 2. Commit gate. Kľúč obsahu (hash kódových blobov) zoskupí pokusy o ten istý commit pre /dev:stats.
     if [ "$gate_on" = 1 ]; then
+        local generation
+        generation=$(readlink "$DK_PDATA/current-check") || generation=""
         local code="" pmode="" bad="" nbad=0 fullg="" gmsg="" ckey="" rerun=0 again fl
         if [ "$partial" = 1 ]; then
             gmsg="[dev-kit] čiastočný stage (git add -p/-i/-e) v tom istom príkaze ako commit sa nedá overiť — stage-uj zvlášť, potom commit zopakuj.$DK_NL"
         fi
         code=$(printf '%s\n' "$map" | dk_ext_filter "$gext" code)
         [ -z "$code" ] || code="$code$DK_NL"
+        if [ "$strict" = true ]; then
+            local cfg_hash checked work candidate before
+            cfg_hash=$(git hash-object --no-filters -- "$DK_CFG") || cfg_hash=""
+            before=$(jq -er 'select(.newPathsVerified == true) | .runId // empty' "$DK_PDATA/before-stage.json" 2>/dev/null) || before=""
+            checked=$(jq -er --arg cfg "$cfg_hash" --arg before "$before" --slurpfile policy "$DK_CFG" '
+                select(.configHash == $cfg and .projectProof == .indexProof and (.requiredSteps | type == "array"))
+                | .mode as $mode | select($mode == "quick" or $mode == "full")
+                | [$policy[0].check.steps[]? | select(.required == true) | (.modes // ["quick","full"]) as $m
+                    | select(($m|index("quick")) or ($mode == "full" and ($m|index("full"))))] as $needed
+                | select((($needed | map(.id)) - .requiredSteps | length) == 0)
+                | select(all($needed[]; .phase != "before-stage") or ($before != "" and .beforeRun == $before))
+                | .projectProof // empty' "$DK_PDATA/pass.json" 2>/dev/null) || checked=""
+            work=$(dk_project_proof worktree "$DK_PROJECT") || work=""
+            candidate=$(dk_commit_proof "$base" "$work") || candidate=""
+            if [ -z "$candidate" ]; then
+                gmsg="$gmsg[dev-kit] rozsah commitu sa nedal pre povinnú kontrolu potvrdiť. Priprav súbory samostatne a commitni overený index.$DK_NL"
+            elif [ -z "$work" ] || [ "$candidate" != "$work" ]; then
+                gmsg="$gmsg[dev-kit] obsah commitu sa líši od celého pracovného stromu. Over presný obsah pripravovaného commitu v samostatnom čistom worktree alebo zosúlaď zamýšľaný stage. Cudzie zmeny zachovaj.$DK_NL"
+            elif [ -z "$checked" ] || [ "$checked" != "$work" ]; then
+                gmsg="$gmsg[dev-kit] povinná projektová kontrola potrebuje nový výsledok pre tento HEAD a obsah projektu. Najprv priprav presný index a potom ho over. Pri kroku before-stage treba pred git add aj --before-stage.$DK_NL"
+                rerun=1
+            fi
+        fi
         if [ -n "$code" ]; then
             ckey=$(printf '%s' "$code" | git hash-object --stdin 2>/dev/null | cut -c1-12)
             printf '%s' "$code" > "$DK_TMP/code.list"
             : > "$DK_TMP/pass.blobs"
             if [ -f "$DK_PDATA/pass.json" ]; then
-                jq -r '"M\u001f\(.mode // "")", ((.blobs // {}) | to_entries[] | "B\u001f\(.key)\u001f\(.value)")' "$DK_PDATA/pass.json" 2>/dev/null > "$DK_TMP/pass.out"
+                jq -r '"M\u001f\(.mode // "")", ((.blobs // {}) | to_entries[] | "B\u001f\(.key)\u001f\(.value)")' \
+                    "$DK_PDATA/pass.json" 2>/dev/null > "$DK_TMP/pass.out"
                 pmode=$(LC_ALL=C awk -F'\037' '$1 == "M" { print $2; exit }' "$DK_TMP/pass.out")
                 LC_ALL=C awk -F'\037' '$1 == "B" { print $2 "\t" $3 }' "$DK_TMP/pass.out" > "$DK_TMP/pass.blobs"
             fi
@@ -868,21 +1024,33 @@ EOF
                 bad="$bad- $f$note$DK_NL"
             done < "$DK_TMP/bad.list"
             [ "$nbad" -le 8 ] || bad="$bad$(LC_ALL=C awk -F'\t' 'NR > 8 { print "- " $1 }' "$DK_TMP/bad.list")$DK_NL"
-            if [ -n "$fullw" ]; then
-                local fwre
-                fwre=$(dk_globs_re "$fullw")
-                while IFS="$DK_TAB" read -r f b; do
-                    if dk_re_match "$f" "$fwre"; then fullg=$(dk_first_glob "$f" "$fullw"); break; fi
-                done < "$DK_TMP/code.list"
-            fi
             if [ "$nbad" -gt 0 ]; then
                 gmsg="$gmsg[dev-kit] commit gate$when: $(dk_plural "$nbad" súbor súbory súborov) bez PASS z /dev:check pre presne tento obsah:$DK_NL$(dk__items 8 'ďalšie súbory' "$bad")$DK_NL"
                 rerun=1
             fi
+        fi
+        if [ -n "$fullw" ] && { [ "$strict" = true ] || [ -n "$code" ]; }; then
+            local fwre candidates
+            fwre=$(dk_globs_re "$fullw")
+            if [ "$strict" = true ]; then
+                candidates=$tbc
+                pmode=$(jq -r '.mode // empty' "$DK_PDATA/pass.json" 2>/dev/null)
+            else
+                candidates=$(cut -f1 "$DK_TMP/code.list")
+            fi
+            while IFS= read -r f; do
+                [ -n "$f" ] && dk_re_match "$f" "$fwre" || continue
+                fullg=$(dk_first_glob "$f" "$fullw"); break
+            done <<EOF
+$candidates
+EOF
             if [ -n "$fullg" ] && [ "$pmode" != full ]; then
                 gmsg="$gmsg[dev-kit] commit gate$when: zmena v $fullg vyžaduje /dev:check --full$DK_NL"
                 rerun=1
             fi
+        fi
+        if [ "$(readlink "$DK_PDATA/current-check")" != "$generation" ]; then
+            gmsg="$gmsg[dev-kit] počas rozhodovania začala ďalšia kontrola; počkaj na jej výsledok.$DK_NL"
         fi
         if [ -n "$gmsg" ]; then
             if [ "$rerun" = 1 ]; then
@@ -892,7 +1060,7 @@ EOF
                 again="commit zopakuj"; [ -z "$DK_CONT" ] || again="zopakuj $DK_CONT"
                 # Najviac 8 kódových súborov commitu → --files: cudzí rozpracovaný súbor kontrolu nezhodí.
                 fl=""
-                if [ "$(printf '%s' "$code" | grep -c .)" -le 8 ]; then
+                if [ -n "$code" ] && [ "$(printf '%s' "$code" | grep -c .)" -le 8 ]; then
                     while IFS="$DK_TAB" read -r f b; do
                         [ -n "$f" ] && fl="$fl $(dk__shq "$f")"
                     done <<EOF

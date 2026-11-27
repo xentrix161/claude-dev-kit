@@ -46,12 +46,7 @@ Vetvy podľa stacku:
 
 ## 4. Spustenie len nových testov
 
-- S `.claude/devkit.json`: príkaz kroku `unit`/`integration` z `check.steps[].run`. Pre jeden test nahraď `--testsuite <x>` cestou k testu a pridaj `--filter <metóda>`; Nette Tester: v príkaze kroku `tester` nahraď `tests` cestou k súboru `.phpt`; pytest `pytest -q <súbor>::<test>`.
-- `container` nastavený → `docker exec -i -w <workdir> <container> sh -c '<príkaz>'`:
-  - `workdir` = `appRoot`; vo worktree `appRoot/<cesta worktree voči hlavnému repu>` (hlavné repo: `git rev-parse --path-format=absolute --git-common-dir` bez `/.git`)
-  - nikdy `-it` (bez TTY padne)
-- Bez `container` → príkaz priamo v koreni projektu.
-- Bez `.claude/devkit.json` → zjavný príkaz projektu (CLAUDE.md, `Makefile`, `composer.json` scripts, `vendor/bin/phpunit`, `pytest`); spomeň `/dev:project-init`.
+- Spusti príkaz definovaný projektom v jeho runtime. Jeden prípad vyber iba cez podporovaný filter harnessu. Ak filter nemá, použi predpísanú sadu. Keď projekt vstup neurčil, použi nakonfigurovaný kitový krok alebo existujúci runner modulu podľa jeho dokumentácie.
 
 ## 5. Cyklus
 
@@ -62,19 +57,13 @@ Režim A:
 
 Režim B: napíš testy, spusti; zelené = hotovo. Červené → rozhodni, či je zlý test (oprav ho) alebo bug (nahlás, navrhni `/dev:fix`).
 
-Na záver statická analýza a štýl aj pre nové testy (Bash timeout 300000 ms):
-
-```bash
-bash "${CLAUDE_PLUGIN_ROOT}/scripts/check.sh" --quick --project "${CLAUDE_PROJECT_DIR}"
-```
-
-Exit 3 = bez devkit.json (preskoč s poznámkou), 4 = neúplné overenie, `PARTIAL` alebo `SKIP` (uveď dôvod, PASS netvrď), 1 = oprav nálezy v nových a zmenených súboroch a zopakuj; zlyhania mimo tvojich zmien len nahlás.
+Na záver vykonaj [overenie projektu](../check/SKILL.md) vrátane povinného harnessu aj bez konfigurácie kitu. Pre doplnkové kitové kroky použi `--quick`. Pri neúplnej alebo zlyhanej povinnej kontrole uveď dôvod a rozsah.
 
 Necommituj — commit ide cez `/dev:commit`.
 
 ## UI zmena
 
-Zmena šablón, CSS alebo JS → over ju aj v bežiacej appke vstavaným `/verify` alebo cez Chrome MCP. Prihlás sa testovacími údajmi projektu a nikdy ich nevypisuj (postup v skille `debug`, „Overenie v appke“). Kontrolný zoznam:
+Zmena šablón, CSS alebo JS → over ju aj v bežiacej appke prehliadačom a postupom určeným projektom. Prihlás sa testovacími údajmi projektu a nikdy ich nevypisuj (postup v skille `debug`, „Overenie v appke“). Kontrolný zoznam:
 - stránka vráti 200 (nie presmerovanie na login)
 - konzola bez chýb
 - formulár sa odošle a uloží
@@ -93,7 +82,7 @@ Zmena šablón, CSS alebo JS → over ju aj v bežiacej appke vstavaným `/verif
 - `tests/…/XTest.php` — N testov, prípady jedným riadkom
 - RED: `<príkaz>` → `<riadok výsledku>` (len režim A)
 - GREEN: `<príkaz>` → `<riadok výsledku, napr. OK (5 tests, 9 assertions)>`
-- `check quick: PASS|FAIL` (alebo dôvod, prečo nebežal)
+- Výsledok projektového harnessu a prípadnej kontroly kitu.
 - UI zmena: čo si overil v appke, alebo „v appke neoverené“
 - nájdené bugy / nepokryté miesta: `súbor:riadok — výstih`
 - ďalej: `/dev:review`, `/dev:commit`

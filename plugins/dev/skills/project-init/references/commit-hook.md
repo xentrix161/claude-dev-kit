@@ -1,0 +1,11 @@
+# Kontrola pred commitom v pláne nastavenia
+
+Do návrhu uveď, ktorý projektový príkaz kontroluje pripravovaný obsah, v akom prostredí a kedy ho projekt vyžaduje. Predvolene zahrň `commitGate.enabled: true` pre overiteľné kroky. Projektové wrappery, argumenty, fázu stagingu a spôsob ukladania výsledkov prevezmi z harnessu. Spoločný povinný príkaz pripoj raz ako `required: true`.
+
+- Ak inventár našiel spustiteľný Git hook, prečítaj jeho skript a volané príkazy. Pri pomenovanom hooku over `hook.<meno>.command` aj jeho pôvod. Ak verzovaný spustiteľný súbor pre-commit pokrýva celý povinný krok a funguje aj samostatne nad indexom z koreňa projektu, navrhni zapnutý gate s `commitGate.nativeHook`. V režimoch quick a full použi jediný povinný hostiteľský krok s príkazom `./<cesta k tomu istému hooku>`, napríklad `./.githooks/pre-commit`. V checkoute s aktívnym zhodným hookom kontrolu vykoná Git. V čerstvom klone ju kit vyžaduje cez rovnaký skript. Pri osobnom či pomenovanom hooku, ktorého zhodu kit nevie preukázať, ponechaj povinný krok v kite a upozorni na možný opakovaný beh. Pri čiastočnom pokrytí rozlíš pokryté a chýbajúce kroky aj prípadný druhý beh pri commite. Nastavenie Git hooku patrí projektu.
+- Podmienené kontroly zachovaj v natívnom výbere projektu. Ak chýba overiteľný vstup, povolený zdroj auditu alebo vhodný spôsob doloženia výsledku, uveď prekážku pred schválením. Zachovaj povinné projektové kontroly.
+- V Codexe odlíš konfiguráciu projektu od osobnej registrácie a dôvery. Ak stav vieš overiť, uveď ho pri pláne. Chýbajúcu registráciu pokrýva [osobná inštalácia](../../../../../README.md#codex). Dôveru potvrdzuje každý používateľ vo svojom Codexe cez `/hooks`. V Claude hook poskytuje aktívny plugin `dev`.
+
+## Ak je zadaním iba kontrola pred commitom
+
+Ukáž potrebný diff `.claude/devkit.json`. Pri novom súbore použi `version: 1`, zistený `stack`, dohodnuté režimy krokov a `stopCheck: false`. Vysvetli aj predvolené účinky prítomnosti súboru pri aktívnom Claude plugine, napríklad kontrolu tajomstiev. Lokálny variant pridá podľa potreby túto cestu do Git `info/exclude`. Tímový variant pripraví konfiguráciu na zdieľanie v repe. Rozpracované súbory, symlinky a nastavenia z hlavného checkoutu zachovaj podľa [pravidiel inštalácie](install.md). Po schválení vykonaj iba dohodnuté zmeny a príslušnú fázu `check.sh`. Uveď výsledok overenia.

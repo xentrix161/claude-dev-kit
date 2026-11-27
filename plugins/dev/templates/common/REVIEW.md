@@ -7,7 +7,7 @@
 1. **Bugy** — správnosť: logika, hranice, `null`, chybové stavy, regresia existujúceho správania, oprava chyby bez testu.
 2. **Bezpečnosť** — SQL/DQL skladané reťazcom, XSS (vypnuté escapovanie v šablóne), CSRF na formulároch, autorizácia (ACL, votery), tajomstvá v diffe, cesty a súbory od používateľa.
 3. **Súlad s plánom** — ak k úlohe existuje `docs/plans/<úloha>-*.md`: diff robí to, čo plán (Súbory, Poradie, Dôkaz), nič z „Mimo rozsahu"; odchýlka bez úpravy plánu v tom istom commite = Important.
-4. **Zastaraná dokumentácia** — zmena robí nepravdivým `CLAUDE.md` alebo `.claude/rules/*.md` (príkaz, cesta, názov, pravidlo, ukážka výstupu).
+4. **Zastaraná dokumentácia** — zmena robí nepravdivým projektové `AGENTS.md` alebo súvisiace pravidlá (príkaz, cesta, názov, pravidlo, ukážka výstupu).
 
 ## Important vs. Nit
 

@@ -31,7 +31,7 @@ bash "${CLAUDE_PLUGIN_ROOT}/scripts/test-lock.sh" unlock --project "${CLAUDE_PRO
 - **Dáta**: konkrétny vstup, ktorý chybu vyvolá; očakávané vs. skutočné.
 - **Príčina**: jedna veta, overená čítaním kódu alebo behom — nehádaj.
 - Zmena v jadre (validácia vstupov, DB triggery, verejné API, migrácie) → najprv skill `ecc-change-impact`.
-- Dodrž pravidlá projektu (CLAUDE.md, `.claude/rules/`) k testom a rozsahu.
+- Over `AGENTS.md`, pravidlá testov a natívny harness. Bez konfigurácie kitu vykonaj regresiu a finálne projektové kontroly priamo. V tomto režime preskoč kitový zámok a `check.sh`.
 - Príčina nejasná → povedz, čo chýba (log, dáta, prístup), a spýtaj sa. Žiadna oprava naslepo.
 
 ## 2. Červený regresný test
@@ -39,10 +39,7 @@ bash "${CLAUDE_PLUGIN_ROOT}/scripts/test-lock.sh" unlock --project "${CLAUDE_PRO
 - Spustenie `/dev:fix` je súhlas s regresným testom; znova sa naň nepýtaj.
 - Najnižšia úroveň, ktorá bug ukáže: unit → integračný (DB) → E2E (len UI). Drž konvencie existujúcich testov (base triedy, umiestnenie, pomenovanie).
 - Názov opisuje bug: `testRejectsEmptyPinInsteadOfCrashing`, pytest `test_rejects_empty_pin`.
-- Spusti len tento test:
-  - príkaz kroku `unit`/`integration` z `check.steps[].run` v `.claude/devkit.json`; `--testsuite <x>` nahraď cestou k testu + `--filter <metóda>`; Nette Tester: v kroku `tester` nahraď `tests` cestou k `.phpt`; pytest `pytest -q <súbor>::<test>`
-  - s `container` → `docker exec -i -w <appRoot> <container> sh -c '<príkaz>'` (vo worktree `appRoot/<cesta voči hlavnému repu>`), nikdy `-it`
-  - bez devkit.json → zjavný príkaz projektu (CLAUDE.md, `Makefile`, `vendor/bin/phpunit`, `pytest`)
+- Spusti regresiu projektovým testovacím vstupom. Použi filter podporovaný týmto vstupom, inak spusti predpísanú sadu. Keď projekt vstup neurčil, použi nakonfigurovaný testovací krok v jeho runtime.
 - Musí padnúť **na asercii, ktorá popisuje bug** — nie parse error ani chyba setupu. Riadok výsledku si zapamätaj (RED dôkaz).
 - Testom sa reprodukovať nedá (konfigurácia, infra, dáta prostredia) → povedz prečo, opíš ručný repro a pokračuj bez zámku; vo výstupe netvrď „overené testom".
 
@@ -63,17 +60,12 @@ bash "${CLAUDE_PLUGIN_ROOT}/scripts/test-lock.sh" lock <cesta/k/Testu.php> --pro
 - Najmenšia zmena produkčného kódu, ktorá odstráni príčinu, nie symptóm. Zvyšok systému správaj rovnako ako doteraz.
 - Priľahlé edge cases a „keď už som tu" úpravy neopravuj — zapíš ich ako follow-up. Novú podmienku či kontrolu mimo zadania najprv navrhni a opýtaj sa.
 - Repro test → zelený (GREEN dôkaz).
-- Celá kontrola (Bash timeout 600000 ms):
-
-```bash
-bash "${CLAUDE_PLUGIN_ROOT}/scripts/check.sh" --auto --project "${CLAUDE_PROJECT_DIR}"
-```
+- Po zelenej regresii vykonaj [overenie projektu](../check/SKILL.md) vrátane povinného harnessu. Pre doplňujúce kitové kroky použi `--auto`. Pri zlyhaní alebo zablokovaní povinného kroku nechaj test zamknutý.
 
 - `1` FAIL s riadkom `! test … (zámok)` → vráť test do zamknutého stavu; keď to nejde, zastav a nahlás to používateľovi (odomknutie len cez `/dev:fix --unlock`).
 - `1` FAIL → oprav kód (nie test) a zopakuj; zlyhania mimo tvojich zmien len nahlás. Po 2 neúspešných kolách zastav, nahlás stav (čo padá, hypotéza) a navrhni /clear s presnejším zadaním; test ostáva zamknutý.
-- `3` bez devkit.json → spusti celú unit sadu zjavným príkazom projektu; zelená → odomkni ako pri `0`. Spomeň `/dev:project-init`.
 - `4` neúplné overenie (`PARTIAL` alebo `SKIP`) → nahlás dôvod (kontajner, nástroje), PASS netvrď, test nechaj zamknutý.
-- `0` PASS → odomkni:
+- Po úspechu všetkých povinných kontrol a zapnutých kitových krokov odomkni existujúci zámok:
 
 ```bash
 bash "${CLAUDE_PLUGIN_ROOT}/scripts/test-lock.sh" unlock --project "${CLAUDE_PROJECT_DIR}"
@@ -85,6 +77,6 @@ bash "${CLAUDE_PLUGIN_ROOT}/scripts/test-lock.sh" unlock --project "${CLAUDE_PRO
 - Oprava: `súbor:riadok` — čo sa zmenilo
 - Test: `tests/…Test.php::metóda`
 - RED → GREEN: `<riadok z behu>` → `<riadok z behu>`
-- `check auto: PASS · …` (alebo prečo nie)
+- Výsledok projektového harnessu a prípadnej kontroly kitu.
 - Follow-up: čo si zámerne neopravil (len ak niečo je)
 - Ďalej: `/dev:review`, potom `/dev:commit`. Sám necommituj.

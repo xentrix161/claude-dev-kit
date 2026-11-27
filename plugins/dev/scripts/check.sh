@@ -8,17 +8,19 @@ DK_NO_STDIN=1
 DK_NO_CONTAINER_CACHE=1
 
 dk_usage() {
-    echo "použitie: check.sh [--quick|--full|--auto|--stop] [--session <id>] [--project <dir>] [--config <súbor>] [--files <rel>…]"
+    echo "použitie: check.sh [--quick|--full|--auto|--stop] [--before-stage] [--session <id>] [--project <dir>] [--config <súbor>] [--files <rel>…]"
 }
 
 DK_EXCERPT_RE='^[0-9]+\) |^FAILED |^ERROR|:[0-9]+(:|$)|on line [0-9]+|[Ee]rror|[Ee]xception|FAILURES!|^Tests: |[Ff]ailed asserting|^E[[:space:]]|^-- FAILED: |^[[:space:]]+Failed: |^Found [0-9]+ |^(Package|Advisory ID|CVE|Title): |^Name +Version +ID|[[:space:]](PYSEC|GHSA|CVE)-[0-9A-Za-z]'
 # Riadok nálezu v kóde: číslo riadku, test Nette Testeru (ten čísla riadkov s dvojbodkou nemá) alebo hlavička auditu.
 DK_RE_FINDING=':[0-9]|on line [0-9]|^-- FAILED: |^Found [0-9]+ (security vulnerability advisor|known vulnerabilit|abandoned package)'
 
+before_stage=0
 mode=quick files_arg="" files_set=0 project="" session="" cfg_file="" cfg_set=0
 while [ $# -gt 0 ]; do
     case "$1" in
         --quick|--full|--auto|--stop) mode=${1#--} ;;
+        --before-stage) before_stage=1 ;;
         --session) session=${2:-}; [ $# -gt 1 ] && shift ;;
         --session=*) session=${1#*=} ;;
         --project) project=${2:-}; [ $# -gt 1 ] && shift ;;
@@ -60,7 +62,28 @@ if [ -n "$cfg_file" ]; then
     DK_CFG=$cfg_file CFG_SHOW=$cfg_file
 fi
 if [ -z "$DK_CFG" ]; then echo "[dev-kit] chýba .claude/devkit.json — spusti /dev:project-init"; exit 3; fi
-if ! dk_cfg_read '((.check.steps // [])[] | "S\u001f\(.id|s)\u001f\(.requires|s)\u001f\(.run|s)\u001f\(.runFiles|s)\u001f\((.ext // []) | join(","))\u001f\((.modes // ["quick","full"]) | join(","))\u001f\(.changedLinesOnly // false | s)\u001f\(.runtime|s)\u001f\(.timeoutSec // 300 | s)"),
+if [ "$before_stage" = 1 ] && { [ "$mode" = stop ] || [ -n "$CFG_OVER" ]; }; then dk_usage; exit 3; fi
+
+# Každý beh publikuje do vlastného adresára. Spoločný odkaz vyberá naposledy začatú kontrolu.
+RESULT_DIR=""
+if [ "$mode" != stop ] && [ -z "$CFG_OVER" ]; then
+    RESULT_DIR=$(mktemp -d "$DK_PDATA/result.XXXXXX") || exit 3
+    generation=${RESULT_DIR##*/}
+    ln -s "$generation" "$RESULT_DIR/current-check" && mv -f "$RESULT_DIR/current-check" "$DK_PDATA/" || exit 3
+    for name in pass.json partial.json; do
+        [ "$(readlink "$DK_PDATA/$name")" = "current-check/$name" ] && continue
+        ln -s "current-check/$name" "$RESULT_DIR/link" && mv -f "$RESULT_DIR/link" "$DK_PDATA/$name" || exit 3
+    done
+    if [ "$before_stage" = 1 ]; then
+        ln -s "$generation/before.ok" "$RESULT_DIR/link" && mv -f "$RESULT_DIR/link" "$DK_PDATA/before-stage.json" || exit 3
+    fi
+fi
+dk_tmpdir
+cp "$DK_CFG" "$DK_TMP/check-config.json" || exit 3
+DK_CFG="$DK_TMP/check-config.json"
+CONFIG_HASH=$(git hash-object --no-filters -- "$DK_CFG") || exit 3
+if ! dk_cfg_read '((.check.steps // [])[] | "S\u001f\(.id|s)\u001f\(.requires|s)\u001f\(.run|s)\u001f\(.runFiles|s)\u001f\((.ext // []) | join(","))\u001f\((.modes // ["quick","full"]) | join(","))\u001f\(.changedLinesOnly // false | s)\u001f\(.runtime|s)\u001f\(.timeoutSec // 300 | s)\u001f\(.required // false | s)\u001f\(.phase // "staged" | s)\u001f\(.output // "log" | s)\u001f\(.newPathsReport|s)"),
+    "R\u001f\(any(.check.steps[]?; .required == true and any((.modes // ["quick","full"])[]; . == "quick" or . == "full")) | s)",
     ((.check.fullWhen // [])[] | "W\u001f\(.|s)"),
     ((.check.knownFailures // [])[] | "F\u001f\(.step|s)\u001f\(.pattern|s)"),
     "T\u001f\(.testLock.ttlHours // 6 | s)"'; then
@@ -69,12 +92,13 @@ if ! dk_cfg_read '((.check.steps // [])[] | "S\u001f\(.id|s)\u001f\(.requires|s)
 fi
 mkdir -p "$DK_PDATA/logs" "$DK_PDATA/sessions" 2>/dev/null
 
-FULLW="" KNOWN="" TTL=6
+FULLW="" KNOWN="" TTL=6 STRICT=false PROJECT_PROOF="" INDEX_PROOF=""
 while IFS=$DK_US read -r tag a b; do
     case "$tag" in
         W) FULLW="$FULLW$a$DK_NL" ;;
         F) KNOWN="$KNOWN$a$DK_US$b$DK_NL" ;;
         T) TTL=$a ;;
+        R) STRICT=$a ;;
     esac
 done <<EOF
 $DK_CFG_OUT
@@ -117,8 +141,12 @@ EOF
     fi
 fi
 
+BEFORE_RUN="" REQUIRED_OK="" BASE_PROOF=""
+if [ "$before_stage" = 0 ] && [ "$mode" != stop ] && [ -f "$DK_PDATA/before-stage.json" ]; then
+    cp "$DK_PDATA/before-stage.json" "$DK_TMP/before.json" || exit 3
+fi
+
 # Odtlačok obsahu pred krokmi: marker potvrdí presne to, čo sa kontrolovalo.
-dk_tmpdir
 if [ "$mode" = stop ]; then
     # Bez --files rovnaká množina ako dk_session_code_files v stop-check (hash v stop.json).
     dk_base
@@ -126,16 +154,27 @@ if [ "$mode" = stop ]; then
     SNAP_HASH=$(set -f; IFS=$DK_NL; dk_hash_files $HF)
 else
     (set -f; IFS=$DK_NL; dk_blobs $ALL) > "$DK_TMP/blobs.snap"
+    if { [ "$STRICT" = true ] || [ "$mode" = full ]; } && [ -z "$CFG_OVER" ]; then
+        INDEX_PROOF=$(dk_project_proof index "$DK_PROJECT") || INDEX_PROOF=""
+        if [ "$before_stage" = 1 ]; then
+            BASE_PROOF=$(dk_project_proof base "$DK_PROJECT") || BASE_PROOF=""
+            PROJECT_PROOF=$(dk_project_proof worktree "$DK_PROJECT" "$DK_TMP/new-paths") || PROJECT_PROOF=""
+        else
+            PROJECT_PROOF=$(dk_project_proof worktree "$DK_PROJECT") || PROJECT_PROOF=""
+        fi
+    fi
 fi
 
-LOG="$DK_PDATA/logs/check-$mode-$DK_T0.log"
-[ -e "$LOG" ] && LOG="$DK_PDATA/logs/check-$mode-$DK_T0-$$.log"
+LOG="$DK_PDATA/logs/check-$mode-$DK_T0-$$.log"
+[ -z "$RESULT_DIR" ] || printf '%s\n' "${LOG##*/}" > "$RESULT_DIR/log-name" || exit 3
 {
     echo "# dev-kit check $mode · $(date '+%Y-%m-%d %H:%M:%S') · $DK_PROJECT"
     echo "# súbory: $(printf '%s' "$EXIST" | tr '\n' ' ')"
     [ -z "$CFG_OVER" ] || echo "# config: $CFG_OVER"
 } 2>/dev/null > "$LOG"
 
+whole=false
+[ "$mode" = full ] && [ "$files_set" = 0 ] && whole=true
 NOK=0 NKNOWN=0 NFAIL=0 NSKIP=0 NBLOCK=0 STEPLINES="" FAILSTEPS="" BLOCKIDS="" ENV_READY=0 ENV_SKIP=""
 
 dk_env_check() { # kontajner + workdir raz pre všetky kroky
@@ -238,12 +277,60 @@ EOF
     return 0
 }
 
-while IFS=$DK_US read -r tag id req run runf exts modes cl rt tsec <&3; do
+step_number=0
+while IFS=$DK_US read -r tag id req run runf exts modes cl rt tsec required phase output report <&3; do
     [ "$tag" = S ] || continue
     [ -n "$id" ] || continue
-    case ",$modes," in *",$mode,"*) ;; *) continue ;; esac
-    dk_rule_on "step:$id" || continue
-    if [ -n "$req" ] && [ ! -e "$DK_PROJECT/$req" ]; then dk_skip "$id" "chýba $req"; continue; fi
+    case ",$modes," in
+        *",$mode,"*) ;;
+        *,quick,*) [ "$mode" = full ] && [ "$required" = true ] || continue ;;
+        *) continue ;;
+    esac
+    if [ "$before_stage" = 1 ]; then [ "$required:$phase" = true:before-stage ] || continue; fi
+    step_number=$((step_number + 1))
+    scope_run=""
+    case "$output" in log|status) ;; *) dk_block "$id" "neznámy režim výstupu"; continue ;; esac
+    if [ "$required" = true ]; then
+        if ! dk_rule_on "step:$id"; then dk_block "$id" "povinná kontrola je vypnutá"; continue; fi
+        case "$run" in ''|*'{files}'*) dk_block "$id" "povinná kontrola potrebuje úplný príkaz run"; continue ;; esac
+        # Rozsah a výsledok povinnej kontroly určuje jej vlastný príkaz.
+        runf="" exts="" cl=false
+        case "$phase" in
+            before-stage)
+                if [ "$before_stage" = 1 ] && { [ -z "$BASE_PROOF" ] || [ "$INDEX_PROOF" != "$BASE_PROOF" ]; }; then
+                    dk_block "$id" "pred stagingom treba index bez pripravených zmien"; continue
+                fi
+                if [ "$mode" != stop ] && [ "$before_stage" = 0 ]; then
+                    if [ -n "$PROJECT_PROOF" ] && [ "$PROJECT_PROOF" = "$INDEX_PROOF" ] &&
+                        BEFORE_RUN=$(jq -er --arg cfg "$CONFIG_HASH" --arg p "$PROJECT_PROOF" --arg id "$id" --arg modes "$modes" \
+                            'select(.newPathsVerified == true and .configHash == $cfg and .projectProof == $p and (.requiredSteps | index($id)))
+                             | select(.mode == "full" or (.mode == "quick" and ($modes | split(",") | index("quick"))))
+                             | .runId' \
+                            "$DK_TMP/before.json" 2>/dev/null); then
+                        REQUIRED_OK="$REQUIRED_OK$id$DK_NL"
+                        STEPLINES="${STEPLINES}✓ $id (overené pred stagingom)$DK_NL"; NOK=$((NOK + 1))
+                    else
+                        dk_block "$id" "chýba overenie rovnakého obsahu pred stagingom (--before-stage)"
+                    fi
+                    continue
+                fi
+                if [ "$before_stage" = 1 ] && [ -s "$DK_TMP/new-paths" ]; then
+                    scope_run="$generation-$step_number"
+                    run="export DEVKIT_SCOPE_RUN='$scope_run'; $run"
+                fi ;;
+            staged) ;;
+            *) dk_block "$id" "neznáma fáza $phase"; continue ;;
+        esac
+    else
+        dk_rule_on "step:$id" || { whole=false; continue; }
+        if [ -z "$run" ] || [ "$cl" = true ]; then whole=false; fi
+        case "$run" in *'{files}'*) whole=false ;; esac
+    fi
+    if [ -n "$req" ] && [ ! -e "$DK_PROJECT/$req" ]; then
+        if [ "$required" = true ]; then dk_block "$id" "chýba $req"
+        else dk_skip "$id" "chýba $req"; fi
+        continue
+    fi
     if ! dk_runtime "$rt"; then dk_block "$id" "neznámy runtime \"$rt\" (host|container)"; continue; fi
     case "$tsec" in ''|*[!0-9]*) dk_block "$id" "neplatný timeoutSec \"$tsec\" (celé číslo ≥ 0)"; continue ;; esac
     srt=$DK_RT
@@ -307,10 +394,15 @@ while IFS=$DK_US read -r tag id req run runf exts modes cl rt tsec <&3; do
             [ "$lim" -ge 1 ] || lim=1
         fi
         b0=$(dk_ms)
-        dk_exec "$bcmd" "$srt" "$lim" > "$DK_TMP/step.raw"
-        brc=$?
-        LC_ALL=C sed "s/$(printf '\033')\[[0-9;]*[A-Za-z]//g" "$DK_TMP/step.raw" > "$DK_TMP/step.bout"
-        cat "$DK_TMP/step.bout" >> "$DK_TMP/step.out"
+        if [ "$output" = status ]; then
+            dk_exec "$bcmd" "$srt" "$lim" > /dev/null
+            brc=$?
+        else
+            dk_exec "$bcmd" "$srt" "$lim" > "$DK_TMP/step.raw"
+            brc=$?
+            LC_ALL=C sed "s/$(printf '\033')\[[0-9;]*[A-Za-z]//g" "$DK_TMP/step.raw" > "$DK_TMP/step.bout"
+            cat "$DK_TMP/step.bout" >> "$DK_TMP/step.out"
+        fi
         bms=$(( $(dk_ms) - b0 ))
         btmo=""
         [ "$DK_EXEC_TIMEOUT" = 1 ] && btmo=" · prekročil timeoutSec $tsec s"
@@ -319,8 +411,7 @@ while IFS=$DK_US read -r tag id req run runf exts modes cl rt tsec <&3; do
         {
             echo
             echo "$hdr · exit $brc · $(dk_fmt_s "$bms") s$btmo"
-            echo "\$ $bcmd"
-            cat "$DK_TMP/step.bout"
+            if [ "$output" = log ]; then echo "\$ $bcmd"; cat "$DK_TMP/step.bout"; fi
         } 2>/dev/null >> "$LOG"
         [ "$brc" -le "$rc" ] || rc=$brc
         if [ -n "$btmo" ]; then tmo=$btmo; break; fi
@@ -330,13 +421,27 @@ while IFS=$DK_US read -r tag id req run runf exts modes cl rt tsec <&3; do
     # Časový limit: krok nedobehol, výsledok nie je o kóde → PARTIAL (Stop neblokuje, commit gate vysvetlí).
     if [ -n "$tmo" ]; then dk_block "$id" "" "! krok $id prekročil $tsec s"; continue; fi
     if [ "$rc" = 0 ]; then
+        if [ -n "$scope_run" ]; then
+            case "/$report/" in //*|*/../*) dk_block "$id" "nové cesty potrebujú projektový newPathsReport pre tento beh"; continue ;; esac
+        fi
+        if [ -n "$scope_run" ] && ! { [ -f "$DK_PROJECT/$report" ] && jq -se --arg run "$scope_run" --rawfile paths "$DK_TMP/new-paths" '
+            length == 1 and (.[0] | .run == $run and (.checked | type == "array" and all(.[]; type == "string"))
+            and ((.excluded // {}) | type == "object" and all(.[]; type == "string" and test("\\S")))
+            and (($paths | split("\u0000") | map(select(length > 0))) - .checked - ((.excluded // {}) | keys) | length == 0))' \
+            "$DK_PROJECT/$report" >/dev/null 2>&1; }; then
+            dk_block "$id" "projektový report nedoložil nové cesty pre tento beh"; continue
+        fi
+        [ "$required" != true ] || REQUIRED_OK="$REQUIRED_OK$id$DK_NL"
         STEPLINES="${STEPLINES}✓ $id $(dk_fmt_s "$ms") s$DK_NL"; NOK=$((NOK + 1)); continue
     fi
     if [ "$rc" -ge 125 ] && [ "$rc" -le 127 ]; then
         dk_block "$id" "príkaz sa nedá spustiť (exit $rc)"; continue
     fi
+    if [ "$output" = status ]; then
+        STEPLINES="${STEPLINES}✗ $id $(dk_fmt_s "$ms") s (exit $rc)$DK_NL"; NFAIL=$((NFAIL + 1)); continue
+    fi
     # Zlyhal nástroj alebo docker, nie kód (žiadny riadok nálezu) → BLOCK, Stop na infraštruktúre neblokuje.
-    if ! grep -Eq "$DK_RE_FINDING" "$DK_TMP/step.out" && grep -q 'No files were checked' "$DK_TMP/step.out"; then
+    if [ "$required" != true ] && [ "$rc" = 16 ] && ! grep -Eq "$DK_RE_FINDING" "$DK_TMP/step.out" && grep -Eq "$DK_RE_NO_FILES" "$DK_TMP/step.out"; then
         dk_skip "$id" "nástroj nič neskontroloval (No files were checked)"; continue
     fi
     if ! grep -Eq "$DK_RE_FINDING" "$DK_TMP/step.out" && grep -Eq "$DK_RE_INFRA" "$DK_TMP/step.out"; then
@@ -363,7 +468,7 @@ EOF
         fi
         src="$DK_TMP/step.kept"
     fi
-    if dk_known_ok "$id" "$DK_TMP/step.out"; then
+    if [ "$required" != true ] && dk_known_ok "$id" "$DK_TMP/step.out"; then
         STEPLINES="${STEPLINES}✓ $id $(dk_fmt_s "$ms") s (známe zlyhania: $KNOWN_N)$DK_NL"
         NKNOWN=$((NKNOWN + 1)); continue
     fi
@@ -395,7 +500,18 @@ if dk_rule_on testLock && [ -f "$DK_PDATA/test-lock.json" ] && dk_lock_read "$TT
     done < "$DK_TMP/lock.want"
 fi
 
+if { [ "$STRICT" = true ] || [ "$whole" = true ]; } && [ "$mode" != stop ] && [ -z "$CFG_OVER" ]; then
+    current=$(dk_project_proof worktree "$DK_PROJECT") || current=""
+    current_index=$(dk_project_proof index "$DK_PROJECT") || current_index=""
+    if [ -z "$PROJECT_PROOF" ] || [ "$current" != "$PROJECT_PROOF" ] || [ -z "$INDEX_PROOF" ] || [ "$current_index" != "$INDEX_PROOF" ]; then
+        whole=false
+        PROJECT_PROOF=""
+        INDEX_PROOF=""
+        [ "$STRICT" != true ] || dk_block projekt "stav projektu počas kontroly sa zmenil alebo sa nedal overiť (pracovný strom alebo index)"
+    fi
+fi
 TOTAL=$(( $(dk_ms) - T0 ))
+
 if [ "$NFAIL" -gt 0 ] || [ "$NLOCK" -gt 0 ]; then VERDICT=FAIL RC=1
 elif [ "$NBLOCK" -gt 0 ]; then VERDICT=PARTIAL RC=4
 elif [ $((NOK + NKNOWN)) -gt 0 ]; then VERDICT=PASS RC=0
@@ -405,7 +521,7 @@ fi
 # fullWhen prepol na full, ale config nemá krok len pre jeden z režimov quick/full.
 if [ "$AUTO_FULL" = 1 ]; then
     same=1
-    while IFS=$DK_US read -r tag id req run runf exts modes cl rt tsec; do
+    while IFS=$DK_US read -r tag id req run runf exts modes cl rt tsec required phase; do
         [ "$tag" = S ] && [ -n "$id" ] || continue
         dk_rule_on "step:$id" || continue
         case ",$modes," in *,full,*) a=1 ;; *) a=0 ;; esac
@@ -430,9 +546,7 @@ if [ -z "$CFG_OVER" ] && [ "$mode" != stop ]; then
             --arg l "$(printf '%s' "$STEPLINES" | grep '^! ' | head -n 5)" \
             '{time: $t, mode: $m, ok: $ok, steps: ($s | split("\n") | map(select(length > 0))),
               lines: ($l | split("\n") | map(select(length > 0)))}' \
-            2>/dev/null > "$DK_PDATA/partial.json.tmp.$$" && mv "$DK_PDATA/partial.json.tmp.$$" "$DK_PDATA/partial.json"
-    else
-        rm -f "$DK_PDATA/partial.json"
+            2>/dev/null > "$RESULT_DIR/partial.tmp" && mv "$RESULT_DIR/partial.tmp" "$RESULT_DIR/partial.json"
     fi
 fi
 if [ -n "$CFG_OVER" ]; then
@@ -441,15 +555,36 @@ elif [ "$mode" = stop ] && { [ "$RC" = 0 ] || [ "$VERDICT" = PARTIAL ]; }; then
     SF=$(dk_stop_file)
     jq -n --arg h "$SNAP_HASH" --argjson t "$(dk_now)" --arg r "$VERDICT" '{hash: $h, time: $t, fails: 0, result: $r}' \
         2>/dev/null > "$SF.tmp.$$" && mv "$SF.tmp.$$" "$SF"
+elif [ "$RC" = 0 ] && [ "$before_stage" = 1 ]; then
+    jq -n --arg gen "$generation" --arg m "$mode" --arg cfg "$CONFIG_HASH" --arg p "$PROJECT_PROOF" --arg ids "$REQUIRED_OK" \
+        '{runId:$gen, newPathsVerified:true, mode:$m, configHash:$cfg, projectProof:$p, requiredSteps:($ids|split("\n")|map(select(length>0)))}' \
+        > "$RESULT_DIR/before.tmp" && mv "$RESULT_DIR/before.tmp" "$RESULT_DIR/before.ok" || exit 3
 elif [ "$RC" = 0 ]; then
     HEAD_SHA=$(dk_git rev-parse --verify -q HEAD 2>/dev/null)
-    jq -n --argjson t "$(dk_now)" --arg m "$mode" --arg h "$HEAD_SHA" --rawfile b "$DK_TMP/blobs.snap" \
-        '{time: $t, mode: $m, head: $h, blobs: ($b | split("\n") | map(select(length > 0) | split("\t") | {(.[0]): .[1]}) | add // {})}' \
-        2>/dev/null > "$DK_PDATA/pass.json.tmp.$$" && mv "$DK_PDATA/pass.json.tmp.$$" "$DK_PDATA/pass.json"
+    if [ "$NSKIP" != 0 ] || [ "$NKNOWN" != 0 ] || [ -z "$PROJECT_PROOF" ]; then whole=false; fi
+    jq -n --arg ids "$REQUIRED_OK" --arg before "$BEFORE_RUN" --argjson whole "$whole" --arg log "${LOG##*/}" --argjson t "$(dk_now)" --arg m "$mode" --arg h "$HEAD_SHA" --arg cfg "$CONFIG_HASH" --arg proof "$PROJECT_PROOF" --arg idx "$INDEX_PROOF" --rawfile b "$DK_TMP/blobs.snap" \
+        '{requiredSteps: ($ids|split("\n")|map(select(length>0))), beforeRun: $before, unfilteredRun: $whole, log: $log, time: $t, mode: $m, head: $h, configHash: $cfg, projectProof: $proof, indexProof: $idx, blobs: ($b | split("\n") | map(select(length > 0) | split("\t") | {(.[0]): .[1]}) | add // {})}' \
+        2>/dev/null > "$RESULT_DIR/pass.tmp" && mv "$RESULT_DIR/pass.tmp" "$RESULT_DIR/pass.json" || exit 3
 fi
 
-ls -1t "$DK_PDATA"/logs/check-*.log 2>/dev/null | tail -n +21 | while IFS= read -r f; do rm -f "$f"; done
+if [ -n "$RESULT_DIR" ]; then
+    # Odkazy sa posúvajú len na čerstvé adresáre. Predbežný dôkaz môže platiť aj viac dní.
+    find "$DK_PDATA" ! -path "$DK_PDATA" -type d -prune -name 'result.??????' -mtime +1 -print |
+    while IFS= read -r old; do
+        [ "$old" != "$RESULT_DIR" ] && [ "$old" != "$DK_PDATA/$(readlink "$DK_PDATA/current-check")" ] || continue
+        [ "$(readlink "$DK_PDATA/before-stage.json")" != "${old##*/}/before.ok" ] || continue
+        rm -f "$old/pass.json" "$old/partial.json" "$old/before.ok" "$old/log-name"
+        rmdir "$old" 2>/dev/null || :
+    done
+fi
+ls -1t "$DK_PDATA"/logs/check-*.log 2>/dev/null | tail -n +21 | while IFS= read -r f; do
+    [ "${f##*/}" = "$(cat "$DK_PDATA/current-check/log-name" 2>/dev/null)" ] || rm -f "$f"
+done
 case "$RC" in 0) dec=pass ;; 1) dec=block ;; *) dec=skip ;; esac
+if [ -n "$RESULT_DIR" ] && [ "$(readlink "$DK_PDATA/current-check")" != "$generation" ]; then
+    STEPLINES="! O stave commitu rozhoduje novší beh. Výsledok tohto behu: $VERDICT.$DK_NL$STEPLINES"
+    if [ "$RC" = 0 ]; then VERDICT=PARTIAL RC=4 dec=skip; fi
+fi
 dk_log check "check:$mode" "$dec" "" "$TOTAL"
 
 NSTEP=$(printf '%s' "$STEPLINES" | grep -c .)

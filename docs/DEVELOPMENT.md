@@ -1,6 +1,6 @@
 # Vývoj kitu
 
-Pre správcu kitu: pracovná kópia, kontroly, CI kitu, údržba, eval suite a vydanie. Používanie kitu v projekte popisuje `README.md`, kontrakt `docs/SPEC.md`, pravidlá pre Claude v tomto repe `CLAUDE.md`.
+Pre správcu kitu: pracovná kópia, kontroly, CI kitu, údržba, eval suite a vydanie. Používanie kitu v projekte popisuje `README.md`, kontrakt `docs/SPEC.md`, spoločné pravidlá v tomto repe `AGENTS.md`.
 
 ## Pracovná kópia
 
@@ -17,7 +17,9 @@ make check                                        # validate --strict, guardy, s
 
 ## Rozpočet kontextu
 
-`make details` stráži, aby trvalý kontext kitu ostal pod 3 000 tokenov. Odhad `claude plugin details` závisí od prihlásenia aj od modelu, rozpočet preto overuj v prihlásenom Claude Code. Popisy skillov a agentov drž krátke — príkazové skilly s `disable-model-invocation: true` sa do rozpočtu nerátajú.
+`make details` stráži, aby trvalý kontext kitu ostal pod 3 000 tokenov. Odhad `claude plugin details` závisí od prihlásenia aj od modelu, rozpočet preto overuj v prihlásenom Claude Code. Pre samotné otvorenie `project-init` platí rozpočet 1 500 tokenov. Chýbajúci, duplicitný či nečitateľný riadok pre skill alebo agenta ukončí kontrolu chybou. Pred a po reorganizácii porovnaj riadok rovnakou verziou CLI a profilom. Čítanie referencií sa pripočíta až pri ich otvorení. Popisy skillov a agentov drž krátke — príkazové skilly s `disable-model-invocation: true` sa do rozpočtu nerátajú.
+
+Pri zmene commit gate over nepripravený aj pripravený diff, zmenu typu súboru a súbeh PASS/FAIL. Pre popis MR použi čistú vetvu s relevantnou zmenou a úspešným harnessom s výberom 0 súborov. Gradery prípadu `mr-describe` overujú verdikt i nulový počet priamo v sekcii `Ako overiť`. Skontroluj aj popis s vynechaným počtom a s výsledkom samostatného manuálneho review. Na novom súbore vyskúšaj chýbajúci, starý aj platný `newPathsReport`. Pri oboch poradiach ukončenia súbežných behov over exit, gate aj zdroj dôkazu pre MR. Citlivý krok otestuj bezpečnou značkou na stdout a stderr vrátane Stop. Pri produkčnom audite skús povinný release príkaz so zlyhaním vedľa úspešného doplnku aj bez konfigurácie kitu.
 
 ## CI kitu
 
@@ -43,7 +45,7 @@ Prípady (gradery podrobne v SPEC §9):
 | `commit-partial-gate` | prosba o commit pri PARTIAL: commit gate commit nepustí, Claude nemení `devkit.json`, neobchádza hooky a ponúkne možnosti |
 | `review-format` | `/dev:review`: riadkový formát nálezov, vloženie príkazu a vynechaný riadok |
 | `fix-locked-test` | `/dev:fix`: padajúci test, zámok, oprava kódu bez zmeny testu |
-| `mr-describe` | `/dev:mr`: päť sekcií, migrácia a premenná prostredia z diffu, verdikt z `pass.json`, review agentmi; bez `gh`, `glab` a pushu |
+| `mr-describe` | `/dev:mr`: päť sekcií, migrácia a premenná prostredia z diffu, verdikt pre konkrétny commit cez `mr-evidence.sh`, review agentmi; bez `gh`, `glab` a pushu |
 | `deps-one-package` | `/dev:deps` s atrapou composeru: update jedného balíka, changelog z `vendor/`, `--full` pred commitom `composer.lock`; bez hromadného update |
 
 - Tabuľka: `WITH` je skóre s kitom (cieľ 1.00), `W/OUT` ten istý prompt bez kitu, `Δ` rozdiel. Príkazy `/dev:*` bez kitu neexistujú, takže bez neho prejdú len gradery typu „niečo sa nestalo“ (žiadny push, žiadne PASS). O výsledku preto rozhoduje `WITH`; `Δ` blízko nuly znamená, že prípad netestuje kit a treba ho sprísniť.

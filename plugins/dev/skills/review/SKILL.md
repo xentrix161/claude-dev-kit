@@ -1,6 +1,6 @@
 ---
 name: review
-description: "Code review zmien (necommitnuté, vetva, cesta): bugy, bezpečnosť, súlad s docs/plans, zastarané CLAUDE.md a rules; --security pridá hĺbkový bezpečnostný audit. Nálezy 🔴🟡🔵 so súbor:riadok."
+description: "Code review zmien (necommitnuté, vetva, cesta): bugy, bezpečnosť, súlad s docs/plans, zastarané projektové pokyny; --security pridá hĺbkový bezpečnostný audit. Nálezy 🔴🟡🔵 so súbor:riadok."
 argument-hint: "[branch [base]] [--security] [cesta…]"
 disable-model-invocation: true
 ---
@@ -20,7 +20,11 @@ Rýchly review zmien. Výstup je celý zoznam nálezov v predpísanom riadkovom 
   - bez zmien a bez cesty sa opýtaj: „Audit celého projektu alebo konkrétnych súborov? (cesta, alebo Enter = celý projekt)"
 - Žiadne zmeny → oznám jednou vetou a skonči.
 
+Pri veľkej zmene začni štatistikou a čítaj diff po súvisiacich častiach. Pri opakovanom review nad známou verziou over nové zmeny a dotknuté predošlé závery. Pri zmene základu porovnaj celý relevantný rozsah.
+
 ## Príprava
+
+Najprv použi `dev-kit-workflow`, projektové `AGENTS.md` a jeho odkazy na plán a pravidlá review. Vlastné umiestnenie plánu má prednosť pred príkladmi nižšie.
 
 1. **Stack**: `.claude/devkit.json` → `stack`; inak `composer.json` (`nette/application` → Nette, `symfony/framework-bundle` → Symfony), `pyproject.toml` / `requirements*.txt` → Python.
 2. **`REVIEW.md`** (koreň repa, inak `.claude/REVIEW.md`): ak existuje, má prednosť — čo je Important a čo Nit, max 5 nitov, zoznam „nehlásiť", projektové kontroly a pasce.
@@ -29,7 +33,7 @@ Rýchly review zmien. Výstup je celý zoznam nálezov v predpísanom riadkovom 
 
 ## Veľký diff — delegácia
 
-Pri > ~400 zmenených riadkoch alebo > 15 súboroch (`git diff --shortstat`) spusti v jednej správe paralelne read-only agentov:
+Pri > ~400 zmenených riadkoch alebo > 15 súboroch (`git diff --shortstat`) pri povolenej delegácii zváž read-only agentov. Inak over príslušné otázky sám:
 - `dev:ecc-silent-failure-hunter` — prehltnuté výnimky, `@`, prázdne `catch`, tiché fallbacky
 - `dev:ecc-performance-optimizer` — N+1, dotazy v cykle, chýbajúce indexy a LIMIT
 
@@ -65,8 +69,8 @@ Pri diffe hodnoť zmenený kód; nezmenený len pri CRITICAL bezpečnostnom prob
 - odchýlka od plánu bez úpravy plánu v tej istej zmene
 - odkaz na nález: `docs/plans/<súbor>.md:<riadok>`
 
-### 4. Zastarané CLAUDE.md a rules
-- grep `CLAUDE.md` (aj vnorené) a `.claude/rules/*.md` na to, čo diff mení alebo maže: súbory, triedy, metódy, config kľúče, make targety, príkazy, kontajnery, testsuites
+### 4. Aktuálnosť projektových pokynov
+- Prejdi príslušné `AGENTS.md`, vnorené pokyny a existujúce Claude pravidlá na to, čo diff mení alebo maže: súbory, triedy, metódy, config kľúče, make targety, príkazy, kontajnery, testsuites
 - pravidlo v docs, ktoré zmena porušuje alebo ruší
 - čísla (počty testov, časy) hlás len keď ich diff zjavne mení; navrhni namiesto čísla príklad zdravého výstupu
 - nefunkčný príkaz alebo cesta → 🟡; chýbajúca zmienka o novej dôležitej veci → 🔵
@@ -102,6 +106,8 @@ Pri diffe hodnoť zmenený kód; nezmenený len pri CRITICAL bezpečnostnom prob
 
 ## `--security` — hĺbkový prechod
 
+Použi [spoločný bezpečnostný postup](../dev-kit-workflow/references/security.md) a podľa zmeny nasledujúce podrobnosti.
+
 Navyše k prechodu 2. Pri celom projekte začni vstupnými bodmi: presentery/controllery, formuláre, API, CLI, DB dotazy, auth, config.
 - **Tajomstvá**: heslá, kľúče, tokeny v kóde a configu; `config.local.*`, `.env*`, `.test-credentials` v gite; tajomstvo v URL alebo logu
 - **Injection**: SQL/DQL vrátane identifikátorov; príkazy (`exec`, `shell_exec`, `system`, `proc_open`, `subprocess`) bez `escapeshellarg` / zoznamu argumentov; XXE (`LIBXML_NOENT`, `LIBXML_DTDLOAD` pri XML zo vstupu); `unserialize` / `pickle` / `yaml.load` na vstupe
@@ -111,7 +117,7 @@ Navyše k prechodu 2. Pri celom projekte začni vstupnými bodmi: presentery/con
 - **CSRF**: formuláre, signály, zmena stavu cez GET
 - **Súbory**: upload (typ, veľkosť, prípona, úložisko mimo webrootu), path traversal, dočasné súbory s osobnými údajmi
 - **Konfigurácia**: debug režim/Tracy v produkcii, stack trace navonok, CORS `*`, chýbajúce hlavičky (CSP, X-Frame-Options)
-- **Závislosti**: krok `audit` v `devkit.json` (`composer audit`, `pip-audit`; beží v `/dev:check --full`, súhlas s odoslaním zoznamu balíkov na Packagist/PyPI dal init) — nástroj sám nespúšťaj; vychádzaj z výstupu `/dev:check --full`, inak ho odporuč; projekt bez kroku → navrhni ho cez `/dev:project-init --sync`; hlás len balíky so známou zraniteľnosťou
+- **Závislosti**: vychádzaj z projektového auditu zamknutých verzií pre kontrolovaný stav a zo schváleného zdroja oznámení. Ak projekt používa krok `audit` v kitu, môžeš použiť jeho zodpovedajúci výsledok. Pri chýbajúcom povinnom audite uveď dôvod a chýbajúci projektový dôkaz. Hlás potvrdené zraniteľnosti.
 - závažnosť: CRITICAL (zneužiteľné) → 🔴 · HIGH (opraviť pred nasadením) a MEDIUM (oslabuje ochranu) → 🟡 · LOW (hardening) → 🔵
 
 ## Overenie (povinné pred nahlásením)
@@ -148,7 +154,7 @@ Príklad výstupu:
 ```text
 🔴 1. app/models/UserModel.php:42 — ID z requestu skladané do SQL reťazcom
 🟡 2. app/presenters/BatchPresenter.php:118 — delete akcia bez isAllowed()
-🟡 3. CLAUDE.md:57 — zastarané: target test-unit už neexistuje
+🟡 3. AGENTS.md:57 — zastarané: target test-unit už neexistuje
 🔵 4. libs/Export.php:10 — komentár opisuje históriu zmeny
 1 critical, 2 warning, 1 suggestions
 ```

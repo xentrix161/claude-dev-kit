@@ -14,7 +14,7 @@ Inžinierske triedenie rizík z lokálnych dôkazov, nie certifikácia ani práv
 
 ## Hranice
 - len lokálne a používateľom povolené dôkazy; žiadne vzdialené skenery, `@latest` balíky ani odosielanie kódu či dát tretím stranám bez výslovného súhlasu s konkrétnym nástrojom
-- závislosti preveruje krok `audit` v `devkit.json` (`composer audit`, `pip-audit`) v kroku 2 — zoznam balíkov ide na Packagist/PyPI so súhlasom z initu; bez kroku nástroj sám nespúšťaj, navrhni ho cez `/dev:project-init --sync`
+- Pri audite závislostí over zdroj a povolený prenos zoznamu balíkov podľa projektu. Pri chýbajúcom povolení hľadaj platný projektový výstup alebo schválený zdroj. Povinný audit bez dôkazu blokuje pripravenosť.
 - nič nenasadzuj, nemeň konfiguráciu prostredí, nespúšťaj migrácie
 - nasadené URL len na čítanie (HTTP hlavičky, health check), bez prihlásenia, kým nedostaneš testovací účet
 - tajomstvá nevypisuj — stačí `súbor:riadok obsahuje heslo`
@@ -26,15 +26,15 @@ Inžinierske triedenie rizík z lokálnych dôkazov, nie certifikácia ani práv
    git log --oneline --decorate -20
    git diff --stat <base>...HEAD
    ```
-2. Kontroly kitu (Bash timeout 600000 ms, beží aj integračné testy):
-   `bash "${CLAUDE_PLUGIN_ROOT}/scripts/check.sh" --full --project "${CLAUDE_PROJECT_DIR}"`
-   - exit 0 = PASS · 1 = FAIL · 3 = chýba `.claude/devkit.json` · 4 = neúplné overenie (PARTIAL/SKIP); PASS tvrď len podľa výstupu
-   - krok `audit`: `✗` = blokujúci bod (balík a id z výťahu), `známe zlyhania: N` = prijaté riziko — vymenuj ho, krok chýba alebo `!` → Chýba dôkaz
+2. Použi [overenie projektu](../check/SKILL.md). Z projektových pravidiel, release príkazov a CI zisti povinné kontroly pred nasadením. Dolož výsledok pre kontrolovanú revíziu a rozsah alebo spusti pôvodný bezpečný projektový príkaz. Platí to aj bez `.claude/devkit.json`. Ak povinný príkaz zároveň nasadzuje alebo mení zdieľané dáta, vyžiadaj si existujúci dôkaz pre túto revíziu.
+   - Pri zapnutej konfigurácii použi pre doplnky `check.sh --full` podľa prepojeného postupu. Totožný povinný príkaz nad rovnakým vstupom stačí vykonať raz. Pri audite závislostí môže byť jeho vstupom aj krok `audit`. Uveď nález a ID, prijaté výnimky len podľa politiky projektu.
+   - Povinná kontrola so stavom FAIL, PARTIAL, SKIP alebo bez dôkazu znamená **Blokované** aj pri zelených doplnkoch. Osobitne uveď výsledok projektu a výsledok zapnutých doplnkov.
 3. Prejdi oblasti nižšie len tam, kde ich repozitár naozaj má; každé tvrdenie opri o `súbor:riadok` alebo príkaz
 4. Výstup podľa šablóny dole
 
 ## Oblasti rizika
 **Bezpečnosť a prístup**
+Pri hodnotení prístupu a citlivých údajov použi aj [spoločné bezpečnostné pravidlá](../dev-kit-workflow/references/security.md).
 - autorizácia na serveri pri každej akcii a signáli (Nette ACL / `isAllowed()`, Symfony `#[IsGranted]` / votery), nie len skryté tlačidlo
 - CSRF na formulároch a signáloch meniacich stav; `|noescape` (Latte 2 `{!$x}`) / `|raw` len so sanitizáciou
 - SQL len parametrizované; upload: typ, veľkosť, úložisko mimo `www/` / `public/`
@@ -67,7 +67,7 @@ Inžinierske triedenie rizík z lokálnych dôkazov, nie certifikácia ani práv
 - prístupnosť kľúčových stránok — skill `ecc-accessibility`
 
 ## Skóre
-Skóre núti k prioritám, nie je to presné meranie.
+Ak projekt určuje vlastný verdikt, prahy alebo platné výnimky pre dané vydanie, použi jeho politiku a uveď zdroj. Schválenú výnimku dolož rozsahom a platnosťou. Nasledujúca stupnica slúži projektom bez vlastnej stupnice.
 
 | Pásmo | Skóre | Význam |
 |---|---|---|
@@ -83,7 +83,7 @@ Strop **69**, ak platí čokoľvek z:
 - debug režim alebo dev transport mailov/SMS v produkčnej konfigurácii
 - dávky, importy alebo webhooky, ktoré menia dáta, nie sú idempotentné
 
-Strop **84**, ak `check.sh --full` nie je PASS alebo kritická cesta nebola overená end-to-end.
+Pri nesplnenej alebo nedoloženej povinnej projektovej kontrole je strop **49**. Pri neoverenej kritickej E2E ceste mimo povinných kontrol je strop **84**. Projekt bez konfigurácie kitu hodnotíš podľa jeho vlastných dôkazov, bez zrážky za chýbajúci kit.
 
 ## Výstup
 Prvý riadok:
@@ -93,7 +93,7 @@ Produkčný audit: 72/100 — nasaditeľné s výhradami; riziká: chýba návra
 Potom sekcie (odrážky so `súbor:riadok`):
 - **Blokujúce** — `súbor:riadok — problém → oprava`
 - **Oplatí sa opraviť** — ďalšie kroky na vyššie skóre
-- **Overené** — súbory, príkazy, výsledok `check.sh`
+- **Overené** — revízia, rozsah, projektový príkaz a jeho výsledok, prípadne osobitne výsledok doplnkov kitu
 - **Chýba dôkaz** — čo by zmenilo istotu
 - **Ďalší krok** — jeden konkrétny
 - silné stránky najviac jedna odrážka

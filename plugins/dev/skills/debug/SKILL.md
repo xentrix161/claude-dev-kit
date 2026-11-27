@@ -10,6 +10,8 @@ disable-model-invocation: true
 Systematické hľadanie príčiny chyby v appke. Po slovensky, stručne, ale úplne: záver prvý, potom podklady. Vstup: `$ARGUMENTS`
 Prázdny vstup → opýtaj sa: „Čo presne nefunguje? URL/akcia/test, čo čakáš a čo sa stane."
 
+Pri diagnostike použi `dev-kit-workflow`. Najprv over projektom povolené prostredie, prehliadač, zdroj dát, syntetický účet a limit zobrazenia logov. Nasledujúce príklady vyber len v povolenom rozsahu. Nedostupný predpísaný runtime oznám.
+
 ## Zásady
 
 - **Nikdy nehádaj.** Každé tvrdenie o príčine opri o výstup príkazu alebo `súbor:riadok`; inak ho označ „hypotéza".
@@ -21,7 +23,7 @@ Prázdny vstup → opýtaj sa: „Čo presne nefunguje? URL/akcia/test, čo čak
 
 ## Prostredie
 
-- `.claude/devkit.json` → `stack`, `container`, `appRoot`. Bez neho: stack z `composer.json` (nette/symfony) / `pyproject.toml`, príkazy na hostiteľovi.
+- `.claude/devkit.json` → `stack`, `container`, `appRoot`. Bez neho: stack z `composer.json` (nette/symfony) / `pyproject.toml`, runtime podľa projektových pokynov.
 - S kontajnerom: `docker exec -i -w <workdir> <container> sh -c '<príkaz>'` — nikdy `-it`.
   - workdir = `appRoot`; vo worktree `appRoot/<cesta worktree relatívne k hlavnému repu>`
 - Kontajner nebeží (`docker inspect -f '{{.State.Running}}' <container>`) → povedz to; spustiť len so súhlasom.
@@ -48,9 +50,9 @@ Tiché zlyhanie (nič sa nestane, žiadna chyba) → agent `dev:ecc-silent-failu
 - Latte: `php vendor/bin/latte-lint <súbor>`
 - **Mail**: ak compose má službu na zachytávanie mailov (napr. `mailpit`) — pri Mailpite `curl -s 'http://localhost:<port>/api/v1/messages?limit=5'`, web UI na tom istom porte
 - **Vyhľadávanie**: ak compose má vyhľadávací server (napr. Typesense `curl -s http://localhost:<port>/health` → `{"ok":true}`) — kolekcie či indexy s API kľúčom z lokálneho configu (kľúč nevypisuj)
-- **Overenie v appke**: ak projekt má súbor s testovacím loginom mimo gitu (menuje ho `CLAUDE.md` projektu), prihlás sa ním (Chrome MCP alebo `curl -c/-b` s cookie jar) a testuj priamo v appke, nestavaj izolované repro stránky; súbor nečítaj ani nevypisuj; pri formáte `PREMENNÁ=hodnota` v jednom Bash volaní: `set -a; . ./<súbor>; set +a; curl -c jar … --data-urlencode "password=$<PREMENNÁ>"` — v texte príkazu len mená premenných (podľa vzoru projektu, napr. `<súbor>.stub`). Bez neho sa opýtaj, ako sa prihlásiť
+- **Overenie v appke**. Použi projektový prehliadač alebo testovací login cez schválený projektový helper a syntetický účet. Pri CLI použi dôverný vstup pre prihlasovacie údaje a dočasné súkromné úložisko cookies s vyčistením po behu. Hodnoty chráň aj pred zápisom do argumentov procesu a logov.
 - **DB**: `EXPLAIN <SELECT>` cez MySQL klienta v DB kontajneri — len čítanie (`SELECT`, `EXPLAIN`, `SHOW`)
-- **Frontend**: konzola a sieť cez Chrome MCP; jQuery na prázdnej kolekcii nehádže → over selektor (`$('.trieda').length`)
+- **Frontend**: konzola a sieť cez projektový prehliadač; jQuery na prázdnej kolekcii nehádže → over selektor (`$('.trieda').length`)
 
 ## Symfony
 

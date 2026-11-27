@@ -7,6 +7,9 @@
 - Jeden riadok = jeden zdroj; kus z viacerých zdrojov má viac riadkov.
 - Po prevzatí zmien prepíš pin v riadku na nový commit a zapíš to do `CHANGELOG.md`.
 
+Pri agentoch pre tiché zlyhania a výkon sa výsledok povinného PHPStan preberá z projektového harnessu.
+Tímový onboarding overuje viditeľnosť zdieľaných súborov a účinný projektový pre-commit v každom checkoute.
+
 ## Kusy odvodené z ECC
 
 | kit path | ECC source path | ECC commit | date adopted | changes |
@@ -15,9 +18,9 @@
 | `skills/ecc-e2e-testing/` | `skills/e2e-testing` | b92f181 | 2026-10-27 | SK, skrátené; Playwright POM, flaky testy; bez Vercel/npm častí |
 | `skills/ecc-change-impact/` | `skills/change-impact` | b92f181 | 2026-10-27 | SK, skrátené; pred rizikovou zmenou jadra (validátory, triggery, verejné API); príklady bez domény projektu |
 | `skills/ecc-accessibility/` | `skills/accessibility` | b92f181 | 2026-10-27 | SK, skrátené; WCAG 2.2 pre serverové šablóny (Latte, Twig), bez Reactu; `paths:` |
-| `skills/ecc-production-audit/` | `skills/production-audit` | b92f181 | 2026-10-27 | SK, skrátené; `disable-model-invocation: true`; exit 4 = neúplné overenie (PARTIAL/SKIP); závislosti z kroku `audit` (`check.sh --full`), nie vlastný `composer audit` |
-| `skills/ecc-python-patterns/` | `skills/python-patterns` | b92f181 | 2026-10-27 | SK, skrátené; `paths: **/*.py` |
-| `skills/ecc-python-testing/` | `skills/python-testing` | 25278e7d | 2026-10-28 | SK, skrátené; pytest; bez povinného pokrytia; rýchle testy podľa kroku `unit` v devkit.json |
+| `skills/ecc-production-audit/` | `skills/production-audit` | b92f181 | 2026-11-26 | SK, skrátené, ručné spustenie. Verdikt určuje povinný release harness aj bez kitu. Výsledky voliteľných krokov sa uvádzajú osobitne. |
+| `skills/ecc-python-patterns/` | `skills/python-patterns` | b92f181 | 2026-10-27 | SK, skrátené; `paths: **/*.py`, overenie cez natívny harness |
+| `skills/ecc-python-testing/` | `skills/python-testing` | 25278e7d | 2026-10-28 | SK, skrátené; pytest; bez povinného pokrytia; príkaz a runtime testov podľa projektu |
 | `agents/ecc-silent-failure-hunter.md` | `agents/silent-failure-hunter.md` | b92f181 | 2026-10-27 | SK, read-only (`tools: Read, Bash`, `disallowedTools: Edit, Write, NotebookEdit`), `model: inherit`, `maxTurns: 30`, bez pamäte, voliteľný riadok „Na zapamätanie:“ pre /dev:learn, výstup max 15 nálezov; vzory pre Dibi 4+ |
 | `agents/ecc-pr-test-analyzer.md` | `agents/pr-test-analyzer.md` | b92f181 | 2026-10-27 | SK, read-only (`tools: Read, Bash`, `disallowedTools: Edit, Write, NotebookEdit`), `model: sonnet`, `maxTurns: 30`, bez pamäte, voliteľný riadok „Na zapamätanie:“ pre /dev:learn |
 | `agents/ecc-a11y-architect.md` | `agents/a11y-architect.md` | b92f181 | 2026-10-27 | SK, read-only (`tools: Read, Bash`, `disallowedTools: Edit, Write, NotebookEdit`), `skills: ecc-accessibility`, `model: sonnet`, `maxTurns: 30`; serverové šablóny |
@@ -26,14 +29,14 @@
 | `templates/skills/ecc-api-design/` | `skills/api-design` | b92f181 | 2026-10-27 | vrstva B; SK, skrátené |
 | `templates/skills/ecc-inherit-legacy-style/` | `skills/inherit-legacy-style` | b92f181 | 2026-10-27 | vrstva B; SK, skrátené |
 | `templates/skills/ecc-seo/` | `skills/seo` | b92f181 | 2026-10-27 | vrstva B; SK, skrátené |
-| `skills/check/` | `skills/verification-loop` | b92f181 | 2026-10-27 | vlastný skill; z ECC len postup overovania; výsledok výhradne z `scripts/check.sh` |
-| `skills/fix/` | `commands/orch-fix-defect.md` | b92f181 | 2026-10-27 | vlastný skill; repro test → zámok testu (`test-lock.sh`) → oprava → `check.sh --auto` |
+| `skills/check/` | `skills/verification-loop` | b92f181 | 2026-10-27 | vlastný skill; z ECC len postup overovania; projektový harness má prednosť, `scripts/check.sh` dopĺňa pripojené kontroly |
+| `skills/fix/` | `commands/orch-fix-defect.md` | b92f181 | 2026-10-27 | vlastný skill; repro test → zámok testu (`test-lock.sh`) → oprava → projektový harness a zapnuté kroky `--auto` |
 | `skills/learn/` | `commands/learn.md` | b92f181 | 2026-10-27 | vlastný skill; návrhy do pamäte, `.claude/rules/` alebo `guards`/`pairs`, zápis len po schválení |
 | `skills/learn/` | `commands/learn-eval.md` | b92f181 | 2026-10-27 | vyhodnotenie návrhov pred zápisom |
 | `skills/project-init/` | `skills/codebase-onboarding` | b92f181 | 2026-10-27 | vlastný skill; detekcia stacku, infer-conventions, šablóny s hlavičkou `dev-kit:` |
-| `skills/project-init/` | `commands/project-init.md` | b92f181 | 2026-10-27 | dry-run disciplína, nič bez súhlasu |
+| `skills/project-init/` | `commands/project-init.md` | b92f181 | 2026-10-27 | spoločný lokálny alebo tímový plán pre Claude a Codex vrátane kontroly pred commitom, dry-run a samostatné referencie pre inštaláciu, synchronizáciu a symboly, s rešpektovaním projektových wrapperov, fáz kontrol a logovania |
 | `skills/review/` | `agents/code-reviewer.md` | b92f181 | 2026-10-27 | vlastný skill (základ `~/.claude/commands/review.md`); z ECC checklist a prah istoty |
-| `skills/review/` | `skills/security-review` | b92f181 | 2026-10-27 | prechod `--security` (základ `~/.claude/commands/security.md`) |
+| `skills/review/` | `skills/security-review` | b92f181 | 2026-11-26 | prechod `--security` (základ `~/.claude/commands/security.md`), spoločné bezpečnostné pravidlá na vyžiadanie, audit balíkov podľa projektového harnessu a jeho zdroja |
 | `skills/test/` | `skills/tdd-workflow` | b92f181 | 2026-10-27 | vlastný skill (základ `~/.claude/commands/test.md`); RED → GREEN → REFACTOR s dôkazom |
 
 ## Mimo ECC (len pre prehľad, `make upstream` ich nečíta)
@@ -41,3 +44,5 @@
 - `skills/task-tldr/` — z používateľovho `~/.claude/skills/task-tldr/SKILL.md`; príklad prepísaný na generickú doménu (e-shop).
 - `skills/commit/`, `skills/explain/` — z používateľových `~/.claude/commands/commit.md`, `explain.md`.
 - `skills/debug/`, `skills/plan/`, `skills/handoff/`, `skills/stats/`, hooky, `scripts/`, šablóny `php-*`/`python` — vlastné.
+
+Spoločný `dev-kit-workflow` je tímová adaptácia fáz Anthropic AI-native SDLC. Projektové kontroly, plán a oprávnenia majú prednosť aj v adaptovaných postupoch check, review, learn a project-init. Prehľad je v [sprievodcovi](skills/dev-kit-workflow/references/playbook.md).

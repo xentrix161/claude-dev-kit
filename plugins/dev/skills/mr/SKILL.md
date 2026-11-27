@@ -5,6 +5,7 @@ argument-hint: "[base]"
 disable-model-invocation: true
 disallowed-tools: Edit, Write, NotebookEdit
 allowed-tools:
+  - 'Bash(bash "${CLAUDE_PLUGIN_ROOT}/scripts/mr-evidence.sh" *)'
   - 'Bash(git branch --show-current)'
   - 'Bash(git status *)'
   - 'Bash(git log *)'
@@ -23,34 +24,32 @@ Z hotovej vetvy pripraví názov a popis PR/MR, ktorý sa dá rovno vložiť. Ni
 
 - Base: prvé slovo argumentu (`develop`, `origin/develop`); inak `git symbolic-ref --short refs/remotes/origin/HEAD` (`origin/main` → `main`); inak prvá existujúca z `main`, `master`, `develop` (`git rev-parse --verify -q refs/heads/<b>` alebo `refs/remotes/origin/<b>`). Nič nenájdené → spýtaj sa na base a skonči.
 - Porovnávaj s `origin/<base>`, ak existuje, inak s lokálnou `<base>`. `git fetch` nespúšťaj — údaje sú podľa posledného fetchu, povedz to jednou vetou, keď na tom záleží.
+- Zaznamenaj SHA základu a tipu pre celý report. Pri zbere diffu a pri citovaní markeru over zhodu s nimi. Ak sa zmenia, znovu urči rozsah a overenie.
 - Vetva: `git branch --show-current`. Vetva = base alebo prázdny `git log <base>..HEAD` → povedz to jednou vetou a skonči.
 - Necommitnuté zmeny (`git status --short`) do PR/MR nepatria — vymenuj ich jedným riadkom pred popisom.
 
 ## 2. Zdroje (spusti paralelne)
 
 - Commity: `git log --reverse --format='%h %s' <base>..HEAD`; súbory a rozsah: `git diff --stat <base>...HEAD` a `git diff --shortstat <base>...HEAD`.
-- Diff: `git diff <base>...HEAD`. Nad ~400 zmenenými riadkami alebo 15 súbormi čítaj len stat a diff vybraných súborov (migrácie, config, nové verejné API, súbory z plánu); lock súbory, generovaný a vendorovaný kód, snapshoty a preklady vynechaj.
+- Rozsah urči najprv cez stat. Pri malom MR prečítaj diff raz. Pri aktualizácii review využi výsledok pre overený commit a posúď nové zmeny aj ich dopad na predošlé závery. Pri zmene základu znovu urči rozsah. Nad ~400 zmenenými riadkami alebo 15 súbormi čítaj len stat a diff vybraných súborov (migrácie, config, nové verejné API, súbory z plánu); lock súbory, generovaný a vendorovaný kód, snapshoty a preklady vynechaj.
 - Číslo úlohy z vetvy alebo commitov ako v `/dev:commit` (`fix/85-…` → `#85`, `feature/ABC-123-…` → `ABC-123`, `[#85]` v správach).
-- Plán: `docs/plans/<číslo>-*.md` (aj `#<číslo>-*.md`) alebo plán zmenený v diffe. Z neho Úloha (Prečo), Dôkaz (Ako overiť), Riziká.
-- Pravidlo o commitoch projektu: riadok `Commit:` v `CLAUDE.md` (inak `CLAUDE.local.md`, `AGENTS.md`) — určuje tvar názvu a jazyk popisu.
+- Plán zober z projektového zadania alebo dokumentácie zmeny. Ak nemajú vlastnú cestu: `docs/plans/<číslo>-*.md` (aj `#<číslo>-*.md`) alebo plán zmenený v diffe. Z neho Úloha (Prečo), Dôkaz (Ako overiť), Riziká.
+- Pravidlo o commitoch projektu: projektový `AGENTS.md`, prípadne pôvodný riadok `Commit:` v pokynoch Claude — určuje tvar názvu a jazyk popisu.
 - Config `.claude/devkit.json`: `migrations.paths`, `check.fullWhen`, `pairs[].when`, `stack`, `container`, `appRoot`.
+- Pre natívny harness dolož jeho výsledok, rozsah a stav kontrol nad predmetom MR. Výsledok staršieho stavu označ dátumom a rozsahom; samotný rodičovský commit nestačí na overenie členov diffu. Kitové markery nižšie sú dodatočná evidencia len pre projekty s kitovým configom.
 - Posledný verdikt `/dev:check` (markery `check.sh`, SPEC §4.5) — jeden príkaz, len číta:
 
 ```bash
-d="${DEVKIT_DATA:-$HOME/.claude/dev-kit}/projects/$(cd -P "${CLAUDE_PROJECT_DIR}" && git rev-parse --show-toplevel | tr -d '\n' | git hash-object --stdin | cut -c1-12)"; for f in partial pass; do [ -f "$d/$f.json" ] && jq -c --arg f "$f.json" '{file: $f, when: (.time | strflocaltime("%d.%m. %H:%M")), time, mode, head, lines}' "$d/$f.json"; done; ls -t "$d/logs" 2>/dev/null | grep -E '^check-(quick|full)-' | head -n 1
+bash "${CLAUDE_PLUGIN_ROOT}/scripts/mr-evidence.sh" "$(git rev-parse --show-toplevel)" "$(git rev-parse HEAD)"
 ```
 
-Výklad:
-- `partial.json` → posledná kontrola `PARTIAL` (`mode`, `when`, dôvody z `lines`) — neúplne overené.
-- `pass.json`, ale posledný log `check-<režim>-<epoch>.log` má `epoch` väčší ako `time` → posledná kontrola nedala PASS → `neoverené`.
-- `pass.json` s `head` = HEAD (kontrola po poslednom commite) alebo `head` = `HEAD~1` (kontrola pred ním) → `/dev:check --<mode>: PASS (<when>)`. Iný `head` → `PASS pre starší stav (<head krátko>)`.
-- Nič z toho → `neoverené`. Pri `neoverené`, PARTIAL, starom stave alebo režime `quick` navrhni `/dev:check --full` pred MR (sám ho nespúšťaj).
+Cituj výsledok kitového behu pre daný commit. Pokrytie MR dolož výstupom natívneho harnessu alebo CI pre konkrétny základ a tip, ktorý preukazuje výber dotknutých ciest alebo vykonanie celej požadovanej sady. Pri relevantnom diffe a výbere 0 súborov či testov vlož priamo do sekcie `## Ako overiť` samostatný riadok `Pokrytie MR: neoverené` (pri anglickom popise `MR coverage: unverified` v `## How to test`), uveď počet a pomenuj chýbajúci projektový príkaz alebo report. Výnimku pre nedotknutú oblasť dolož pravidlom projektu. Opakovanie `--full` s rovnakým prázdnym výberom nový dôkaz nedá.
 
 ## 3. Review vetvy
 
-- Diff len s dokumentáciou (žiadna prípona z `commitGate.ext` ani kódu) → review preskoč, v Rizikách `review netreba (len dokumentácia)`.
-- Inak spusti v JEDNEJ správe paralelne read-only agentov `dev:ecc-pr-test-analyzer` a `dev:ecc-silent-failure-hunter`. Daj im presný rozsah: `git diff <base>...HEAD`, zoznam zmenených súborov, stack, `container` a `appRoot` z `devkit.json`, cestu k plánu.
-- Agent nie je dostupný → prejdi diff sám podľa prechodov 1 a 2 z `${CLAUDE_PLUGIN_ROOT}/skills/review/SKILL.md` a povedz to jednou vetou.
+- Urči požadované review pre zmenené cesty z `AGENTS.md`, `REVIEW.md`, pravidiel vlastníkov a ochrany vetvy. Platí to aj pre dokumentáciu a prevádzkové postupy. Voliteľné review kódu môžeš pri čisto dokumentačnom diffe vynechať. V Rizikách uveď zdroj výnimky alebo požadované schválenie a jeho skutočný stav.
+- Ak zadanie povoľuje delegovanie, môžeš použiť read-only agentov `dev:ecc-pr-test-analyzer` a `dev:ecc-silent-failure-hunter`. Daj im presný rozsah: `git diff <base>...HEAD`, zoznam zmenených súborov, stack, `container` a `appRoot` z `devkit.json`, cestu k plánu.
+- Bez delegovania alebo keď agent nie je dostupný → prejdi diff sám podľa prechodov 1 a 2 z `${CLAUDE_PLUGIN_ROOT}/skills/review/SKILL.md` a povedz to jednou vetou.
 - Nálezy agentov sú kandidáti: každý over v kóde (okolie riadku, volajúci, testy), nepotvrdený zahoď, podobné zlúč. 🔴 a 🟡 idú do Rizík, 🔵 vymenuj pod popisom (najviac 5).
 
 ## 4. Popis
@@ -62,7 +61,7 @@ Jazyk: podľa pravidla o commitoch, inak podľa správ commitov, bez oboch po sl
 Sekcie (všetky, v tomto poradí; prázdna sekcia = `—`):
 - **Čo** — 2–6 odrážok zo zmien, nie zoznam súborov; pre recenzenta, nie pre stroj.
 - **Prečo** — z plánu (Úloha, Zdroj), inak z commitov. Dôvod nikde → `<doplň: prečo>`, nevymýšľaj.
-- **Ako overiť** — verdikt `/dev:check` z kroku 2, nové alebo zmenené testy (`súbor` + scenár), Dôkaz z plánu; ručný krok (URL, príkaz) len keď ho plán alebo diff obsahuje.
+- **Ako overiť** — výsledok a doložený rozsah projektového harnessu z kroku 2, osobitne výsledok kitu, nové alebo zmenené testy (`súbor` + scenár), Dôkaz z plánu; ručný krok (URL, príkaz) len keď ho plán alebo diff obsahuje.
 - **Riziká** — overené nálezy review `🔴|🟡 N. súbor:riadok — výstih`, neúplné overenie, zmena už commitnutej migrácie, súbory z `check.fullWhen` a `pairs[].when`, otvorené riziká z plánu.
 - **Po nasadení** — len to, čo dokazuje diff:
   - migrácie: pridané súbory podľa `migrations.paths` (bez configu `migrations/`, `db/migrations/`, `database/migrations/`, `src/Migrations/`, `alembic/versions/`, `*/migrations/*.py`); príkaz z `CLAUDE.md`, `Makefile` alebo `composer.json` scripts, inak len súbor

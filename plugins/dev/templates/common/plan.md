@@ -14,7 +14,7 @@
 
 ## Poradie
 
-1. {{krok — po každom kroku prejde `/dev:check`}}
+1. {{krok}}
 
 ## Riziká
 
@@ -22,7 +22,7 @@
 
 ## Dôkaz
 
-- `/dev:check --full` PASS
+- {{povinný projektový príkaz, jeho rozsah a očakávaný výsledok}}
 - {{test, ktorý pred zmenou padá a po nej prechádza: `súbor::metóda`}}
 - {{ručné overenie: URL alebo príkaz a očakávaný výstup}}
 

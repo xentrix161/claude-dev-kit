@@ -4,12 +4,14 @@
     "Pokyny pre /dev:project-init — tento kľúč do projektu nezapisuj.",
     "lint a kroky vypusti pre chýbajúce balíky: .twig + lint-twig (symfony/twig-bundle), .yaml/.yml + lint-yaml (symfony/yaml), doctrine-schema (doctrine/doctrine-bundle), php-cs-fixer.",
     "phpunit a integration: init vyberie podľa phpunit.xml(.dist) — rýchla a pomalá <testsuite> (napr. unit, integration) → --testsuite <rýchla> v phpunit a --testsuite <pomalá> v integration; inak testy so skupinou integration → --exclude-group integration / --group integration; bez pomalých testov krok integration vypusti. V stop nechaj len rýchle kroky.",
+    "Najprv prevezmi úplné príkazy projektových sád vrátane wrappera a fázy stagingu. Spoločný harness pripoj raz. Nasledujúce pravidlá výberu PHPUnit a Testera platia pri priamej konfigurácii runnera.",
     "migration: len keď phpunit.xml(.dist) má sadu testov migrácií (<testsuite name=\"migration\">, meno presne podľa súboru), inak krok vypusti bez otázky; rýchly krok phpunit ju potom nesmie spúšťať (--testsuite <rýchla>, nie len --exclude-group). Kroky testových sád len vo full (integration, migration) majú timeoutSec 1800 — kratší limit by ich ukončil ako PARTIAL.",
     "doctrine-schema: lokálna DB trvalo mimo sync (drift indexov) → pridaj --skip-sync, inak commit gate pri zmene entít neprejde.",
     "fullWhen: config/doctrine/** ponechaj len pri XML/YAML mapovaní.",
-    "rules a CLAUDE.md podľa require v composer.json: rules/api-platform.md a riadky so značkou <!-- api-platform --> len s balíkom api-platform/* (napr. api-platform/core, api-platform/symfony); riadky <!-- fe:assetmapper --> pri symfony/asset-mapper, <!-- fe:encore --> pri symfony/webpack-encore-bundle (CLAUDE.md.tmpl, rules/twig-frontend.md) — značku zisteného variantu odstráň, riadky ostatných zmaž.",
+    "rules a AGENTS.md podľa require v composer.json: rules/api-platform.md a riadky so značkou <!-- api-platform --> len s balíkom api-platform/* (napr. api-platform/core, api-platform/symfony); riadky <!-- fe:assetmapper --> pri symfony/asset-mapper, <!-- fe:encore --> pri symfony/webpack-encore-bundle (AGENTS.md.tmpl, rules/twig-frontend.md) — značku zisteného variantu odstráň, riadky ostatných zmaž.",
     "Frontend: krok eslint a prípony .js, .ts v commitGate.ext ponechaj len keď package.json má eslint (dependencies/devDependencies) a projekt má jeho config; rovnako stylelint s .css, .scss; inak krok aj prípony vypusť bez otázky (AssetMapper bez package.json ich nemá). runtime host = Node na hostiteľovi; Node len v kontajneri z poľa container → runtime vypusť. eslint bez changedLinesOnly (výstup stylish nemá cestu na riadku nálezu). Guardy console-log a inner-html ponechaj vždy.",
-    "audit (composer audit, len full): posiela zoznam balíkov projektu (mená a verzie) na Packagist — krok zaraď len so súhlasom, ktorý je súčasťou schválenia plánu (fáza 1; plán to pri kroku povie), bez súhlasu ho vypusť. composer v kontajneri (docker exec <c> sh -c 'command -v composer') → krok bez runtime; len na hostiteľovi (command -v composer) → runtime host; nikde → krok vypusť. Výstup nemá čísla riadkov → bez changedLinesOnly; známu zraniteľnosť do knownFailures podľa id (^CVE-…$, ^PKSA-…$, ^GHSA-…$)."
+    "phpstan-stop ponechaj len ak projekt dovoľuje rýchlu analýzu zmenených ciest a jeho príkaz prijíma {files} a vracia nálezy s cestou a riadkom. Zachovaj level a konfiguráciu projektu. Povinný phpstan ostáva celý v quick a full.",
+    "audit (quick a full) používa presný projektový príkaz nad lockfile vrátane wrappera. Spoločný harness pre audit a PHPStan pripoj raz. Bez vlastného príkazu použi composer audit --locked --no-interaction --format=plain v overenom runtime. V pláne pomenuj zdroj (napríklad Packagist), prenášané údaje a súhlas (fáza 1). Ak chýba schválený zdroj, nástroj alebo príkaz, povinný audit ostáva zablokovaný. Neaktivuj konfiguráciu, ktorá by ho vynechala alebo odosielala dáta bez súhlasu."
   ],
   "version": 1,
   "stack": "php-symfony",
@@ -24,11 +26,12 @@
   "lintChangedLinesOnly": true,
   "check": {
     "steps": [
-      {"id": "phpstan", "requires": "vendor/bin/phpstan",
-       "run": "php vendor/bin/phpstan analyse -c {{phpstanConfig}} --no-progress --error-format=raw --memory-limit=1G",
-       "runFiles": "php vendor/bin/phpstan analyse -c {{phpstanConfig}} --no-progress --error-format=raw --memory-limit=1G {files}",
-       "ext": [".php"], "modes": ["stop", "quick", "full"], "changedLinesOnly": "stop"},
-      {"id": "phpunit", "requires": "vendor/bin/phpunit", "run": "php vendor/bin/phpunit --exclude-group integration", "modes": ["stop", "quick", "full"]},
+      {"id": "phpstan-stop", "runtime": "host", "runFiles": "{{phpstanStopCommand}}",
+       "ext": [".php"], "changedLinesOnly": "stop", "modes": ["stop"]},
+      {"id": "phpstan", "runtime": "host",
+       "run": "{{phpstanCommand}}",
+       "required": true, "modes": ["quick", "full"]},
+      {"id": "phpunit", "required": true, "runtime": "host", "run": "{{unitCommand}}", "modes": ["stop", "quick", "full"]},
       {"id": "php-cs-fixer", "requires": "vendor/bin/php-cs-fixer",
        "runFiles": "php vendor/bin/php-cs-fixer fix --dry-run --diff --show-progress=none --path-mode=intersection {files}",
        "ext": [".php"], "modes": ["quick", "full"]},
@@ -37,10 +40,10 @@
       {"id": "lint-twig", "requires": "vendor/symfony/twig-bundle/composer.json", "run": "php bin/console lint:twig templates", "modes": ["quick", "full"]},
       {"id": "eslint", "requires": "node_modules/.bin/eslint", "runtime": "host", "runFiles": "node_modules/.bin/eslint {files}", "ext": [".js", ".ts"], "modes": ["quick", "full"]},
       {"id": "stylelint", "requires": "node_modules/.bin/stylelint", "runtime": "host", "runFiles": "node_modules/.bin/stylelint --allow-empty-input --formatter unix {files}", "ext": [".css", ".scss"], "modes": ["quick", "full"]},
-      {"id": "integration", "requires": "vendor/bin/phpunit", "run": "php vendor/bin/phpunit --group integration", "modes": ["full"], "timeoutSec": 1800},
-      {"id": "migration", "requires": "vendor/bin/phpunit", "run": "php vendor/bin/phpunit --testsuite migration", "modes": ["full"], "timeoutSec": 1800},
+      {"id": "integration", "required": true, "runtime": "host", "run": "{{integrationCommand}}", "modes": ["full"], "timeoutSec": 1800},
+      {"id": "migration", "runtime": "host", "run": "{{migrationTestCommand}}", "modes": ["full"], "timeoutSec": 1800},
       {"id": "doctrine-schema", "requires": "vendor/doctrine/doctrine-bundle/composer.json", "run": "php bin/console doctrine:schema:validate", "modes": ["full"]},
-      {"id": "audit", "requires": "composer.json", "run": "composer audit --no-interaction --format=plain", "modes": ["full"]}
+      {"id": "audit", "runtime": "host", "requires": "composer.lock", "run": "{{composerAuditCommand}}", "required": true, "modes": ["quick", "full"]}
     ],
     "fullWhen": ["src/Entity/**", "migrations/**", "config/doctrine/**", "config/packages/doctrine*.yaml", "config/packages/*/doctrine*.yaml"],
     "knownFailures": []

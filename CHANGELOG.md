@@ -3,6 +3,17 @@
 - Formát: `## <verzia> — <dátum>`, najnovšie hore; verzia = `version` v `plugins/dev/.claude-plugin/plugin.json`.
 - Posun pinu ECC (P3) zapíš ako odrážku: kusy + nový commit.
 
+## Pripravované
+
+- Codex aj Claude používajú spoločný playbook a príkazy projektu. Drobná oprava má krátky postup. Pri väčšej zmene sa dopĺňajú akceptačné kritériá, riziká a spôsob overenia. V Codexe sú príkazy dostupné cez `@dev-kit` a onboarding cez `@project-init`.
+- `project-init` pripraví jeden lokálny alebo tímový návrh vrátane kontroly pred commitom. Rozpozná aj projekt bez šablóny, upozorní na pokyny, ktoré môžu tieniť `AGENTS.md`, a overí viditeľnosť tímových súborov v Gite. Inštaláciu, synchronizáciu a odborné pravidlá načíta podľa úlohy.
+- Codex má voliteľný osobný hook pre shellový commit. Inštalátor zachová existujúce hooky a odhalí duplicitnú registráciu. Tím môže zdieľať jeden verzovaný pre-commit skript. V klone s príslušným aktívnym hookom ho vykoná Git, v čerstvom klone s aktívnym kitom si jeho výsledok vyžiada kit.
+- Povinné kroky dodržia rozsah a fázu určenú projektom. Kit overí presný obsah commitu aj pri čiastočnom stagingu, prázdnom commite alebo úprave správy. Pri kontrole pred stagingom vyžaduje dôkaz o pokrytí nových ciest. Súbežné behy majú vlastné výsledky a režim `full` zahŕňa povinné kroky z `quick`.
+- Popis MR odlíši úspech kontroly od pokrytia zmeny. Pri relevantnom diffe a výbere nula súborov uvedie počet aj neoverené pokrytie. Produkčný audit vyžaduje projektové kontroly aj bez konfigurácie kitu.
+- PHP šablóny preberajú projektový audit závislostí, príkaz PHPStan a projektové testovacie sady. Pri zmene používateľského toku playbook odporúča príslušný E2E scenár. Pravidlá pre PHP, JavaScript, bezpečnosť a prevádzku sa otvárajú podľa zmeny. Citlivý krok môže uložiť len stav a šablóny pre worktree vynechávajú súkromné nastavenia.
+
+[Čo sa zmenilo oproti vydaniu 0.5.1 a prečo](docs/zmeny-oproti-0.5.1.md)
+
 ## 0.5.1 — 2026-11-07
 
 - Commit gate zachytí aj commit, ktorý parser príkazu v štruktúre nevidí: `git` z premennej, `$(…)` či v úvodzovkách (`G=/usr/bin/git; $G commit`, `${G} -C . commit`, `'git' commit`), `git commit` v reťazci za `sh|bash|zsh|dash|ksh|su -c` (aj `sudo sh -c`, `xargs sh -c`) a za `eval`, a `git` ako argument iného príkazu (`xargs git commit`, `sudo git commit`). Taký commit — rovnako ako commit v tele funkcie a príkaz, ktorý sa nedá rozložiť — gate zamietne vždy, keď repo má config a zapnutý `commitGate`, aj keď obsah prešiel `/dev:check`: súbory commitu sa z textu nedajú určiť. Claude dostane riadok `[dev-kit] príkaz s commitom sa nedal rozložiť (commit v reťazci bash -c) — spusti git commit samostatným príkazom`, pri premennej či `'git'` `… (commit cez premennú $G) — napíš git doslovne a spusti commit samostatným príkazom`. `git commit` v texte správy, v `echo "…"` či v `grep '…'` skrytý commit nie je; text v úvodzovkách iného programu (`node -e '…&& git commit…'`) gate ako doteraz len skontroluje a zamietne pri náleze.
